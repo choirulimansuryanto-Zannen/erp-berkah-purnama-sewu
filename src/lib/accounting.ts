@@ -39,8 +39,13 @@ export async function generateEntryNumber(cashBook: CashBook, date: Date): Promi
 }
 
 export async function getCashBookAccount(cashBook: CashBook) {
-  const account = await prisma.chartOfAccount.findFirst({ where: { cashBook } });
-  if (!account) throw new Error(`Tidak ada akun Chart of Accounts untuk buku kas ${cashBook}`);
+  // status: "ACTIVE" matters here specifically — a chart-of-accounts
+  // restructure deactivates the old control account for a book and creates
+  // a new one at a different code, and both briefly carry the same
+  // CashBook tag (nothing in the schema enforces uniqueness on it). Without
+  // this filter, findFirst()'s pick between the two would be arbitrary.
+  const account = await prisma.chartOfAccount.findFirst({ where: { cashBook, status: "ACTIVE" } });
+  if (!account) throw new Error(`Tidak ada akun Chart of Accounts aktif untuk buku kas ${cashBook}`);
   return account;
 }
 
@@ -542,8 +547,8 @@ export async function getMonthlyHppReport(year: number): Promise<HppReport> {
 }
 
 export function classifyCashFlowActivity(contraType: AccountType, contraCode: string): CashFlowActivity {
-  if (contraType === "EKUITAS" || contraCode === "2200") return "PENDANAAN"; // Modal / Hutang Bank
-  if (contraType === "ASET" && contraCode.startsWith("16")) return "INVESTASI"; // Aset Tetap
+  if (contraType === "EKUITAS" || contraCode === "21300") return "PENDANAAN"; // Modal / Hutang Bank
+  if (contraType === "ASET" && contraCode.startsWith("18")) return "INVESTASI"; // Aset Tetap
   return "OPERASI";
 }
 
