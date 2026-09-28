@@ -39,6 +39,8 @@ import {
   PieChart,
   FileCheck2,
   Calculator,
+  Banknote,
+  Table2,
 } from "lucide-react";
 import { can, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/cn";
@@ -94,7 +96,11 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/finance", label: "FA Company", icon: Wallet, permission: "finance:view_ledger" },
       { href: "/finance/journal", label: "Jurnal (6 Buku Kas)", icon: Receipt, permission: "finance:view_ledger" },
       { href: "/finance/ledger", label: "Buku Besar", icon: History, permission: "finance:view_ledger" },
-      { href: "/finance/reports", label: "Laporan Keuangan", icon: FileCheck2, permission: "finance:view_ledger" },
+      { href: "/finance/worksheet", label: "Worksheet (Neraca Lajur)", icon: Table2, permission: "finance:view_ledger" },
+      { href: "/finance/reports", label: "Laba Rugi & Neraca", icon: FileCheck2, permission: "finance:view_ledger" },
+      { href: "/finance/equity-changes", label: "Perubahan Ekuitas", icon: PieChart, permission: "finance:view_ledger" },
+      { href: "/finance/cash-flow", label: "Laporan Arus Kas", icon: Banknote, permission: "finance:view_ledger" },
+      { href: "/finance/insights", label: "Analisis & Insight", icon: Sparkles, permission: "finance:view_ledger" },
       { href: "/finance/outlet", label: "FA Outlet", icon: Store, permission: "finance:view_ledger" },
     ],
   },
