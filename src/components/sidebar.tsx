@@ -38,6 +38,7 @@ import {
   NotebookPen,
   PieChart,
   FileCheck2,
+  Calculator,
 } from "lucide-react";
 import { can, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/cn";
@@ -90,7 +91,12 @@ const NAV_SECTIONS: NavSection[] = [
     label: "People & Finance",
     items: [
       { href: "/hrga", label: "HRGA", icon: UsersRound, permission: "hrga:manage_policy" },
-      { href: "/finance", label: "Finance", icon: Wallet, permission: "finance:view_ledger" },    ],
+      { href: "/finance", label: "FA Company", icon: Wallet, permission: "finance:view_ledger" },
+      { href: "/finance/journal", label: "Jurnal (6 Buku Kas)", icon: Receipt, permission: "finance:view_ledger" },
+      { href: "/finance/ledger", label: "Buku Besar", icon: History, permission: "finance:view_ledger" },
+      { href: "/finance/reports", label: "Laporan Keuangan", icon: FileCheck2, permission: "finance:view_ledger" },
+      { href: "/finance/outlet", label: "FA Outlet", icon: Store, permission: "finance:view_ledger" },
+    ],
   },
   {
     label: "Administration",
@@ -103,6 +109,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/admin/vouchers", label: "Vouchers", icon: Ticket, permission: "admin:system_config" },
       { href: "/admin/package-composition", label: "Isi Paket", icon: Package, permission: "admin:system_config" },
       { href: "/admin/expense-categories", label: "Kategori Pengeluaran", icon: Receipt, permission: "admin:system_config" },
+      { href: "/admin/chart-of-accounts", label: "Chart of Accounts", icon: Calculator, permission: "admin:system_config" },
       { href: "/admin/pramuniaga-roster", label: "Roster Pramuniaga", icon: UserCheck, permission: "admin:system_config" },
       { href: "/admin/freezer-materials", label: "Bahan Baku Freezer", icon: Snowflake, permission: "admin:system_config" },
       { href: "/admin/settings", label: "System Settings", icon: Settings, permission: "admin:system_config" },

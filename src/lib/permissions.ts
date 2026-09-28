@@ -43,6 +43,7 @@ export const PERMISSIONS = {
   "expense:submit": ["PRAMUNIAGA"],
   "expense:approve": ["SPV", "OFFICE", "FA_ADMIN", "MASTER_ADMIN"],
   "finance:view_ledger": ["FA_ADMIN", "MASTER_ADMIN"],
+  "finance:manage_journal": ["FA_ADMIN", "MASTER_ADMIN"],
 
   "member:register": ["PRAMUNIAGA", "MARKETING_ADMIN", "MASTER_ADMIN"],
   "member:view": ["PRAMUNIAGA", "SPV", "OFFICE", "MARKETING_ADMIN", "MASTER_ADMIN"],
