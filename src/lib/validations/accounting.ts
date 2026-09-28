@@ -34,6 +34,14 @@ export const voidJournalEntrySchema = z.object({
   reason: z.string().min(1).max(500),
 });
 
+export const inventoryClosingBalanceSchema = z.object({
+  year: z.number().int().min(2020).max(2100),
+  month: z.number().int().min(1).max(12),
+  category: z.enum(["BAHAN_BAKU", "BAHAN_SETENGAH_JADI", "BARANG_JADI", "BAHAN_PENDUKUNG", "PROYEK_DALAM_PENYELESAIAN"]),
+  amount: z.number().min(0),
+  note: z.string().max(500).optional(),
+});
+
 export const adjustingEntrySchema = z
   .object({
     date: z.coerce.date(),

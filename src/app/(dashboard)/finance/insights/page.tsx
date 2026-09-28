@@ -8,7 +8,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getMonthlyAccountMatrix, getMonthlyCashFlow, computeLabaBersihSeries } from "@/lib/accounting";
+import { getMonthlyAccountMatrix, getMonthlyCashFlow, getMonthlyHppReport, computeLabaBersihSeries } from "@/lib/accounting";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
@@ -33,17 +33,20 @@ export default async function FinanceInsightsPage({ searchParams }: { searchPara
   const upToMonth = year === now.getFullYear() ? now.getMonth() : 11;
   const activeMonths = Array.from({ length: upToMonth + 1 }, (_, i) => i);
 
-  const [matrix, cashFlowLines] = await Promise.all([getMonthlyAccountMatrix(year), getMonthlyCashFlow(year)]);
+  const [matrix, cashFlowLines, hppReport] = await Promise.all([
+    getMonthlyAccountMatrix(year),
+    getMonthlyCashFlow(year),
+    getMonthlyHppReport(year),
+  ]);
 
   const pendapatan = sumType(matrix, "PENDAPATAN");
-  const hpp = sumType(matrix, "HARGA_POKOK_PENJUALAN");
-  const bebanLangsung = sumType(matrix, "BEBAN_LANGSUNG");
+  const hpp = hppReport.cashBasisHpp;
   const bebanOperasional = sumType(matrix, "BEBAN_OPERASIONAL");
-  const labaBersih = computeLabaBersihSeries(matrix);
+  const labaBersih = computeLabaBersihSeries(matrix, hppReport.cashBasisHpp);
 
   const grossMargin = activeMonths.map((m) => (pendapatan[m] > 0 ? ((pendapatan[m] - hpp[m]) / pendapatan[m]) * 100 : 0));
   const netMargin = activeMonths.map((m) => (pendapatan[m] > 0 ? (labaBersih[m] / pendapatan[m]) * 100 : 0));
-  const expenseRatio = activeMonths.map((m) => (pendapatan[m] > 0 ? ((bebanLangsung[m] + bebanOperasional[m]) / pendapatan[m]) * 100 : 0));
+  const expenseRatio = activeMonths.map((m) => (pendapatan[m] > 0 ? (bebanOperasional[m] / pendapatan[m]) * 100 : 0));
 
   const ytdPendapatan = activeMonths.reduce((s, m) => s + pendapatan[m], 0);
   const ytdLabaBersih = activeMonths.reduce((s, m) => s + labaBersih[m], 0);

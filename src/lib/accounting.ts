@@ -1,5 +1,5 @@
 import "server-only";
-import type { CashBook, JournalEntryType, AccountType, NormalBalance } from "@prisma/client";
+import type { CashBook, JournalEntryType, AccountType, NormalBalance, InventoryCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { signedBalance, typeNaturalValue } from "@/lib/accounting-labels";
 
@@ -223,31 +223,69 @@ export async function getMonthlyCashFlow(year: number): Promise<CashFlowLine[]> 
   return [...byKey.values()].sort((a, b) => a.code.localeCompare(b.code));
 }
 
+/** The one non-postable, purely-administrative account code: the final
+ * corporate income tax line, reported on its own AFTER "Laba Tahun
+ * Berjalan Sebelum Pajak" — deliberately excluded from "Total Beban Non
+ * Operasi" itself (see the ChartOfAccount seed comment for this code). */
+export const PAJAK_PENGHASILAN_CODE = "90100";
+
+/** The four top-level revenue groups from the Laba-Rugi chart of accounts
+ * — shared between the Laba Rugi report's own line items and
+ * computeLabaBersihSeries, so "Total Penjualan" can never read two
+ * different figures depending on which page computed it. */
+export const REVENUE_GROUPS = [
+  { code: "41010", label: "PENJUALAN BARANG (FRANCHISE)" },
+  { code: "42000", label: "PENJUALAN BARANG (NON FRANCHISE)" },
+  { code: "43000", label: "PENJUALAN BARANG PENDUKUNG" },
+  { code: "44000", label: "PENDAPATAN USAHA LAIN" },
+];
+
+function subtreeNaturalTotal(matrix: MonthlyAccountRow[], rootCode: string): number[] {
+  const subtree = accountSubtree(matrix, rootCode);
+  return ZERO_12().map((_, i) => subtree.reduce((s, a) => s + typeNaturalValue(a.monthly[i], a.type, a.normalBalance), 0));
+}
+
 /** Net income per month, Jan-Dec, computed the same way the Laba Rugi
- * report itself does — shared so Perubahan Ekuitas (and anything else that
- * needs "how much profit did each month add to equity") doesn't re-derive
- * it slightly differently. */
-export function computeLabaBersihSeries(matrix: MonthlyAccountRow[]): number[] {
-  const zero = () => Array.from({ length: 12 }, () => 0);
-  // typeNaturalValue re-signs each account's own-normalBalance-signed
-  // monthly movement into the TYPE's natural direction before summing —
-  // without it, a contra account (e.g. Diskon Penjualan, debit-normal
-  // inside credit-normal PENDAPATAN) would be ADDED instead of subtracted.
-  const sumType = (type: AccountType) => {
-    const out = zero();
-    for (const a of matrix.filter((r) => r.type === type)) {
-      a.monthly.forEach((v, i) => (out[i] += typeNaturalValue(v, a.type, a.normalBalance)));
-    }
-    return out;
-  };
-  const pendapatan = sumType("PENDAPATAN");
-  const hpp = sumType("HARGA_POKOK_PENJUALAN");
-  const bebanLangsung = sumType("BEBAN_LANGSUNG");
-  const bebanOperasional = sumType("BEBAN_OPERASIONAL");
-  const bebanNonOp = sumType("BEBAN_NON_OPERASIONAL");
-  const pendapatanNonOp = sumType("PENDAPATAN_NON_OPERASIONAL");
-  return zero().map(
-    (_, i) => pendapatan[i] - hpp[i] - bebanLangsung[i] - bebanOperasional[i] + pendapatanNonOp[i] - bebanNonOp[i],
+ * report itself does — shared so Neraca (undistributed profit), Perubahan
+ * Ekuitas, and Insight don't re-derive it slightly differently.
+ *
+ * Every total here is rolled up from an explicit account-code SUBTREE
+ * (accountSubtree), the exact same basis the Laba Rugi report's own line
+ * items use — never a blanket "every account of this AccountType" sum.
+ * That distinction matters: an old/deactivated or otherwise orphaned
+ * account of a matching type (not a descendant of any of these root
+ * codes) would silently count here but never appear as a line item on the
+ * report itself, producing a final total that doesn't match anything the
+ * report actually shows (found live: a stray un-voided posting on a
+ * deactivated 4-digit legacy revenue account inflated this by its full
+ * amount while being completely invisible on the page).
+ *
+ * Takes the HPP module's own totalHpp series (see getMonthlyHppReport)
+ * rather than summing HARGA_POKOK_PENJUALAN-type accounts directly,
+ * because Laporan HPP is a periodic-inventory calculation (Awal +
+ * Pembelian - Akhir) — a plain type-sum would only capture "Pembelian",
+ * silently dropping the inventory Awal/Akhir adjustment. */
+export function computeLabaBersihSeries(matrix: MonthlyAccountRow[], hppTotals: number[]): number[] {
+  const totalPenjualan = ZERO_12().map((_, i) =>
+    REVENUE_GROUPS.reduce((s, g) => s + subtreeNaturalTotal(matrix, g.code)[i], 0),
+  );
+  const totalBebanOperasional = subtreeNaturalTotal(matrix, "60000");
+  const totalPendapatanNonOp = subtreeNaturalTotal(matrix, "70000");
+  // "80000 BEBAN NON OPERASI"'s own subtree naturally excludes 90100 (Pajak
+  // Penghasilan) since that account was created with no parent at all.
+  const totalBebanNonOp = subtreeNaturalTotal(matrix, "80000");
+  const pajakAccount = matrix.find((a) => a.code === PAJAK_PENGHASILAN_CODE);
+  const pajakPenghasilan = pajakAccount
+    ? pajakAccount.monthly.map((v) => typeNaturalValue(v, pajakAccount.type, pajakAccount.normalBalance))
+    : ZERO_12();
+  return ZERO_12().map(
+    (_, i) =>
+      totalPenjualan[i] -
+      hppTotals[i] -
+      totalBebanOperasional[i] +
+      totalPendapatanNonOp[i] -
+      totalBebanNonOp[i] -
+      pajakPenghasilan[i],
   );
 }
 
@@ -258,6 +296,7 @@ export type MonthlyAccountRow = {
   type: AccountType;
   normalBalance: NormalBalance;
   cashBook: CashBook | null;
+  parentId: string | null;
   /** Balance brought forward from everything posted before Jan 1 of the
    * selected year — only meaningful for Neraca-type accounts (Aset/
    * Kewajiban/Ekuitas); P&L accounts always start a year at 0. */
@@ -333,11 +372,33 @@ export async function getMonthlyAccountMatrix(year: number): Promise<MonthlyAcco
       type: a.type,
       normalBalance: a.normalBalance,
       cashBook: a.cashBook,
+      parentId: a.parentId,
       opening,
       monthly,
       cumulative,
     };
   });
+}
+
+/** This account plus every descendant under it (children, grandchildren,
+ * ...), by code — used to roll up a report-header account (e.g. "56000
+ * BEBAN OVERHEAD PABRIK") into one total across its whole subtree. Each
+ * account's `monthly`/`cumulative` already reflects only ITS OWN postings
+ * (postings never auto-roll-up), so summing every row in this list is safe
+ * and never double-counts. */
+export function accountSubtree(matrix: MonthlyAccountRow[], rootCode: string): MonthlyAccountRow[] {
+  const root = matrix.find((a) => a.code === rootCode);
+  if (!root) return [];
+  const out: MonthlyAccountRow[] = [root];
+  const stack = [root.accountId];
+  while (stack.length) {
+    const parentId = stack.pop()!;
+    for (const a of matrix.filter((r) => r.parentId === parentId)) {
+      out.push(a);
+      stack.push(a.accountId);
+    }
+  }
+  return out;
 }
 
 export type CashFlowActivity = "OPERASI" | "INVESTASI" | "PENDANAAN";
@@ -347,6 +408,139 @@ export type CashFlowActivity = "OPERASI" | "INVESTASI" | "PENDANAAN";
  * *other* side of the entry from the cash book — the direct method reads
  * straight off this classification since every entry already touches cash
  * on one leg (see the JournalEntryLine model comment). */
+const ZERO_12 = () => Array.from({ length: 12 }, () => 0);
+function addMonthly(...series: number[][]): number[] {
+  return ZERO_12().map((_, i) => series.reduce((s, arr) => s + arr[i], 0));
+}
+
+const HPP_CATEGORY_PARENT_CODE: Record<InventoryCategory, string> = {
+  BAHAN_BAKU: "51000",
+  BAHAN_SETENGAH_JADI: "52000",
+  BARANG_JADI: "53000",
+  BAHAN_PENDUKUNG: "54000",
+  PROYEK_DALAM_PENYELESAIAN: "59000",
+};
+export const HPP_CATEGORY_LABEL: Record<InventoryCategory, string> = {
+  BAHAN_BAKU: "BAHAN BAKU",
+  BAHAN_SETENGAH_JADI: "BAHAN SETENGAH JADI",
+  BARANG_JADI: "BARANG JADI",
+  BAHAN_PENDUKUNG: "BAHAN PENDUKUNG",
+  PROYEK_DALAM_PENYELESAIAN: "PROYEK DALAM PENYELESAIAN",
+};
+const HPP_MATERIAL_CATEGORIES: InventoryCategory[] = ["BAHAN_BAKU", "BAHAN_SETENGAH_JADI", "BARANG_JADI", "BAHAN_PENDUKUNG"];
+
+export type HppCategoryLine = {
+  category: InventoryCategory;
+  label: string;
+  awal: number[];
+  pembelian: number[];
+  akhir: number[];
+  pemakaian: number[];
+  purchaseAccounts: MonthlyAccountRow[];
+  /** Months (1-12) missing a recorded Persediaan Akhir — Awal/Akhir/
+   * Pemakaian for that month default to 0 (last known figure carried
+   * nowhere), so this list is how the report flags "belum tutup buku"
+   * instead of silently showing a misleading number. */
+  monthsMissingClosing: number[];
+};
+
+export type HppReport = {
+  categories: HppCategoryLine[];
+  totalPemakaianBahan: number[];
+  overheadAccounts: MonthlyAccountRow[];
+  totalOverhead: number[];
+  jumlahBebanProduksi: number[];
+  proyek: HppCategoryLine;
+  /** HARGA POKOK PENJUALAN — the accrual/management-costing figure this
+   * report's own bottom line shows: Awal + Pembelian - Akhir per category,
+   * i.e. cost of goods ACTUALLY CONSUMED this period (not necessarily what
+   * was paid in cash). Use this for margin/costing analysis (Laporan HPP
+   * itself, Analisis & Insight); do NOT feed it into the formal Laba
+   * Rugi/Neraca — see cashBasisHpp. */
+  totalHpp: number[];
+  /** The same cost roll-up computed WITHOUT the Persediaan Awal/Akhir
+   * adjustment — i.e. exactly what was actually paid in cash for
+   * Pembelian + Beban Overhead Pabrik + Proyek this period. This whole ERP
+   * is deliberately cash-basis (every JournalEntry always touches a real
+   * cash book — see postCashVoucher), so the formal Laba Rugi and Neraca
+   * MUST use this figure, not totalHpp: a stock-opname "Persediaan Akhir"
+   * is a report-only input with no corresponding ChartOfAccount asset
+   * ever debited for it, so subtracting it from HPP would shrink the
+   * expense side without any matching asset appearing anywhere on the
+   * Neraca — an unbalanceable phantom. Laporan HPP shows both bases side
+   * by side so the difference (unconsumed inventory sitting in cash spent
+   * this period) is visible, not hidden. */
+  cashBasisHpp: number[];
+};
+
+/**
+ * Laporan HPP — periodic-inventory cost-of-goods build-up: for each of the
+ * four material categories (Bahan Baku, Bahan Setengah Jadi, Barang Jadi,
+ * Bahan Pendukung), Pemakaian = Persediaan Awal + Pembelian - Persediaan
+ * Akhir, where Awal/Akhir come from a physical stock-opname recorded once
+ * per month (InventoryClosingBalance) — NOT from a live asset-account
+ * balance, since these categories aren't tracked as perpetual-inventory
+ * ledger accounts. Beban Overhead Pabrik (56000's whole subtree) is a
+ * straightforward period expense, added on top of the four categories'
+ * Pemakaian. Proyek Dalam Penyelesaian (WIP project cost) uses the exact
+ * same Awal+Movement-Akhir shape as the material categories.
+ */
+export async function getMonthlyHppReport(year: number): Promise<HppReport> {
+  const [matrix, closingRows] = await Promise.all([
+    getMonthlyAccountMatrix(year),
+    prisma.inventoryClosingBalance.findMany({
+      where: { OR: [{ year }, { year: year - 1, month: 12 }] },
+    }),
+  ]);
+
+  const closingMap = new Map<string, number>();
+  for (const r of closingRows) closingMap.set(`${r.year}-${r.month}-${r.category}`, Number(r.amount));
+  const closingRecorded = new Set<string>();
+  for (const r of closingRows) closingRecorded.add(`${r.year}-${r.month}-${r.category}`);
+  const closingFor = (y: number, m: number, category: InventoryCategory) => closingMap.get(`${y}-${m}-${category}`) ?? 0;
+  const hasClosing = (y: number, m: number, category: InventoryCategory) => closingRecorded.has(`${y}-${m}-${category}`);
+
+  function buildCategoryLine(category: InventoryCategory): HppCategoryLine {
+    const parentCode = HPP_CATEGORY_PARENT_CODE[category];
+    const subtree = accountSubtree(matrix, parentCode);
+    const purchaseAccounts = subtree.filter((a) => a.code !== parentCode && a.monthly.some((v) => v !== 0));
+    const pembelian = addMonthly(...subtree.map((a) => a.monthly.map((v) => typeNaturalValue(v, a.type, a.normalBalance))));
+
+    const awal: number[] = [];
+    const akhir: number[] = [];
+    const pemakaian: number[] = [];
+    const monthsMissingClosing: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const month = i + 1;
+      const a = month === 1 ? closingFor(year - 1, 12, category) : closingFor(year, month - 1, category);
+      const k = closingFor(year, month, category);
+      awal.push(a);
+      akhir.push(k);
+      pemakaian.push(a + pembelian[i] - k);
+      if (!hasClosing(year, month, category)) monthsMissingClosing.push(month);
+    }
+
+    return { category, label: HPP_CATEGORY_LABEL[category], awal, pembelian, akhir, pemakaian, purchaseAccounts, monthsMissingClosing };
+  }
+
+  const categories = HPP_MATERIAL_CATEGORIES.map(buildCategoryLine);
+  const totalPemakaianBahan = addMonthly(...categories.map((c) => c.pemakaian));
+
+  const overheadSubtree = accountSubtree(matrix, "56000");
+  const overheadAccounts = overheadSubtree.filter((a) => a.code !== "56000" && a.monthly.some((v) => v !== 0));
+  const totalOverhead = addMonthly(...overheadSubtree.map((a) => a.monthly.map((v) => typeNaturalValue(v, a.type, a.normalBalance))));
+
+  const jumlahBebanProduksi = addMonthly(totalPemakaianBahan, totalOverhead);
+
+  const proyek = buildCategoryLine("PROYEK_DALAM_PENYELESAIAN");
+  const totalHpp = addMonthly(jumlahBebanProduksi, proyek.pemakaian);
+
+  const totalPembelianCash = addMonthly(...categories.map((c) => c.pembelian));
+  const cashBasisHpp = addMonthly(totalPembelianCash, totalOverhead, proyek.pembelian);
+
+  return { categories, totalPemakaianBahan, overheadAccounts, totalOverhead, jumlahBebanProduksi, proyek, totalHpp, cashBasisHpp };
+}
+
 export function classifyCashFlowActivity(contraType: AccountType, contraCode: string): CashFlowActivity {
   if (contraType === "EKUITAS" || contraCode === "2200") return "PENDANAAN"; // Modal / Hutang Bank
   if (contraType === "ASET" && contraCode.startsWith("16")) return "INVESTASI"; // Aset Tetap

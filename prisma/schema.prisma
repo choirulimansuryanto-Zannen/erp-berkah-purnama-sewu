@@ -256,6 +256,7 @@ model User {
   journalEntriesCreated    JournalEntry[]                   @relation("JournalEntryCreator")
   journalEntriesVoided     JournalEntry[]                   @relation("JournalEntryVoider")
   chartOfAccountUpdates    ChartOfAccount[]
+  inventoryClosingBalancesRecorded InventoryClosingBalance[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1173,6 +1174,42 @@ enum CashBook {
   PETTY_CASH
   BANK_BCA
   BANK_MANDIRI
+}
+
+// Which "Pemakaian ..." group of the Laporan HPP a stock-opname figure
+// belongs to — PROYEK_DALAM_PENYELESAIAN is WIP project cost, not a
+// physical goods category, but is closed out the same Awal+Movement-Akhir
+// way so it shares this same model.
+enum InventoryCategory {
+  BAHAN_BAKU
+  BAHAN_SETENGAH_JADI
+  BARANG_JADI
+  BAHAN_PENDUKUNG
+  PROYEK_DALAM_PENYELESAIAN
+}
+
+// Laporan HPP uses a PERIODIC (not perpetual) inventory method — Pemakaian
+// = Persediaan Awal + Pembelian - Persediaan Akhir — so "Persediaan Akhir"
+// is a period-end fact from a physical stock count, not something derivable
+// from journal postings. FA Admin records it here once per month per
+// category at month-end close; the following month's "Persediaan Awal"
+// reads the prior month's "Persediaan Akhir" for the same category.
+model InventoryClosingBalance {
+  id       String             @id @default(uuid())
+  year     Int
+  month    Int // 1-12
+  category InventoryCategory
+  amount   Decimal            @default(0) @db.Decimal(16, 2)
+  note     String?
+
+  recordedById String
+  recordedBy   User   @relation(fields: [recordedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([year, month, category])
+  @@index([year, month])
 }
 
 model ChartOfAccount {

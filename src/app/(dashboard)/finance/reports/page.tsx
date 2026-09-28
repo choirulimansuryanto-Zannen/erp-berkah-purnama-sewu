@@ -2,10 +2,20 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/ui/page-header";
-import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getMonthlyAccountMatrix, ACCOUNT_TYPE_LABELS, typeNaturalValue } from "@/lib/accounting";
+import {
+  getMonthlyAccountMatrix,
+  getMonthlyHppReport,
+  computeLabaBersihSeries,
+  accountSubtree,
+  ACCOUNT_TYPE_LABELS,
+  typeNaturalValue,
+  REVENUE_GROUPS,
+  PAJAK_PENGHASILAN_CODE,
+  type MonthlyAccountRow,
+} from "@/lib/accounting";
 import { MonthlyReportTable, type MonthlyReportRow } from "@/components/finance/monthly-report-table";
 import type { AccountType } from "@prisma/client";
 
@@ -21,6 +31,13 @@ function negate(values: number[]): number[] {
 function addSeries(...series: number[][]): number[] {
   return ZERO_12().map((_, i) => series.reduce((s, arr) => s + arr[i], 0));
 }
+/** Every account's monthly movement, re-signed into its TYPE's natural
+ * direction (see typeNaturalValue) — the shared basis for both a group's
+ * line-item rows and its subtotal, so the two are never derived two
+ * different ways. */
+function naturalMonthly(a: MonthlyAccountRow): number[] {
+  return a.monthly.map((v) => typeNaturalValue(v, a.type, a.normalBalance));
+}
 
 export default async function FinanceReportsPage({ searchParams }: { searchParams: Promise<{ year?: string }> }) {
   const user = await getCurrentUser();
@@ -32,26 +49,75 @@ export default async function FinanceReportsPage({ searchParams }: { searchParam
   const year = yearParam ? Number(yearParam) : now.getFullYear();
   const upToMonth = year === now.getFullYear() ? now.getMonth() : 11;
 
-  const matrix = await getMonthlyAccountMatrix(year);
+  const [matrix, hppReport] = await Promise.all([getMonthlyAccountMatrix(year), getMonthlyHppReport(year)]);
 
-  function byType(type: AccountType) {
-    return matrix.filter((a) => a.type === type && a.monthly.some((v) => v !== 0));
+  function groupSubtree(parentCode: string) {
+    return accountSubtree(matrix, parentCode);
   }
-  // typeNaturalValue re-signs each account into its TYPE's natural
-  // direction before it's ever summed or displayed — otherwise a contra
-  // account (e.g. Akumulasi Penyusutan, a credit-normal account inside the
-  // debit-normal ASET type) gets ADDED into "Total Aset" instead of
-  // subtracted, and its own row reads as a positive addition instead of a
-  // deduction.
-  function accountRows(type: AccountType, negative = false): MonthlyReportRow[] {
-    return byType(type).map((a) => ({
-      code: a.code,
-      label: a.name,
-      values: a.monthly.map((v) => typeNaturalValue(v, a.type, a.normalBalance)),
-      indent: true,
-      negative,
-    }));
+  function groupTotal(parentCode: string): number[] {
+    return addSeries(...groupSubtree(parentCode).map(naturalMonthly));
   }
+  function groupLineRows(parentCode: string, negative = false): MonthlyReportRow[] {
+    return groupSubtree(parentCode)
+      .filter((a) => a.code !== parentCode && a.monthly.some((v) => v !== 0))
+      .map((a) => ({ code: a.code, label: a.name, values: naturalMonthly(a), indent: true, negative }));
+  }
+
+  // ── Laba Rugi — Total Penjualan → Dikurangi HPP → Laba Kotor → Beban
+  // Operasional → Laba Operasi → Pendapatan/Beban Non Operasi → Laba
+  // Sebelum Pajak → Pajak Penghasilan → Laba Setelah Accrual. ────────────
+  const laraRugiRows: MonthlyReportRow[] = [];
+  const revenueGroupTotals: number[][] = [];
+  for (const g of REVENUE_GROUPS) {
+    const total = groupTotal(g.code);
+    revenueGroupTotals.push(total);
+    laraRugiRows.push({ label: g.label, values: total, style: "subtotal" });
+    laraRugiRows.push(...groupLineRows(g.code));
+  }
+  const totalPenjualan = addSeries(...revenueGroupTotals);
+  laraRugiRows.push({ label: "TOTAL PENJUALAN", values: totalPenjualan, style: "total" });
+
+  // Cash-basis, not the accrual-adjusted figure Laporan HPP itself
+  // headlines — this ERP is deliberately cash-basis throughout (every
+  // JournalEntry always touches a real cash book), and a stock-opname
+  // "Persediaan Akhir" has no corresponding ChartOfAccount asset ever
+  // debited for it, so using the accrual figure here would shrink the
+  // expense side with no matching asset anywhere on the Neraca to balance
+  // against. See the cashBasisHpp doc comment in accounting.ts.
+  const totalHpp = hppReport.cashBasisHpp;
+  laraRugiRows.push({ label: "Dikurangi HPP (Basis Kas — lihat Laporan HPP untuk basis akrual)", values: totalHpp, style: "subtotal", negative: true });
+  const labaKotor = addSeries(totalPenjualan, negate(totalHpp));
+  laraRugiRows.push({ label: "LABA KOTOR", values: labaKotor, style: "total" });
+
+  const totalBebanOperasional = groupTotal("60000");
+  laraRugiRows.push({ label: "BEBAN OPERASIONAL", values: totalBebanOperasional, style: "subtotal", negative: true });
+  laraRugiRows.push(...groupLineRows("60000", true));
+  const labaOperasi = addSeries(labaKotor, negate(totalBebanOperasional));
+  laraRugiRows.push({ label: "LABA OPERASI", values: labaOperasi, style: "total" });
+
+  const totalPendapatanNonOp = groupTotal("70000");
+  laraRugiRows.push({ label: "PENDAPATAN NON OPERASI", values: totalPendapatanNonOp, style: "subtotal" });
+  laraRugiRows.push(...groupLineRows("70000"));
+
+  const totalBebanNonOp = groupTotal("80000");
+  laraRugiRows.push({ label: "BEBAN NON OPERASI", values: totalBebanNonOp, style: "subtotal", negative: true });
+  laraRugiRows.push(...groupLineRows("80000", true));
+
+  const labaSebelumPajak = addSeries(labaOperasi, totalPendapatanNonOp, negate(totalBebanNonOp));
+  laraRugiRows.push({ label: "LABA TAHUN BERJALAN SEBELUM PAJAK", values: labaSebelumPajak, style: "total" });
+
+  const pajakAccount = matrix.find((a) => a.code === PAJAK_PENGHASILAN_CODE);
+  const pajakPenghasilan = pajakAccount ? naturalMonthly(pajakAccount) : ZERO_12();
+  laraRugiRows.push({ label: "Pajak Penghasilan", values: pajakPenghasilan, style: "subtotal", negative: true });
+
+  // Sourced from the shared engine (not re-derived here) so this row is
+  // GUARANTEED to match the Neraca's own "Laba Berjalan" carry-forward —
+  // two independent computations of the same figure is exactly the kind of
+  // drift that caused an earlier Neraca-imbalance bug.
+  const labaBersih = computeLabaBersihSeries(matrix, hppReport.cashBasisHpp);
+  laraRugiRows.push({ label: "LABA TAHUN BERJALAN SETELAH ACCRUAL", values: labaBersih, style: "total" });
+
+  // ── Neraca (cumulative — end-of-month balances) ──────────────────────
   function neracaAccountRows(type: AccountType): MonthlyReportRow[] {
     return matrix
       .filter((a) => a.type === type && a.cumulative.some((v) => v !== 0))
@@ -63,43 +129,6 @@ export default async function FinanceReportsPage({ searchParams }: { searchParam
       }));
   }
 
-  // ── Laba Rugi ──────────────────────────────────────────────────────
-  const pendapatanRows = accountRows("PENDAPATAN");
-  const hppRows = accountRows("HARGA_POKOK_PENJUALAN", true);
-  const bebanLangsungRows = accountRows("BEBAN_LANGSUNG", true);
-  const bebanOperasionalRows = accountRows("BEBAN_OPERASIONAL", true);
-  const bebanNonOpRows = accountRows("BEBAN_NON_OPERASIONAL", true);
-  const pendapatanNonOpRows = accountRows("PENDAPATAN_NON_OPERASIONAL");
-
-  const totalPendapatan = sumRows(pendapatanRows);
-  const totalHpp = sumRows(hppRows);
-  const labaKotor = addSeries(totalPendapatan, negate(totalHpp));
-  const totalBebanLangsung = sumRows(bebanLangsungRows);
-  const totalBebanOperasional = sumRows(bebanOperasionalRows);
-  const labaUsaha = addSeries(labaKotor, negate(totalBebanLangsung), negate(totalBebanOperasional));
-  const totalBebanNonOp = sumRows(bebanNonOpRows);
-  const totalPendapatanNonOp = sumRows(pendapatanNonOpRows);
-  const labaBersih = addSeries(labaUsaha, totalPendapatanNonOp, negate(totalBebanNonOp));
-
-  const labaRugiRows: MonthlyReportRow[] = [
-    { label: ACCOUNT_TYPE_LABELS.PENDAPATAN, values: totalPendapatan, style: "subtotal" },
-    ...pendapatanRows,
-    { label: `(-) ${ACCOUNT_TYPE_LABELS.HARGA_POKOK_PENJUALAN}`, values: totalHpp, style: "subtotal", negative: true },
-    ...hppRows,
-    { label: "Laba Kotor", values: labaKotor, style: "total" },
-    { label: `(-) ${ACCOUNT_TYPE_LABELS.BEBAN_LANGSUNG}`, values: totalBebanLangsung, style: "subtotal", negative: true },
-    ...bebanLangsungRows,
-    { label: `(-) ${ACCOUNT_TYPE_LABELS.BEBAN_OPERASIONAL}`, values: totalBebanOperasional, style: "subtotal", negative: true },
-    ...bebanOperasionalRows,
-    { label: "Laba Usaha", values: labaUsaha, style: "total" },
-    { label: `(+) ${ACCOUNT_TYPE_LABELS.PENDAPATAN_NON_OPERASIONAL}`, values: totalPendapatanNonOp, style: "subtotal" },
-    ...pendapatanNonOpRows,
-    { label: `(-) ${ACCOUNT_TYPE_LABELS.BEBAN_NON_OPERASIONAL}`, values: totalBebanNonOp, style: "subtotal", negative: true },
-    ...bebanNonOpRows,
-    { label: "LABA (RUGI) BERSIH", values: labaBersih, style: "total" },
-  ];
-
-  // ── Neraca (cumulative — end-of-month balances) ──────────────────────
   const asetRows = neracaAccountRows("ASET");
   const kewajibanRows = neracaAccountRows("KEWAJIBAN");
   const ekuitasRecordedRows = neracaAccountRows("EKUITAS");
@@ -141,7 +170,7 @@ export default async function FinanceReportsPage({ searchParams }: { searchParam
     <div className="space-y-6">
       <PageHeader
         title="Laporan Keuangan"
-        description="Laba Rugi dan Neraca — setiap akun tampil satu per satu, dibandingkan per bulan Januari–Desember."
+        description="Laba Rugi dan Neraca — setiap akun tampil satu per satu, dibandingkan per bulan Januari–Desember. HPP dibahas terperinci di Laporan HPP."
       />
 
       <Card>
@@ -171,7 +200,7 @@ export default async function FinanceReportsPage({ searchParams }: { searchParam
         <div className="rounded-t-xl bg-brand-950 px-5 py-3">
           <p className="text-sm font-bold uppercase tracking-wide text-white">Laba Rugi — {year} (per bulan)</p>
         </div>
-        <MonthlyReportTable rows={labaRugiRows} year={year} upToMonth={upToMonth} totalLabel={`Total ${year}`} />
+        <MonthlyReportTable rows={laraRugiRows} year={year} upToMonth={upToMonth} totalLabel={`Total ${year}`} />
       </Card>
 
       <Card className="overflow-hidden p-0">

@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getMonthlyAccountMatrix, computeLabaBersihSeries, typeNaturalValue } from "@/lib/accounting";
+import { getMonthlyAccountMatrix, getMonthlyHppReport, computeLabaBersihSeries, typeNaturalValue } from "@/lib/accounting";
 import { MonthlyReportTable, type MonthlyReportRow } from "@/components/finance/monthly-report-table";
 
 const ZERO_12 = () => Array.from({ length: 12 }, () => 0);
@@ -27,13 +27,13 @@ export default async function EquityChangesPage({ searchParams }: { searchParams
   const year = yearParam ? Number(yearParam) : now.getFullYear();
   const upToMonth = year === now.getFullYear() ? now.getMonth() : 11;
 
-  const matrix = await getMonthlyAccountMatrix(year);
+  const [matrix, hppReport] = await Promise.all([getMonthlyAccountMatrix(year), getMonthlyHppReport(year)]);
   const ekuitasAccounts = matrix.filter((a) => a.type === "EKUITAS");
   // typeNaturalValue: a contra-equity account (e.g. Prive/drawing, debit-
   // normal inside credit-normal EKUITAS) must subtract from equity, not add.
   const naturalMonthly = (a: (typeof ekuitasAccounts)[number]) => a.monthly.map((v) => typeNaturalValue(v, a.type, a.normalBalance));
   const openingEkuitas = ekuitasAccounts.reduce((s, a) => s + typeNaturalValue(a.opening, a.type, a.normalBalance), 0);
-  const labaBersih = computeLabaBersihSeries(matrix);
+  const labaBersih = computeLabaBersihSeries(matrix, hppReport.cashBasisHpp);
 
   const rows: MonthlyReportRow[] = [];
   for (const a of ekuitasAccounts.filter((a) => a.monthly.some((v) => v !== 0))) {
