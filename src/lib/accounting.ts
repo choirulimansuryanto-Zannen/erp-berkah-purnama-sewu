@@ -722,3 +722,114 @@ export async function getIncomeStatementBalances(dateFrom: Date, dateTo: Date): 
     };
   });
 }
+
+export type AnnualFinancialSummary = {
+  year: number;
+  totalPenjualan: number;
+  hpp: number; // basis kas — see cashBasisHpp
+  labaKotor: number;
+  bebanOperasional: number;
+  labaOperasi: number;
+  pendapatanNonOperasi: number;
+  bebanNonOperasi: number;
+  labaSebelumPajak: number;
+  pajakPenghasilan: number;
+  labaBersih: number; // "Setelah Accrual" — same figure Laba Rugi/Neraca share
+  totalAktiva: number;
+  totalKewajiban: number;
+  totalEkuitas: number;
+};
+
+/**
+ * One year's headline HPP/Laba-Rugi/Neraca figures, built from the exact
+ * same shared engine every single-year report page already uses
+ * (getMonthlyAccountMatrix, getMonthlyHppReport, computeLabaBersihSeries,
+ * accountSubtree) — so a multi-year comparison page can never show a
+ * figure that disagrees with what that year's own report page displays.
+ * P&L lines are the full year's sum (Jan-Dec); Neraca lines are the
+ * December-end cumulative balance (a not-yet-finished year's December
+ * simply carries forward whatever the last posted month left it at).
+ */
+/** This ERP's books effectively start here (no company data exists before
+ * it). Needed only to correctly carry an undistributed prior year's net
+ * income forward into a LATER year's Ekuitas — there is no formal annual
+ * closing step (see the "33000 Laba (Rugi) Tahun Berjalan" seed comment),
+ * so without this, a future year with zero activity of its own would show
+ * Ekuitas dropping back to just its recorded accounts (Modal, Laba
+ * Ditahan), silently losing every prior year's unclosed profit. */
+const COMPANY_INCEPTION_YEAR = 2026;
+
+async function priorYearsLabaBersih(uptoYearExclusive: number): Promise<number> {
+  let total = 0;
+  for (let y = COMPANY_INCEPTION_YEAR; y < uptoYearExclusive; y++) {
+    const [m, h] = await Promise.all([getMonthlyAccountMatrix(y), getMonthlyHppReport(y)]);
+    total += computeLabaBersihSeries(m, h.cashBasisHpp).reduce((s, v) => s + v, 0);
+  }
+  return total;
+}
+
+export async function getAnnualFinancialSummary(year: number): Promise<AnnualFinancialSummary> {
+  const [matrix, hppReport, priorLaba] = await Promise.all([
+    getMonthlyAccountMatrix(year),
+    getMonthlyHppReport(year),
+    priorYearsLabaBersih(year),
+  ]);
+
+  const yearSum = (values: number[]) => values.reduce((s, v) => s + v, 0);
+  function subtreeYearTotal(rootCode: string): number {
+    const accounts = accountSubtree(matrix, rootCode).filter((a) => a.code !== rootCode);
+    return yearSum(addMonthly(...accounts.map((a) => a.monthly.map((v) => typeNaturalValue(v, a.type, a.normalBalance)))));
+  }
+  function subtreeDecemberCumulative(rootCode: string, filter?: (a: MonthlyAccountRow) => boolean): number {
+    const accounts = accountSubtree(matrix, rootCode).filter((a) => a.code !== rootCode && (!filter || filter(a)));
+    return accounts.reduce((s, a) => s + typeNaturalValue(a.cumulative[11], a.type, a.normalBalance), 0);
+  }
+
+  // Sum of 12-month totals across the 4 revenue groups — computed per group
+  // then summed, matching how the Laba Rugi page itself derives "Total
+  // Penjualan" (never a single flat PENDAPATAN-type sum, see that page's
+  // own comment on why that silently includes orphaned accounts).
+  const totalPenjualan = REVENUE_GROUPS.reduce((s, g) => s + subtreeYearTotal(g.code), 0);
+
+  const hpp = yearSum(hppReport.cashBasisHpp);
+  const labaKotor = totalPenjualan - hpp;
+  const bebanOperasional = subtreeYearTotal("60000");
+  const labaOperasi = labaKotor - bebanOperasional;
+  const pendapatanNonOperasi = subtreeYearTotal("70000");
+  const bebanNonOperasi = subtreeYearTotal("80000");
+  const labaSebelumPajak = labaOperasi + pendapatanNonOperasi - bebanNonOperasi;
+  const pajakAccount = matrix.find((a) => a.code === PAJAK_PENGHASILAN_CODE);
+  const pajakPenghasilan = pajakAccount
+    ? yearSum(pajakAccount.monthly.map((v) => typeNaturalValue(v, pajakAccount.type, pajakAccount.normalBalance)))
+    : 0;
+  const labaBersihSeries = computeLabaBersihSeries(matrix, hppReport.cashBasisHpp);
+  const labaBersih = yearSum(labaBersihSeries);
+
+  const totalAset = subtreeDecemberCumulative("10000");
+  const totalAsetTetap = subtreeDecemberCumulative("18000", (a) => a.normalBalance === "DEBIT");
+  const totalAkumulasiPenyusutan = subtreeDecemberCumulative("18000", (a) => a.normalBalance === "KREDIT");
+  const totalAsetTakBerwujud = subtreeDecemberCumulative("19000");
+  const totalAktiva = totalAset + totalAsetTetap + totalAkumulasiPenyusutan + totalAsetTakBerwujud;
+  const totalKewajiban = subtreeDecemberCumulative("21000");
+  const totalEkuitasRecorded = subtreeDecemberCumulative("30000", (a) => a.code !== "33000");
+  let runningLaba = 0;
+  const labaBerjalanCumulative = labaBersihSeries.map((v) => (runningLaba += v));
+  const totalEkuitas = totalEkuitasRecorded + priorLaba + labaBerjalanCumulative[11];
+
+  return {
+    year,
+    totalPenjualan,
+    hpp,
+    labaKotor,
+    bebanOperasional,
+    labaOperasi,
+    pendapatanNonOperasi,
+    bebanNonOperasi,
+    labaSebelumPajak,
+    pajakPenghasilan,
+    labaBersih,
+    totalAktiva,
+    totalKewajiban,
+    totalEkuitas,
+  };
+}

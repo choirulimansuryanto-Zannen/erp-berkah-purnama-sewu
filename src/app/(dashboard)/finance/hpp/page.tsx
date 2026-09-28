@@ -1,16 +1,14 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Boxes } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/ui/page-header";
-import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { getMonthlyHppReport } from "@/lib/accounting";
-import { prisma } from "@/lib/prisma";
 import { MonthlyReportTable, type MonthlyReportRow } from "@/components/finance/monthly-report-table";
-import { InventoryClosingForm } from "@/components/finance/inventory-closing-form";
-import { InventoryClosingList } from "@/components/finance/inventory-closing-list";
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 const ZERO_12 = () => Array.from({ length: 12 }, () => 0);
@@ -32,14 +30,7 @@ export default async function HppReportPage({ searchParams }: { searchParams: Pr
   const year = yearParam ? Number(yearParam) : now.getFullYear();
   const upToMonth = year === now.getFullYear() ? now.getMonth() : 11;
 
-  const [report, closingRows] = await Promise.all([
-    getMonthlyHppReport(year),
-    prisma.inventoryClosingBalance.findMany({
-      where: { year },
-      include: { recordedBy: { select: { name: true } } },
-      orderBy: [{ month: "desc" }, { category: "asc" }],
-    }),
-  ]);
+  const report = await getMonthlyHppReport(year);
 
   const rows: MonthlyReportRow[] = [];
   for (const cat of report.categories) {
@@ -124,24 +115,13 @@ export default async function HppReportPage({ searchParams }: { searchParams: Pr
         </div>
       )}
 
-      <InventoryClosingForm />
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Riwayat Persediaan Akhir {year}</CardTitle>
-        </CardHeader>
-        <InventoryClosingList
-          rows={closingRows.map((r) => ({
-            id: r.id,
-            year: r.year,
-            month: r.month,
-            category: r.category,
-            amount: Number(r.amount),
-            note: r.note,
-            recordedBy: r.recordedBy,
-          }))}
-        />
-      </Card>
+      <Link
+        href="/finance/persediaan"
+        className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white p-4 text-sm font-medium text-brand-900 shadow-[var(--shadow-card)] transition-colors hover:bg-slate-50"
+      >
+        <Boxes className="h-5 w-5 text-accent-600" />
+        Kelola Persediaan Akhir (stock opname) &amp; lihat kartu persediaan per kategori →
+      </Link>
 
       <Card className="overflow-hidden p-0">
         <div className="rounded-t-xl bg-brand-950 px-5 py-3">

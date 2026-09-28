@@ -45,6 +45,8 @@ import {
   Table2,
   Factory,
   Scale,
+  Boxes,
+  GitCompareArrows,
 } from "lucide-react";
 import { can, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/cn";
@@ -111,11 +113,13 @@ const NAV_SECTIONS: NavSection[] = [
           { href: "/finance/ledger", label: "Buku Besar", icon: History, permission: "finance:view_ledger" },
           { href: "/finance/adjusting-entries", label: "Jurnal Penyesuaian", icon: NotebookPen, permission: "finance:view_ledger" },
           { href: "/finance/worksheet", label: "Worksheet (Neraca Lajur)", icon: Table2, permission: "finance:view_ledger" },
+          { href: "/finance/persediaan", label: "Persediaan", icon: Boxes, permission: "finance:view_ledger" },
           { href: "/finance/hpp", label: "Laporan HPP", icon: Factory, permission: "finance:view_ledger" },
           { href: "/finance/reports", label: "Laba Rugi", icon: FileCheck2, permission: "finance:view_ledger" },
           { href: "/finance/neraca", label: "Neraca", icon: Scale, permission: "finance:view_ledger" },
           { href: "/finance/equity-changes", label: "Perubahan Ekuitas", icon: PieChart, permission: "finance:view_ledger" },
           { href: "/finance/cash-flow", label: "Laporan Arus Kas", icon: Banknote, permission: "finance:view_ledger" },
+          { href: "/finance/perbandingan-tahunan", label: "Perbandingan Tahunan", icon: GitCompareArrows, permission: "finance:view_ledger" },
           { href: "/finance/insights", label: "Analisis & Insight", icon: Sparkles, permission: "finance:view_ledger" },
         ],
       },
