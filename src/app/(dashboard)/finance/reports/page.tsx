@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getMonthlyAccountMatrix, ACCOUNT_TYPE_LABELS } from "@/lib/accounting";
+import { getMonthlyAccountMatrix, ACCOUNT_TYPE_LABELS, typeNaturalValue } from "@/lib/accounting";
 import { MonthlyReportTable, type MonthlyReportRow } from "@/components/finance/monthly-report-table";
 import type { AccountType } from "@prisma/client";
 
@@ -37,13 +37,30 @@ export default async function FinanceReportsPage({ searchParams }: { searchParam
   function byType(type: AccountType) {
     return matrix.filter((a) => a.type === type && a.monthly.some((v) => v !== 0));
   }
+  // typeNaturalValue re-signs each account into its TYPE's natural
+  // direction before it's ever summed or displayed — otherwise a contra
+  // account (e.g. Akumulasi Penyusutan, a credit-normal account inside the
+  // debit-normal ASET type) gets ADDED into "Total Aset" instead of
+  // subtracted, and its own row reads as a positive addition instead of a
+  // deduction.
   function accountRows(type: AccountType, negative = false): MonthlyReportRow[] {
-    return byType(type).map((a) => ({ code: a.code, label: a.name, values: a.monthly, indent: true, negative }));
+    return byType(type).map((a) => ({
+      code: a.code,
+      label: a.name,
+      values: a.monthly.map((v) => typeNaturalValue(v, a.type, a.normalBalance)),
+      indent: true,
+      negative,
+    }));
   }
   function neracaAccountRows(type: AccountType): MonthlyReportRow[] {
     return matrix
       .filter((a) => a.type === type && a.cumulative.some((v) => v !== 0))
-      .map((a) => ({ code: a.code, label: a.name, values: a.cumulative, indent: true }));
+      .map((a) => ({
+        code: a.code,
+        label: a.name,
+        values: a.cumulative.map((v) => typeNaturalValue(v, a.type, a.normalBalance)),
+        indent: true,
+      }));
   }
 
   // ── Laba Rugi ──────────────────────────────────────────────────────

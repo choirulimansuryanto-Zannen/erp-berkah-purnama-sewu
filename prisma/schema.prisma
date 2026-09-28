@@ -1207,6 +1207,10 @@ enum JournalEntryType {
   KAS_MASUK
   KAS_KELUAR
   TRANSFER_ANTAR_BUKU
+  // Non-cash period-end adjustment (depresiasi, akrual, amortisasi
+  // dibayar-di-muka, dst) — the one entry type that does NOT touch a cash
+  // book on either leg, which is why JournalEntry.cashBook is nullable.
+  JURNAL_PENYESUAIAN
 }
 
 enum JournalEntryStatus {
@@ -1220,8 +1224,12 @@ model JournalEntry {
   // from cashBook + year + a per-book sequence, shown on every printout.
   entryNumber String   @unique
   date        DateTime @db.Date
-  cashBook    CashBook
-  entryType   JournalEntryType
+  // Null only for JURNAL_PENYESUAIAN — every KAS_MASUK/KAS_KELUAR/
+  // TRANSFER_ANTAR_BUKU entry still must be filed under exactly one of the
+  // six books (its "point of cash truth"); adjusting entries touch no cash
+  // book at all, by definition.
+  cashBook  CashBook?
+  entryType JournalEntryType
 
   // Set for an FA Outlet-tagged transaction (e.g. an "OUTLET" book entry
   // for a specific outlet's cash) — null means company-level (Kasir,

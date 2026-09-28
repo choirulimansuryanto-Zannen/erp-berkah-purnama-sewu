@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Role } from "@prisma/client";
 import {
   LayoutDashboard,
+  ChevronDown,
   ShoppingCart,
   Clock,
   ClipboardCheck,
@@ -50,6 +52,10 @@ type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   permission?: Permission | Permission[];
+  // Sub-pages nested under this item, collapsed by default and revealed on
+  // click — used for FA Company's 7 report pages so the sidebar doesn't
+  // show all of them at once (stakeholder feedback: too long).
+  children?: NavItem[];
 };
 
 type NavSection = {
@@ -93,14 +99,22 @@ const NAV_SECTIONS: NavSection[] = [
     label: "People & Finance",
     items: [
       { href: "/hrga", label: "HRGA", icon: UsersRound, permission: "hrga:manage_policy" },
-      { href: "/finance", label: "FA Company", icon: Wallet, permission: "finance:view_ledger" },
-      { href: "/finance/journal", label: "Jurnal (6 Buku Kas)", icon: Receipt, permission: "finance:view_ledger" },
-      { href: "/finance/ledger", label: "Buku Besar", icon: History, permission: "finance:view_ledger" },
-      { href: "/finance/worksheet", label: "Worksheet (Neraca Lajur)", icon: Table2, permission: "finance:view_ledger" },
-      { href: "/finance/reports", label: "Laba Rugi & Neraca", icon: FileCheck2, permission: "finance:view_ledger" },
-      { href: "/finance/equity-changes", label: "Perubahan Ekuitas", icon: PieChart, permission: "finance:view_ledger" },
-      { href: "/finance/cash-flow", label: "Laporan Arus Kas", icon: Banknote, permission: "finance:view_ledger" },
-      { href: "/finance/insights", label: "Analisis & Insight", icon: Sparkles, permission: "finance:view_ledger" },
+      {
+        href: "/finance",
+        label: "FA Company",
+        icon: Wallet,
+        permission: "finance:view_ledger",
+        children: [
+          { href: "/finance/journal", label: "Jurnal (6 Buku Kas)", icon: Receipt, permission: "finance:view_ledger" },
+          { href: "/finance/ledger", label: "Buku Besar", icon: History, permission: "finance:view_ledger" },
+          { href: "/finance/adjusting-entries", label: "Jurnal Penyesuaian", icon: NotebookPen, permission: "finance:view_ledger" },
+          { href: "/finance/worksheet", label: "Worksheet (Neraca Lajur)", icon: Table2, permission: "finance:view_ledger" },
+          { href: "/finance/reports", label: "Laba Rugi & Neraca", icon: FileCheck2, permission: "finance:view_ledger" },
+          { href: "/finance/equity-changes", label: "Perubahan Ekuitas", icon: PieChart, permission: "finance:view_ledger" },
+          { href: "/finance/cash-flow", label: "Laporan Arus Kas", icon: Banknote, permission: "finance:view_ledger" },
+          { href: "/finance/insights", label: "Analisis & Insight", icon: Sparkles, permission: "finance:view_ledger" },
+        ],
+      },
       { href: "/finance/outlet", label: "FA Outlet", icon: Store, permission: "finance:view_ledger" },
     ],
   },
@@ -195,6 +209,21 @@ function hasAccess(role: Role, permission?: Permission | Permission[]): boolean 
   return permissions.some((p) => can(role, p));
 }
 
+/** Applies permission filtering to an item and, recursively, its children —
+ * a parent with children that all get filtered out still renders (it may
+ * have its own destination page), just with an empty children array. */
+function filterItem(item: NavItem, role: Role): NavItem | null {
+  if (!hasAccess(role, item.permission)) return null;
+  if (!item.children) return item;
+  const children = item.children.filter((c) => hasAccess(role, c.permission));
+  return { ...item, children };
+}
+
+function pathMatches(pathname: string | null, href: string): boolean {
+  const itemPath = href.split("#")[0];
+  return pathname === itemPath || (pathname?.startsWith(`${itemPath}/`) ?? false);
+}
+
 export function Sidebar({ role, onNavigate }: { role: Role; onNavigate?: () => void }) {
   const pathname = usePathname();
   const sections: NavSection[] =
@@ -204,8 +233,22 @@ export function Sidebar({ role, onNavigate }: { role: Role; onNavigate?: () => v
         ? SPV_NAV_SECTIONS
         : NAV_SECTIONS.map((section) => ({
             ...section,
-            items: section.items.filter((item) => hasAccess(role, item.permission)),
+            items: section.items.map((item) => filterItem(item, role)).filter((item): item is NavItem => item !== null),
           })).filter((section) => section.items.length > 0);
+
+  // Sub-pages (e.g. FA Company's 7 report pages) start collapsed and only
+  // appear once their parent is clicked — auto-expanded here if the page
+  // currently open is one of them, so a direct link/reload doesn't hide the
+  // active page's own group.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const section of NAV_SECTIONS) {
+      for (const item of section.items) {
+        if (item.children?.some((c) => pathMatches(pathname, c.href))) initial[item.href] = true;
+      }
+    }
+    return initial;
+  });
 
   return (
     <nav className="flex h-full w-64 flex-col gap-4 overflow-y-auto border-r border-slate-200/70 bg-white px-3 py-4">
@@ -216,24 +259,67 @@ export function Sidebar({ role, onNavigate }: { role: Role; onNavigate?: () => v
           </p>
           <div className="flex flex-col gap-0.5">
             {section.items.map((item) => {
-              const itemPath = item.href.split("#")[0];
-              const active = pathname === itemPath || pathname?.startsWith(`${itemPath}/`);
+              const active = pathMatches(pathname, item.href);
+              const hasChildren = !!item.children?.length;
+              const childActive = hasChildren && item.children!.some((c) => pathMatches(pathname, c.href));
+              const isOpen = hasChildren && (expanded[item.href] ?? false);
               const Icon = item.icon;
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={onNavigate}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg border-l-[3px] py-2 pr-3 text-sm font-medium transition-all duration-150",
-                    active
-                      ? "border-gold-400 bg-accent-50 pl-[9px] text-accent-800"
-                      : "border-transparent pl-3 text-slate-600 hover:translate-x-0.5 hover:bg-slate-50 hover:text-slate-900",
+                <div key={item.href}>
+                  <div className="flex items-center gap-0.5">
+                    <Link
+                      href={item.href}
+                      onClick={() => {
+                        onNavigate?.();
+                        if (hasChildren) setExpanded((prev) => ({ ...prev, [item.href]: true }));
+                      }}
+                      className={cn(
+                        "flex flex-1 items-center gap-3 rounded-lg border-l-[3px] py-2 pr-2 text-sm font-medium transition-all duration-150",
+                        active || childActive
+                          ? "border-gold-400 bg-accent-50 pl-[9px] text-accent-800"
+                          : "border-transparent pl-3 text-slate-600 hover:translate-x-0.5 hover:bg-slate-50 hover:text-slate-900",
+                      )}
+                    >
+                      <Icon className={cn("h-[18px] w-[18px] shrink-0", active || childActive ? "text-accent-600" : "text-slate-400")} />
+                      {item.label}
+                    </Link>
+                    {hasChildren && (
+                      <button
+                        type="button"
+                        onClick={() => setExpanded((prev) => ({ ...prev, [item.href]: !prev[item.href] }))}
+                        aria-label={isOpen ? `Tutup ${item.label}` : `Buka ${item.label}`}
+                        aria-expanded={isOpen}
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                      >
+                        <ChevronDown className={cn("h-4 w-4 transition-transform duration-150", isOpen && "rotate-180")} />
+                      </button>
+                    )}
+                  </div>
+                  {hasChildren && isOpen && (
+                    <div className="ml-4 mt-0.5 flex flex-col gap-0.5 border-l border-slate-200 pl-2">
+                      {item.children!.map((child) => {
+                        const childActiveItem = pathMatches(pathname, child.href);
+                        const ChildIcon = child.icon;
+                        return (
+                          <Link
+                            key={child.href}
+                            href={child.href}
+                            onClick={onNavigate}
+                            className={cn(
+                              "flex items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-3 text-[13px] font-medium transition-all duration-150",
+                              childActiveItem
+                                ? "bg-accent-50 text-accent-800"
+                                : "text-slate-500 hover:bg-slate-50 hover:text-slate-900",
+                            )}
+                          >
+                            <ChildIcon className={cn("h-4 w-4 shrink-0", childActiveItem ? "text-accent-600" : "text-slate-400")} />
+                            {child.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
                   )}
-                >
-                  <Icon className={cn("h-[18px] w-[18px] shrink-0", active ? "text-accent-600" : "text-slate-400")} />
-                  {item.label}
-                </Link>
+                </div>
               );
             })}
           </div>

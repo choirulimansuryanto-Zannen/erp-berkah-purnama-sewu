@@ -1,13 +1,21 @@
 import "server-only";
 import type { CashBook, JournalEntryType, AccountType, NormalBalance } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { signedBalance } from "@/lib/accounting-labels";
+import { signedBalance, typeNaturalValue } from "@/lib/accounting-labels";
 
 // Label constants and isIncomeStatementType/signedBalance live in
 // accounting-labels.ts (no "server-only") so client components can import
 // them directly — re-exported here too so existing server-side imports of
 // "@/lib/accounting" keep working unchanged.
-export { CASH_BOOK_LABELS, JOURNAL_ENTRY_TYPE_LABELS, ACCOUNT_TYPE_LABELS, isIncomeStatementType, signedBalance } from "@/lib/accounting-labels";
+export {
+  CASH_BOOK_LABELS,
+  JOURNAL_ENTRY_TYPE_LABELS,
+  ACCOUNT_TYPE_LABELS,
+  isIncomeStatementType,
+  signedBalance,
+  typeNaturalValue,
+  TYPE_NATURAL_BALANCE,
+} from "@/lib/accounting-labels";
 
 const INCOME_STATEMENT_TYPES: AccountType[] = [
   "PENDAPATAN",
@@ -34,6 +42,71 @@ export async function getCashBookAccount(cashBook: CashBook) {
   const account = await prisma.chartOfAccount.findFirst({ where: { cashBook } });
   if (!account) throw new Error(`Tidak ada akun Chart of Accounts untuk buku kas ${cashBook}`);
   return account;
+}
+
+/** Entry number for a non-cash adjusting entry, e.g. "JU-2026-000012" — one
+ * sequence per year across all Jurnal Penyesuaian, since (unlike the six
+ * cash books) there is only one "book" of these. */
+export async function generateAdjustingEntryNumber(date: Date): Promise<string> {
+  const year = date.getFullYear();
+  const yearStart = new Date(Date.UTC(year, 0, 1));
+  const yearEnd = new Date(Date.UTC(year + 1, 0, 1));
+  const count = await prisma.journalEntry.count({
+    where: { entryType: "JURNAL_PENYESUAIAN", date: { gte: yearStart, lt: yearEnd } },
+  });
+  return `JU-${year}-${String(count + 1).padStart(6, "0")}`;
+}
+
+/**
+ * Posts a non-cash adjusting entry — depresiasi, akrual beban/pendapatan,
+ * amortisasi biaya dibayar-di-muka, koreksi, dan sejenisnya. This is the
+ * one JournalEntry shape that does NOT touch a cash book on either leg (see
+ * the JournalEntry.cashBook comment) — both accounts must therefore be
+ * non-cash-book accounts. Anything that moves real cash belongs in
+ * postCashVoucher instead, keeping the six books' own cash trail exact.
+ */
+export async function postAdjustingEntry(params: {
+  date: Date;
+  description: string;
+  reference?: string | null;
+  debitAccountId: string;
+  creditAccountId: string;
+  amount: number;
+  createdById: string;
+}) {
+  const { date, description, reference, debitAccountId, creditAccountId, amount, createdById } = params;
+  if (amount <= 0) throw new Error("Nominal harus lebih dari 0");
+  if (debitAccountId === creditAccountId) throw new Error("Akun debit dan kredit tidak boleh sama");
+
+  const [debitAccount, creditAccount] = await Promise.all([
+    prisma.chartOfAccount.findUnique({ where: { id: debitAccountId } }),
+    prisma.chartOfAccount.findUnique({ where: { id: creditAccountId } }),
+  ]);
+  if (!debitAccount || !creditAccount) throw new Error("Akun tidak ditemukan");
+  if (debitAccount.cashBook || creditAccount.cashBook) {
+    throw new Error("Jurnal Penyesuaian tidak boleh menyentuh akun buku kas — gunakan Jurnal (6 Buku Kas) untuk transaksi yang melibatkan kas.");
+  }
+
+  const entryNumber = await generateAdjustingEntryNumber(date);
+
+  return prisma.journalEntry.create({
+    data: {
+      entryNumber,
+      date,
+      cashBook: null,
+      entryType: "JURNAL_PENYESUAIAN",
+      description,
+      reference: reference ?? null,
+      createdById,
+      lines: {
+        create: [
+          { accountId: debitAccountId, debit: amount, credit: 0 },
+          { accountId: creditAccountId, debit: 0, credit: amount },
+        ],
+      },
+    },
+    include: { lines: { include: { account: true } } },
+  });
 }
 
 /**
@@ -116,7 +189,16 @@ export async function getMonthlyCashFlow(year: number): Promise<CashFlowLine[]> 
   const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
 
   const entries = await prisma.journalEntry.findMany({
-    where: { status: "POSTED", entryType: { not: "TRANSFER_ANTAR_BUKU" }, date: { gte: yearStart, lte: yearEnd } },
+    where: {
+      status: "POSTED",
+      // TRANSFER_ANTAR_BUKU: both legs are cash, zero net effect (see above).
+      // JURNAL_PENYESUAIAN: NEITHER leg is cash, so it has no cash-flow
+      // impact either — excluded here rather than relying on the `!cashLine`
+      // skip below, so the query itself never fetches rows this report
+      // can't use.
+      entryType: { notIn: ["TRANSFER_ANTAR_BUKU", "JURNAL_PENYESUAIAN"] },
+      date: { gte: yearStart, lte: yearEnd },
+    },
     select: { date: true, lines: { select: { debit: true, credit: true, account: true } } },
   });
 
@@ -147,9 +229,15 @@ export async function getMonthlyCashFlow(year: number): Promise<CashFlowLine[]> 
  * it slightly differently. */
 export function computeLabaBersihSeries(matrix: MonthlyAccountRow[]): number[] {
   const zero = () => Array.from({ length: 12 }, () => 0);
+  // typeNaturalValue re-signs each account's own-normalBalance-signed
+  // monthly movement into the TYPE's natural direction before summing —
+  // without it, a contra account (e.g. Diskon Penjualan, debit-normal
+  // inside credit-normal PENDAPATAN) would be ADDED instead of subtracted.
   const sumType = (type: AccountType) => {
     const out = zero();
-    for (const a of matrix.filter((r) => r.type === type)) a.monthly.forEach((v, i) => (out[i] += v));
+    for (const a of matrix.filter((r) => r.type === type)) {
+      a.monthly.forEach((v, i) => (out[i] += typeNaturalValue(v, a.type, a.normalBalance)));
+    }
     return out;
   };
   const pendapatan = sumType("PENDAPATAN");

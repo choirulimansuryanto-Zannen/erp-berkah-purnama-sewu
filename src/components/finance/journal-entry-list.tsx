@@ -13,7 +13,7 @@ export type JournalEntryRow = {
   id: string;
   entryNumber: string;
   date: string;
-  cashBook: string;
+  cashBook: string | null;
   entryType: string;
   description: string;
   reference: string | null;
@@ -74,7 +74,7 @@ export function JournalEntryList({ entries }: { entries: JournalEntryRow[] }) {
           <Tr key={e.id} className={e.status === "VOID" ? "opacity-50" : ""}>
             <Td className="font-mono text-xs text-slate-500">{e.entryNumber}</Td>
             <Td>{new Date(e.date).toLocaleDateString("id-ID")}</Td>
-            <Td>{CASH_BOOK_LABELS[e.cashBook as keyof typeof CASH_BOOK_LABELS] ?? e.cashBook}</Td>
+            <Td>{e.cashBook ? (CASH_BOOK_LABELS[e.cashBook as keyof typeof CASH_BOOK_LABELS] ?? e.cashBook) : "— (non-kas)"}</Td>
             <Td>{JOURNAL_ENTRY_TYPE_LABELS[e.entryType as keyof typeof JOURNAL_ENTRY_TYPE_LABELS] ?? e.entryType}</Td>
             <Td>
               <p className="font-medium text-slate-800">{e.description}</p>

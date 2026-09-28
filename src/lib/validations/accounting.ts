@@ -33,3 +33,17 @@ export const journalVoucherSchema = z.object({
 export const voidJournalEntrySchema = z.object({
   reason: z.string().min(1).max(500),
 });
+
+export const adjustingEntrySchema = z
+  .object({
+    date: z.coerce.date(),
+    description: z.string().min(1).max(500),
+    reference: z.string().max(100).optional(),
+    debitAccountId: z.string().uuid(),
+    creditAccountId: z.string().uuid(),
+    amount: z.number().positive(),
+  })
+  .refine((data) => data.debitAccountId !== data.creditAccountId, {
+    message: "Akun debit dan kredit tidak boleh sama",
+    path: ["creditAccountId"],
+  });

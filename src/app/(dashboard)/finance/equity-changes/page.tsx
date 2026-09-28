@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getMonthlyAccountMatrix, computeLabaBersihSeries } from "@/lib/accounting";
+import { getMonthlyAccountMatrix, computeLabaBersihSeries, typeNaturalValue } from "@/lib/accounting";
 import { MonthlyReportTable, type MonthlyReportRow } from "@/components/finance/monthly-report-table";
 
 const ZERO_12 = () => Array.from({ length: 12 }, () => 0);
@@ -29,17 +29,20 @@ export default async function EquityChangesPage({ searchParams }: { searchParams
 
   const matrix = await getMonthlyAccountMatrix(year);
   const ekuitasAccounts = matrix.filter((a) => a.type === "EKUITAS");
-  const openingEkuitas = ekuitasAccounts.reduce((s, a) => s + a.opening, 0);
+  // typeNaturalValue: a contra-equity account (e.g. Prive/drawing, debit-
+  // normal inside credit-normal EKUITAS) must subtract from equity, not add.
+  const naturalMonthly = (a: (typeof ekuitasAccounts)[number]) => a.monthly.map((v) => typeNaturalValue(v, a.type, a.normalBalance));
+  const openingEkuitas = ekuitasAccounts.reduce((s, a) => s + typeNaturalValue(a.opening, a.type, a.normalBalance), 0);
   const labaBersih = computeLabaBersihSeries(matrix);
 
   const rows: MonthlyReportRow[] = [];
   for (const a of ekuitasAccounts.filter((a) => a.monthly.some((v) => v !== 0))) {
-    rows.push({ code: a.code, label: `Perubahan — ${a.name}`, values: a.monthly, indent: true });
+    rows.push({ code: a.code, label: `Perubahan — ${a.name}`, values: naturalMonthly(a), indent: true });
   }
   rows.push({ label: "Laba (Rugi) Bersih Bulan Berjalan", values: labaBersih });
 
   const totalChange = addSeries(
-    ...ekuitasAccounts.map((a) => a.monthly),
+    ...ekuitasAccounts.map(naturalMonthly),
     labaBersih,
   );
   let running = openingEkuitas;

@@ -31,8 +31,11 @@ export default async function FinanceJournalPage({
   const [accounts, outlets, entries] = await Promise.all([
     prisma.chartOfAccount.findMany({ where: { status: "ACTIVE" }, orderBy: { code: "asc" } }),
     prisma.outlet.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    // Jurnal Penyesuaian entries live on their own dedicated page (they
+    // don't belong to any of the six books, and this page's form can't
+    // create them) — excluded here so "Riwayat Jurnal" stays cash-voucher-only.
     prisma.journalEntry.findMany({
-      where: { date: { gte: rangeFrom, lte: rangeTo } },
+      where: { date: { gte: rangeFrom, lte: rangeTo }, entryType: { not: "JURNAL_PENYESUAIAN" } },
       include: { lines: { include: { account: true } }, outlet: true },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: 300,
