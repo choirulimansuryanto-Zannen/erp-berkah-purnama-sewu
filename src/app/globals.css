@@ -1,35 +1,39 @@
 @import "tailwindcss";
 
 @theme {
-  /* Brand red — deep, high-emphasis surfaces: headers, dark hero panels,
-     high-emphasis text. Two shades of red (brand = deep maroon, accent =
-     vivid scarlet below) plus gold form the palette; brand-900/950 are
-     tuned dark enough that white text on them clears WCAG AA (~13:1). */
-  --color-brand-50: #fef2f2;
-  --color-brand-100: #fde2e2;
-  --color-brand-200: #fac9c9;
-  --color-brand-300: #f5a6a6;
-  --color-brand-400: #ec7575;
-  --color-brand-500: #dd4747;
-  --color-brand-600: #c22a2a;
-  --color-brand-700: #9c1f1f;
-  --color-brand-800: #7a1a1a;
-  --color-brand-900: #591515;
-  --color-brand-950: #330b0b;
+  /* Brand navy — deep, high-emphasis surfaces: headers, dark hero panels,
+     high-emphasis text. Rebranded 2026-09-28 from the original deep-maroon
+     palette to navy+gold per stakeholder request; every component already
+     reads these as tokens (bg-brand-950, text-accent-600, ...) rather than
+     hardcoded hex, so this single swap re-themes the whole app. brand-900/
+     950 verified ~16-19:1 contrast for white text (comfortably clears AA). */
+  --color-brand-50: #eef3fb;
+  --color-brand-100: #d9e5f6;
+  --color-brand-200: #b3cbed;
+  --color-brand-300: #82a8de;
+  --color-brand-400: #5883c9;
+  --color-brand-500: #3a63ab;
+  --color-brand-600: #2a4c8a;
+  --color-brand-700: #213c6c;
+  --color-brand-800: #182c51;
+  --color-brand-900: #101f3a;
+  --color-brand-950: #08111f;
 
-  /* Accent scarlet — primary actions, links, focus rings. accent-600 is
-     tuned to ~4.9:1 contrast against white text (verified), so it's safe
-     as a solid button background, unlike a true yellow at that saturation. */
-  --color-accent-50: #fff1f0;
-  --color-accent-100: #ffe1de;
-  --color-accent-200: #ffc6c0;
-  --color-accent-300: #ff9d92;
-  --color-accent-400: #fa6a5a;
-  --color-accent-500: #f13f2c;
-  --color-accent-600: #d92a1c;
-  --color-accent-700: #b21f14;
-  --color-accent-800: #8f1c13;
-  --color-accent-900: #741c15;
+  /* Accent royal blue — primary actions, links, focus rings. A brighter,
+     more saturated blue than brand-*, so interactive elements still pop
+     against the very dark navy chrome. accent-600 verified ~6.5:1 contrast
+     against white text (comfortably clears AA, brighter margin than the
+     original scarlet's ~4.9:1). */
+  --color-accent-50: #eef3ff;
+  --color-accent-100: #dde7fe;
+  --color-accent-200: #b9d0fd;
+  --color-accent-300: #8bb0fa;
+  --color-accent-400: #5c8cf2;
+  --color-accent-500: #4270dc;
+  --color-accent-600: #2f56c4;
+  --color-accent-700: #24439c;
+  --color-accent-800: #1d3679;
+  --color-accent-900: #182c5f;
 
   /* Gold — the third brand color. Decorative/highlight only: badges with
      dark text, borders, focus-glow accents, the logo. Never a background
@@ -130,19 +134,19 @@
   0%,
   100% {
     box-shadow:
-      0 0 0 3px rgb(217 42 28 / 0.16),
+      0 0 0 3px rgb(47 86 196 / 0.16),
       0 0 0 6px rgb(242 176 0 / 0.12);
   }
   50% {
     box-shadow:
-      0 0 0 4px rgb(217 42 28 / 0.22),
+      0 0 0 4px rgb(47 86 196 / 0.22),
       0 0 0 9px rgb(242 176 0 / 0.18);
   }
 }
 
 :root {
-  --background: #faf8f5;
-  --foreground: #2a1414;
+  --background: #f7f8fa;
+  --foreground: #101f3a;
 }
 
 body {

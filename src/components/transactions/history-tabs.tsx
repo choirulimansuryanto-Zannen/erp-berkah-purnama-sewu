@@ -50,9 +50,9 @@ type ModelBreakdown = { model: string; omset: number; orders: number; aov: numbe
 type ModelGroup = ModelBreakdown & { channels: ChannelBreakdown[] };
 
 const MODEL_ACCENT: Record<string, string> = {
-  Offline: "#d92a1c",
+  Offline: "#2f56c4",
   Online: "#f2b000",
-  Tunai: "#d92a1c",
+  Tunai: "#2f56c4",
   "Non-Tunai": "#f2b000",
 };
 
@@ -233,7 +233,7 @@ export function HistoryTabs({
                       <ChannelBadge channel={c.channel} />
                     </Td>
                     <Td>
-                      <MetricCell value={c.omset} max={maxChannelOmset} color={CHANNEL_COLORS[c.channel] ?? "#d92a1c"}>
+                      <MetricCell value={c.omset} max={maxChannelOmset} color={CHANNEL_COLORS[c.channel] ?? "#2f56c4"}>
                         {currency.format(c.omset)}
                       </MetricCell>
                     </Td>
@@ -250,7 +250,7 @@ export function HistoryTabs({
         {tab === "Per Customer Model" && (
           <div className="space-y-5">
             <ShareDonutChart
-              data={byCustomerModel.map((m) => ({ name: m.model, value: m.omset, color: m.model === "Online" ? "#f2b000" : "#d92a1c" }))}
+              data={byCustomerModel.map((m) => ({ name: m.model, value: m.omset, color: m.model === "Online" ? "#f2b000" : "#2f56c4" }))}
               valueFormatter={(v) => currency.format(v)}
               centerLabel="Total Omset"
             />
@@ -261,7 +261,7 @@ export function HistoryTabs({
         {tab === "Per Payment Model" && (
           <div className="space-y-5">
             <ShareDonutChart
-              data={byPaymentModel.map((m) => ({ name: m.model, value: m.omset, color: m.model === "Tunai" ? "#d92a1c" : "#f2b000" }))}
+              data={byPaymentModel.map((m) => ({ name: m.model, value: m.omset, color: m.model === "Tunai" ? "#2f56c4" : "#f2b000" }))}
               valueFormatter={(v) => currency.format(v)}
               centerLabel="Total Omset"
             />
@@ -297,7 +297,7 @@ export function HistoryTabs({
                     </Td>
                     <Td className="font-medium text-slate-900">{p.name}</Td>
                     <Td>
-                      <MetricCell value={p.qty} max={byProduct[0]?.qty ?? 1} color="#d92a1c">
+                      <MetricCell value={p.qty} max={byProduct[0]?.qty ?? 1} color="#2f56c4">
                         {p.qty}
                       </MetricCell>
                     </Td>

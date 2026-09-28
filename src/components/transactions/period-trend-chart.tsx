@@ -41,12 +41,12 @@ export function PeriodTrendChart({ data }: { data: Point[] }) {
         <Area
           type="monotone"
           dataKey="omset"
-          stroke="#d92a1c"
+          stroke="#2f56c4"
           strokeWidth={2}
-          fill="#d92a1c"
+          fill="#2f56c4"
           fillOpacity={0.1}
-          dot={{ r: 4, fill: "#d92a1c", stroke: "#ffffff", strokeWidth: 2 }}
-          activeDot={{ r: 6, fill: "#d92a1c", stroke: "#ffffff", strokeWidth: 2 }}
+          dot={{ r: 4, fill: "#2f56c4", stroke: "#ffffff", strokeWidth: 2 }}
+          activeDot={{ r: 6, fill: "#2f56c4", stroke: "#ffffff", strokeWidth: 2 }}
         />
       </AreaChart>
     </ResponsiveContainer>

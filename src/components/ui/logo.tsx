@@ -8,8 +8,9 @@ type Props = {
 
 /**
  * The BPS mark: a badge in the "letter-box" style of the firms that inspired
- * this redesign (EY, PwC, KPMG) — bold monogram, deep red gradient, a thin
- * gold ring for the premium touch, white type for contrast.
+ * this redesign (EY, PwC, KPMG) — bold monogram, deep navy gradient, a thin
+ * gold ring for the premium touch, white type for contrast. Rebranded
+ * 2026-09-28 from the original deep-red gradient to navy+gold.
  */
 export function BpsLogo({ size = 36, animated = false, className }: Props) {
   return (
@@ -23,9 +24,9 @@ export function BpsLogo({ size = 36, animated = false, className }: Props) {
     >
       <defs>
         <linearGradient id="bps-badge" x1="4" y1="2" x2="36" y2="38" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#c22a2a" />
-          <stop offset="55%" stopColor="#7a1a1a" />
-          <stop offset="100%" stopColor="#330b0b" />
+          <stop offset="0%" stopColor="#2a4c8a" />
+          <stop offset="55%" stopColor="#182c51" />
+          <stop offset="100%" stopColor="#08111f" />
         </linearGradient>
         <linearGradient id="bps-ring" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#fdc321" />

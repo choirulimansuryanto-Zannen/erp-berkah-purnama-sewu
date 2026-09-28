@@ -26,7 +26,7 @@ function TrendTooltip({
 export function RankedBarChart({
   data,
   valueFormatter,
-  defaultColor = "#d92a1c",
+  defaultColor = "#2f56c4",
 }: {
   data: Row[];
   valueFormatter: (v: number) => string;

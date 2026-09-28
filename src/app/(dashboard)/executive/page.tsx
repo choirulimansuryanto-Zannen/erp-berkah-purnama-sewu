@@ -20,7 +20,7 @@ import { DateRangeFilter } from "@/components/ui/date-range-filter";
 
 // Fixed, non-cycled hue order for regions — same principle as CHANNEL_COLORS:
 // a region keeps the same color everywhere it appears on this page.
-const REGION_COLORS = ["#d92a1c", "#2563eb", "#059669", "#f2b000", "#7c3aed", "#0d9488", "#f97316", "#0f172a"];
+const REGION_COLORS = ["#2f56c4", "#2563eb", "#059669", "#f2b000", "#7c3aed", "#0d9488", "#f97316", "#0f172a"];
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 const PACE_TONE_BADGE = { red: "danger", yellow: "warning", green: "success" } as const;
