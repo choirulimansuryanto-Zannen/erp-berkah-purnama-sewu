@@ -385,6 +385,96 @@ export async function getMonthlyAccountMatrix(year: number): Promise<MonthlyAcco
   });
 }
 
+export type WorksheetAccountRow = {
+  accountId: string;
+  code: string;
+  name: string;
+  type: AccountType;
+  normalBalance: NormalBalance;
+  /** Cumulative balance as of end of the selected month, from every POSTED
+   * entry EXCEPT Jurnal Penyesuaian — the classic "Neraca Saldo" column,
+   * before adjustments. */
+  trialBalance: number;
+  /** Cumulative balance contributed by Jurnal Penyesuaian entries only, as
+   * of end of the selected month — the classic "Penyesuaian" column. */
+  adjustment: number;
+  /** trialBalance + adjustment — "Neraca Saldo Setelah Disesuaikan", what
+   * the Laba Rugi/Neraca columns are extended from. */
+  adjustedTrialBalance: number;
+};
+
+/**
+ * The classic 10-column worksheet's first three column-pairs in one query:
+ * Neraca Saldo (unadjusted), Penyesuaian, Neraca Saldo Setelah Disesuaikan
+ * — for a single selected month, split by whether each posted line came
+ * from a Jurnal Penyesuaian entry or not. Mirrors getMonthlyAccountMatrix's
+ * opening/year-to-date convention exactly (P&L-type accounts reset to 0
+ * every Jan 1; Aset/Kewajiban/Ekuitas carry forward everything before it)
+ * so "trialBalance + adjustment" always equals what getMonthlyAccountMatrix
+ * itself would report as this account's cumulative balance for the month —
+ * this function only exists to split that single number into its two
+ * components, not to recompute it differently.
+ */
+export async function getWorksheetSnapshot(year: number, month: number): Promise<WorksheetAccountRow[]> {
+  const yearStart = new Date(Date.UTC(year, 0, 1));
+  const periodEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)); // last instant of the selected month
+
+  type Sums = { tbDebit: number; tbCredit: number; adjDebit: number; adjCredit: number };
+  const zeroSums = (): Sums => ({ tbDebit: 0, tbCredit: 0, adjDebit: 0, adjCredit: 0 });
+
+  const [accounts, openingLines, yearLines] = await Promise.all([
+    prisma.chartOfAccount.findMany({ orderBy: { code: "asc" } }),
+    prisma.journalEntryLine.findMany({
+      where: { journalEntry: { status: "POSTED", date: { lt: yearStart } } },
+      select: { accountId: true, debit: true, credit: true, journalEntry: { select: { entryType: true } } },
+    }),
+    prisma.journalEntryLine.findMany({
+      where: { journalEntry: { status: "POSTED", date: { gte: yearStart, lte: periodEnd } } },
+      select: { accountId: true, debit: true, credit: true, journalEntry: { select: { entryType: true } } },
+    }),
+  ]);
+
+  function bucketBy(lines: typeof openingLines): Map<string, Sums> {
+    const map = new Map<string, Sums>();
+    for (const l of lines) {
+      const s = map.get(l.accountId) ?? zeroSums();
+      if (l.journalEntry.entryType === "JURNAL_PENYESUAIAN") {
+        s.adjDebit += Number(l.debit);
+        s.adjCredit += Number(l.credit);
+      } else {
+        s.tbDebit += Number(l.debit);
+        s.tbCredit += Number(l.credit);
+      }
+      map.set(l.accountId, s);
+    }
+    return map;
+  }
+  const openingSums = bucketBy(openingLines);
+  const yearSums = bucketBy(yearLines);
+
+  const neracaTypes: AccountType[] = ["ASET", "KEWAJIBAN", "EKUITAS"];
+
+  return accounts.map((a) => {
+    const isNeraca = neracaTypes.includes(a.type);
+    const os = openingSums.get(a.id) ?? zeroSums();
+    const ys = yearSums.get(a.id) ?? zeroSums();
+    const openingTb = isNeraca ? signedBalance(os.tbDebit, os.tbCredit, a.normalBalance) : 0;
+    const openingAdj = isNeraca ? signedBalance(os.adjDebit, os.adjCredit, a.normalBalance) : 0;
+    const trialBalance = openingTb + signedBalance(ys.tbDebit, ys.tbCredit, a.normalBalance);
+    const adjustment = openingAdj + signedBalance(ys.adjDebit, ys.adjCredit, a.normalBalance);
+    return {
+      accountId: a.id,
+      code: a.code,
+      name: a.name,
+      type: a.type,
+      normalBalance: a.normalBalance,
+      trialBalance,
+      adjustment,
+      adjustedTrialBalance: trialBalance + adjustment,
+    };
+  });
+}
+
 /** This account plus every descendant under it (children, grandchildren,
  * ...), by code — used to roll up a report-header account (e.g. "56000
  * BEBAN OVERHEAD PABRIK") into one total across its whole subtree. Each
