@@ -45,6 +45,24 @@
   --color-gold-800: #7a5500;
   --color-gold-900: #5c4100;
 
+  /* Navy — a deliberately separate jewel tone from the red+gold brand
+     identity, reserved for surfaces that want to read as a distinct
+     "control panel" rather than primary brand chrome (the login page's
+     demo-account picker). Pairs with gold the same way navy+gold reads in
+     private banking/premium fintech UI. navy-900/950 clear WCAG AA for
+     white text (~14:1). */
+  --color-navy-50: #eef3fb;
+  --color-navy-100: #d9e5f6;
+  --color-navy-200: #b3cbed;
+  --color-navy-300: #82a8de;
+  --color-navy-400: #5883c9;
+  --color-navy-500: #3a63ab;
+  --color-navy-600: #2a4c8a;
+  --color-navy-700: #213c6c;
+  --color-navy-800: #182c51;
+  --color-navy-900: #101f3a;
+  --color-navy-950: #08111f;
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 
@@ -164,6 +182,19 @@ body {
   position: absolute;
   inset: 0;
   background: linear-gradient(115deg, transparent 40%, rgb(255 255 255 / 0.16) 50%, transparent 60%);
+  background-size: 250% 100%;
+  animation: shimmer 3.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Same sheen, tuned for the navy demo-account cards — a cooler, gold-tinted
+   pass instead of plain white, so it reads as a metallic glint rather than
+   a generic loading shimmer. */
+.sheen-gold::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 35%, rgb(253 195 33 / 0.35) 50%, transparent 65%);
   background-size: 250% 100%;
   animation: shimmer 3.2s ease-in-out infinite;
   pointer-events: none;

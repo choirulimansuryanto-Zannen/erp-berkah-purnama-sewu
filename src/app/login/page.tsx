@@ -1,10 +1,22 @@
 "use client";
 
-import { useActionState, useRef } from "react";
-import { Users } from "lucide-react";
+import { useActionState, useRef, useState } from "react";
+import {
+  KeyRound,
+  ShoppingBag,
+  ShieldCheck,
+  Building2,
+  Package,
+  Calculator,
+  UsersRound,
+  Megaphone,
+  Crown,
+  Check,
+} from "lucide-react";
 import { login, type LoginState } from "./actions";
 import { DEMO_PASSWORD, DEMO_USERS } from "@/lib/demo-accounts";
 import { BpsLogo } from "@/components/ui/logo";
+import { cn } from "@/lib/cn";
 
 const initialState: LoginState = { error: null };
 
@@ -19,14 +31,34 @@ const ROLE_LABEL: Record<string, string> = {
   MASTER_ADMIN: "Master Admin",
 };
 
+const ROLE_ICON: Record<string, typeof KeyRound> = {
+  PRAMUNIAGA: ShoppingBag,
+  SPV: ShieldCheck,
+  OFFICE: Building2,
+  OPS_ADMIN: Package,
+  FA_ADMIN: Calculator,
+  HRGA_ADMIN: UsersRound,
+  MARKETING_ADMIN: Megaphone,
+  MASTER_ADMIN: Crown,
+};
+
+// Two natural clusters — front-of-house (outlet floor) vs. back-of-house
+// (head office) — rather than one flat grid of eight identical tiles.
+const ROLE_GROUPS: { label: string; roles: string[] }[] = [
+  { label: "Outlet & Wilayah", roles: ["PRAMUNIAGA", "SPV"] },
+  { label: "Kantor Pusat", roles: ["OFFICE", "OPS_ADMIN", "FA_ADMIN", "HRGA_ADMIN", "MARKETING_ADMIN", "MASTER_ADMIN"] },
+];
+
 export default function LoginPage() {
   const [state, formAction, pending] = useActionState(login, initialState);
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
+  const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
 
   function fillDemo(email: string) {
     if (emailRef.current) emailRef.current.value = email;
     if (passwordRef.current) passwordRef.current.value = DEMO_PASSWORD;
+    setSelectedEmail(email);
     emailRef.current?.focus();
   }
 
@@ -132,22 +164,71 @@ export default function LoginPage() {
           </form>
 
           {process.env.NODE_ENV !== "production" && (
-            <div className="mt-8 border-t border-slate-200 pt-5">
-              <p className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
-                <Users className="h-3.5 w-3.5" />
-                Demo Accounts (dev only) — klik untuk isi otomatis
-              </p>
-              <div className="mt-3 grid grid-cols-2 gap-1.5">
-                {DEMO_USERS.map((account) => (
-                  <button
-                    key={account.email}
-                    type="button"
-                    onClick={() => fillDemo(account.email)}
-                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-left text-xs font-medium text-slate-600 transition-colors hover:border-accent-300 hover:bg-accent-50 hover:text-accent-800"
-                  >
-                    {ROLE_LABEL[account.role] ?? account.role}
-                  </button>
-                ))}
+            <div className="animate-fade-in-up relative mt-9 overflow-hidden rounded-2xl bg-gradient-to-br from-navy-900 via-navy-950 to-navy-900 p-[1px] shadow-lg shadow-navy-950/20" style={{ animationDelay: "0.15s" }}>
+              {/* Gold hairline frame — the "letter-box" premium touch, same
+                  language as the logo's gold ring. */}
+              <div className="rounded-[15px] bg-gradient-to-br from-navy-950 via-navy-900 to-navy-950 p-5">
+                <div
+                  className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-gold-400/10 blur-3xl"
+                  aria-hidden
+                />
+                <div className="relative flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gold-400/15 ring-1 ring-inset ring-gold-400/30">
+                    <KeyRound className="h-4 w-4 text-gold-400" />
+                  </span>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-gold-400">Demo Accounts</p>
+                    <p className="text-[11px] text-white/45">Khusus development — klik untuk isi otomatis</p>
+                  </div>
+                </div>
+
+                <div className="relative mt-4 space-y-4">
+                  {ROLE_GROUPS.map((group) => (
+                    <div key={group.label}>
+                      <p className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-white/35">
+                        <span className="h-px flex-1 bg-white/10" />
+                        {group.label}
+                        <span className="h-px flex-1 bg-white/10" />
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {DEMO_USERS.filter((a) => group.roles.includes(a.role)).map((account) => {
+                          const Icon = ROLE_ICON[account.role] ?? KeyRound;
+                          const isSelected = selectedEmail === account.email;
+                          return (
+                            <button
+                              key={account.email}
+                              type="button"
+                              onClick={() => fillDemo(account.email)}
+                              className={cn(
+                                "group relative flex items-center gap-2 overflow-hidden rounded-xl px-3 py-2.5 text-left transition-all duration-200",
+                                isSelected
+                                  ? "sheen-gold bg-gradient-to-br from-gold-400 to-gold-600 shadow-md shadow-gold-500/25"
+                                  : "bg-white/[0.06] ring-1 ring-inset ring-white/10 hover:-translate-y-0.5 hover:bg-white/[0.1] hover:ring-gold-400/40",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors",
+                                  isSelected ? "bg-navy-950/15 text-navy-950" : "bg-white/10 text-gold-400 group-hover:bg-gold-400/15",
+                                )}
+                              >
+                                {isSelected ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
+                              </span>
+                              <span
+                                className={cn(
+                                  "truncate text-xs font-semibold",
+                                  isSelected ? "text-navy-950" : "text-white/85",
+                                )}
+                              >
+                                {ROLE_LABEL[account.role] ?? account.role}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
