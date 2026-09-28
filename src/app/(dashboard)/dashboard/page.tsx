@@ -1,19 +1,61 @@
 import Link from "next/link";
 import type { Role } from "@prisma/client";
-import { CheckCircle2, Clock3, FileText, ReceiptText, Store, Target, Zap } from "lucide-react";
+import { CheckCircle2, Clock3, FileText, ReceiptText, Store, Target, Zap, Wallet, Sparkles, Landmark, AlertTriangle, Boxes, NotebookPen } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getScopedOutletIds } from "@/lib/outlet-scope";
 import { getSessionDate, getSessionTimeRange, startOfToday } from "@/lib/session";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
+import { getAnnualFinancialSummary, getMonthlyAccountMatrix } from "@/lib/accounting";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 
-const MANAGEMENT_ROLES: Role[] = ["SPV", "OFFICE", "MASTER_ADMIN", "FA_ADMIN"];
+const MANAGEMENT_ROLES: Role[] = ["SPV", "OFFICE", "MASTER_ADMIN"];
+const INVENTORY_CATEGORIES = ["BAHAN_BAKU", "BAHAN_SETENGAH_JADI", "BARANG_JADI", "BAHAN_PENDUKUNG", "PROYEK_DALAM_PENYELESAIAN"] as const;
+
+async function loadFaDashboardData() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const monthStart = new Date(Date.UTC(year, month - 1, 1));
+  const monthEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+
+  const [summary, matrix, adjustingCount, closingCount] = await Promise.all([
+    getAnnualFinancialSummary(year),
+    getMonthlyAccountMatrix(year),
+    prisma.journalEntry.count({
+      where: { status: "POSTED", entryType: "JURNAL_PENYESUAIAN", date: { gte: monthStart, lte: monthEnd } },
+    }),
+    prisma.inventoryClosingBalance.count({ where: { year, month } }),
+  ]);
+
+  const upToMonth = now.getMonth();
+  const totalCash = matrix.filter((a) => a.cashBook).reduce((s, a) => s + a.cumulative[upToMonth], 0);
+  const isBalanced = Math.abs(summary.totalAktiva - (summary.totalKewajiban + summary.totalEkuitas)) < 1;
+  const stockOpnameComplete = closingCount >= INVENTORY_CATEGORIES.length;
+
+  return {
+    kind: "fa_admin" as const,
+    monthLabel: now.toLocaleDateString("id-ID", { month: "long", year: "numeric" }),
+    labaBersihYtd: summary.labaBersih,
+    totalPenjualanYtd: summary.totalPenjualan,
+    totalCash,
+    totalAktiva: summary.totalAktiva,
+    isBalanced,
+    adjustingCount,
+    stockOpnameComplete,
+    stockOpnameFilled: closingCount,
+    stockOpnameTotal: INVENTORY_CATEGORIES.length,
+  };
+}
 
 async function loadDashboardData(userId: string, role: Role, outletId: string | null) {
   try {
+    if (role === "FA_ADMIN") {
+      return await loadFaDashboardData();
+    }
+
     if (MANAGEMENT_ROLES.includes(role)) {
       const scopedOutletIds = await getScopedOutletIds(userId, role);
       const outletFilter = scopedOutletIds ? { in: scopedOutletIds } : undefined;
@@ -130,6 +172,56 @@ export default async function DashboardPage() {
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           Database belum terhubung. Jalankan <code>prisma migrate dev</code> setelah{" "}
           <code>DATABASE_URL</code>/<code>DIRECT_URL</code> di <code>.env.local</code> terisi.
+        </div>
+      )}
+
+      {data.kind === "fa_admin" && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard label="Total Penjualan (YTD)" value={currency.format(data.totalPenjualanYtd)} tone="brand" icon={<Store className="h-4 w-4" />} />
+            <StatCard
+              label="Laba Bersih (YTD)"
+              value={currency.format(data.labaBersihYtd)}
+              tone={data.labaBersihYtd >= 0 ? "success" : "danger"}
+              icon={<Sparkles className="h-4 w-4" />}
+            />
+            <StatCard label="Kas & Bank Saat Ini" value={currency.format(data.totalCash)} tone="accent" icon={<Wallet className="h-4 w-4" />} />
+            <StatCard
+              label="Status Neraca"
+              value={data.isBalanced ? "Seimbang" : "Tidak Seimbang"}
+              hint={currency.format(data.totalAktiva) + " Total Aktiva"}
+              tone={data.isBalanced ? "success" : "danger"}
+              icon={<Landmark className="h-4 w-4" />}
+            />
+          </div>
+
+          {!data.stockOpnameComplete && (
+            <Link
+              href="/finance/persediaan"
+              className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 transition-colors hover:bg-amber-100"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>
+                Persediaan Akhir {data.monthLabel} baru terisi {data.stockOpnameFilled}/{data.stockOpnameTotal} kategori — lengkapi di menu Persediaan
+                agar Laporan HPP bulan ini akurat.
+              </span>
+            </Link>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white p-4 text-sm text-slate-600 shadow-[var(--shadow-card)]">
+              <NotebookPen className="h-4 w-4 shrink-0 text-accent-600" />
+              {data.adjustingCount} Jurnal Penyesuaian diposting bulan {data.monthLabel}
+            </div>
+            <div className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white p-4 text-sm text-slate-600 shadow-[var(--shadow-card)]">
+              <Boxes className="h-4 w-4 shrink-0 text-accent-600" />
+              {data.stockOpnameFilled}/{data.stockOpnameTotal} kategori Persediaan Akhir sudah tercatat bulan {data.monthLabel}
+            </div>
+          </div>
+
+          <Link href="/executive" className="inline-block text-sm font-medium text-accent-700 hover:text-accent-800">
+            Lihat FA Executive Dashboard lengkap →
+          </Link>
         </div>
       )}
 

@@ -1,6 +1,25 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { AlertTriangle, TrendingUp, Users2, Wallet, ChevronRight } from "lucide-react";
+import {
+  AlertTriangle,
+  TrendingUp,
+  Users2,
+  Wallet,
+  ChevronRight,
+  Landmark,
+  Scale,
+  FileCheck2,
+  PieChart,
+  Banknote,
+  GitCompareArrows,
+  Sparkles,
+  Receipt,
+  History,
+  NotebookPen,
+  Table2,
+  Boxes,
+  Factory,
+} from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { can } from "@/lib/permissions";
@@ -17,6 +36,249 @@ import { OmsetTrendChart } from "@/components/executive/omset-trend-chart";
 import { FormattedBarChart, FormattedDonutChart } from "@/components/ui/formatted-charts";
 import { CHANNEL_COLORS, CHANNEL_LABELS } from "@/components/transactions/channel-badge";
 import { DateRangeFilter } from "@/components/ui/date-range-filter";
+import { Label, Select } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  getMonthlyAccountMatrix,
+  getMonthlyHppReport,
+  getAnnualFinancialSummary,
+  computeLabaBersihSeries,
+  accountSubtree,
+  typeNaturalValue,
+  REVENUE_GROUPS,
+  CASH_BOOK_LABELS,
+} from "@/lib/accounting";
+import { FaTrendChart } from "@/components/finance/fa-trend-chart";
+
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+const ZERO_12 = () => Array.from({ length: 12 }, () => 0);
+function addSeries(...series: number[][]): number[] {
+  return ZERO_12().map((_, i) => series.reduce((s, arr) => s + arr[i], 0));
+}
+
+const FA_QUICK_LINKS = [
+  { href: "/finance/journal", label: "Jurnal (6 Buku Kas)", icon: Receipt },
+  { href: "/finance/ledger", label: "Buku Besar", icon: History },
+  { href: "/finance/adjusting-entries", label: "Jurnal Penyesuaian", icon: NotebookPen },
+  { href: "/finance/worksheet", label: "Worksheet (Neraca Lajur)", icon: Table2 },
+  { href: "/finance/persediaan", label: "Persediaan", icon: Boxes },
+  { href: "/finance/hpp", label: "Laporan HPP", icon: Factory },
+  { href: "/finance/reports", label: "Laba Rugi", icon: FileCheck2 },
+  { href: "/finance/neraca", label: "Neraca", icon: Scale },
+  { href: "/finance/equity-changes", label: "Perubahan Ekuitas", icon: PieChart },
+  { href: "/finance/cash-flow", label: "Laporan Arus Kas", icon: Banknote },
+  { href: "/finance/perbandingan-tahunan", label: "Perbandingan Tahunan", icon: GitCompareArrows },
+  { href: "/finance/insights", label: "Analisis & Insight", icon: Sparkles },
+];
+
+const faCurrency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
+
+// FA Executive Dashboard — the Sales-executive view below (omset/channel/
+// region/outlet pace) has nothing to do with an FA_ADMIN's job, so this
+// role gets its own dedicated executive view built entirely from the FA
+// reporting engine (getMonthlyAccountMatrix, getMonthlyHppReport,
+// getAnnualFinancialSummary) instead — every figure here is read from the
+// exact same functions each single-purpose FA report page already uses, so
+// nothing shown here can disagree with what that report itself displays.
+async function FaExecutiveDashboard({ searchParams }: { searchParams: Promise<{ year?: string }> }) {
+  const now = new Date();
+  const { year: yearParam } = await searchParams;
+  const year = yearParam ? Number(yearParam) : now.getFullYear();
+  const upToMonth = year === now.getFullYear() ? now.getMonth() : 11;
+  const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i);
+
+  const [matrix, hppReport, summary, priorSummaries] = await Promise.all([
+    getMonthlyAccountMatrix(year),
+    getMonthlyHppReport(year),
+    getAnnualFinancialSummary(year),
+    Promise.all([year - 2, year - 1].map((y) => getAnnualFinancialSummary(y))),
+  ]);
+
+  function subtreeMonthly(rootCode: string): number[] {
+    const accounts = accountSubtree(matrix, rootCode).filter((a) => a.code !== rootCode);
+    return addSeries(...accounts.map((a) => a.monthly.map((v) => typeNaturalValue(v, a.type, a.normalBalance))));
+  }
+  const penjualanMonthly = addSeries(...REVENUE_GROUPS.map((g) => subtreeMonthly(g.code)));
+  const labaBersihMonthly = computeLabaBersihSeries(matrix, hppReport.cashBasisHpp);
+  const trendData = MONTH_NAMES.map((label, i) => ({
+    label: `${label} ${String(year).slice(2)}`,
+    penjualan: penjualanMonthly[i],
+    hpp: hppReport.cashBasisHpp[i],
+    labaBersih: labaBersihMonthly[i],
+  })).slice(0, upToMonth + 1);
+
+  const cashAccounts = matrix.filter((a) => a.cashBook);
+  const totalCash = cashAccounts.reduce((s, a) => s + a.cumulative[upToMonth], 0);
+  const cashDonutData = cashAccounts
+    .map((a, i) => ({
+      name: CASH_BOOK_LABELS[a.cashBook!],
+      value: a.cumulative[upToMonth],
+      color: ["#2f56c4", "#0f9d58", "#e2725b", "#f2b000", "#7c3aed", "#0d9488"][i % 6],
+    }))
+    .filter((c) => c.value !== 0);
+
+  const bebanOperasionalAccounts = accountSubtree(matrix, "60000").filter((a) => a.code !== "60000");
+  const topBeban = bebanOperasionalAccounts
+    .map((a) => ({ name: a.name, value: a.monthly.slice(0, upToMonth + 1).reduce((s, v) => s + v, 0) }))
+    .filter((a) => a.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8);
+
+  const isBalanced = Math.abs(summary.totalAktiva - (summary.totalKewajiban + summary.totalEkuitas)) < 1;
+  const netMargin = summary.totalPenjualan > 0 ? (summary.labaBersih / summary.totalPenjualan) * 100 : 0;
+
+  const yearHistory = [...priorSummaries, summary];
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="FA Executive Dashboard"
+        description={`Ringkasan keuangan perusahaan — Finance & Accounting. Periode berjalan s/d ${MONTH_NAMES[upToMonth]} ${year}.`}
+        actions={
+          <form className="flex items-end gap-2">
+            <div>
+              <Label className="text-[11px]">Tahun</Label>
+              <Select name="year" defaultValue={String(year)} className="mt-1">
+                {years.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <Button type="submit" variant="secondary">
+              Tampilkan
+            </Button>
+          </form>
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <StatCard label={`Total Penjualan ${year}`} value={faCurrency.format(summary.totalPenjualan)} tone="brand" icon={<TrendingUp className="h-4 w-4" />} />
+        <StatCard
+          label="Laba Bersih (Setelah Accrual)"
+          value={faCurrency.format(summary.labaBersih)}
+          hint={`Margin bersih ${netMargin.toFixed(1)}%`}
+          tone={summary.labaBersih >= 0 ? "success" : "danger"}
+          icon={<Sparkles className="h-4 w-4" />}
+        />
+        <StatCard label="Kas & Bank Saat Ini" value={faCurrency.format(totalCash)} tone="accent" icon={<Wallet className="h-4 w-4" />} />
+        <StatCard
+          label="Total Aktiva"
+          value={faCurrency.format(summary.totalAktiva)}
+          hint={isBalanced ? "✓ Neraca Seimbang" : "⚠ Neraca Tidak Seimbang"}
+          tone={isBalanced ? "success" : "danger"}
+          icon={<Landmark className="h-4 w-4" />}
+        />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Tren Penjualan, HPP & Laba Bersih — {year}</CardTitle>
+        </CardHeader>
+        <div className="p-5 pt-2">
+          <FaTrendChart data={trendData} />
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Posisi Kas & Bank — per {MONTH_NAMES[upToMonth]} {year}</CardTitle>
+          </CardHeader>
+          <div className="p-5">
+            <FormattedDonutChart data={cashDonutData} format="currency" centerLabel="Total Kas" />
+          </div>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Beban Operasional Terbesar (YTD)</CardTitle>
+          </CardHeader>
+          <div className="p-5">
+            <FormattedBarChart data={topBeban} format="currency" defaultColor="#e2725b" />
+          </div>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Neraca — Posisi per {MONTH_NAMES[upToMonth]} {year}</CardTitle>
+          <Link href="/finance/neraca" className="inline-flex items-center gap-1 text-xs font-bold text-accent-700 hover:text-accent-800">
+            Lihat Neraca Lengkap <ChevronRight className="h-3.5 w-3.5" />
+          </Link>
+        </CardHeader>
+        <div className="grid grid-cols-1 gap-4 p-5 pt-2 sm:grid-cols-3">
+          <div className="rounded-xl border border-slate-200/70 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Aktiva</p>
+            <p className="mt-1 text-xl font-bold text-brand-900">{faCurrency.format(summary.totalAktiva)}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200/70 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Kewajiban</p>
+            <p className="mt-1 text-xl font-bold text-brand-900">{faCurrency.format(summary.totalKewajiban)}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200/70 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Ekuitas</p>
+            <p className="mt-1 text-xl font-bold text-brand-900">{faCurrency.format(summary.totalEkuitas)}</p>
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Perbandingan Tahunan (ringkas)</CardTitle>
+          <Link href="/finance/perbandingan-tahunan" className="inline-flex items-center gap-1 text-xs font-bold text-accent-700 hover:text-accent-800">
+            Lihat Perbandingan Lengkap <ChevronRight className="h-3.5 w-3.5" />
+          </Link>
+        </CardHeader>
+        <Table>
+          <Thead>
+            <tr>
+              <Th>Tahun</Th>
+              <Th className="text-right">Total Penjualan</Th>
+              <Th className="text-right">HPP (Basis Kas)</Th>
+              <Th className="text-right">Laba Bersih</Th>
+              <Th className="text-right">Total Aktiva</Th>
+            </tr>
+          </Thead>
+          <tbody>
+            {yearHistory.map((s) => (
+              <Tr key={s.year}>
+                <Td className="font-medium text-slate-900">{s.year}</Td>
+                <Td className="text-right">{faCurrency.format(s.totalPenjualan)}</Td>
+                <Td className="text-right">{faCurrency.format(s.hpp)}</Td>
+                <Td className="text-right">
+                  <Badge tone={s.labaBersih >= 0 ? "success" : "danger"}>{faCurrency.format(s.labaBersih)}</Badge>
+                </Td>
+                <Td className="text-right">{faCurrency.format(s.totalAktiva)}</Td>
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Akses Cepat — FA Company</CardTitle>
+        </CardHeader>
+        <div className="grid grid-cols-2 gap-3 p-5 pt-2 sm:grid-cols-3 lg:grid-cols-4">
+          {FA_QUICK_LINKS.map((l) => {
+            const Icon = l.icon;
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                className="flex items-center gap-2.5 rounded-xl border border-slate-200/70 bg-white p-3.5 text-sm font-medium text-brand-900 shadow-[var(--shadow-card)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-[var(--shadow-card-hover)]"
+              >
+                <Icon className="h-4 w-4 shrink-0 text-accent-600" />
+                {l.label}
+              </Link>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+}
 
 // Fixed, non-cycled hue order for regions — same principle as CHANNEL_COLORS:
 // a region keeps the same color everywhere it appears on this page.
@@ -32,11 +294,15 @@ function localDateKey(d: Date): string {
 export default async function ExecutiveDashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; year?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) return null;
   if (!can(user.role, "executive:view_dashboard")) redirect("/dashboard");
+
+  if (user.role === "FA_ADMIN") {
+    return <FaExecutiveDashboard searchParams={searchParams} />;
+  }
 
   const scopedOutletIds = await getScopedOutletIds(user.id, user.role);
   const outletScopeWhere = scopedOutletIds ? { id: { in: scopedOutletIds } } : {};
