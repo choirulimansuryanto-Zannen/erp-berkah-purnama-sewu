@@ -1,0 +1,170 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand red — deep, high-emphasis surfaces: headers, dark hero panels,
+     high-emphasis text. Two shades of red (brand = deep maroon, accent =
+     vivid scarlet below) plus gold form the palette; brand-900/950 are
+     tuned dark enough that white text on them clears WCAG AA (~13:1). */
+  --color-brand-50: #fef2f2;
+  --color-brand-100: #fde2e2;
+  --color-brand-200: #fac9c9;
+  --color-brand-300: #f5a6a6;
+  --color-brand-400: #ec7575;
+  --color-brand-500: #dd4747;
+  --color-brand-600: #c22a2a;
+  --color-brand-700: #9c1f1f;
+  --color-brand-800: #7a1a1a;
+  --color-brand-900: #591515;
+  --color-brand-950: #330b0b;
+
+  /* Accent scarlet — primary actions, links, focus rings. accent-600 is
+     tuned to ~4.9:1 contrast against white text (verified), so it's safe
+     as a solid button background, unlike a true yellow at that saturation. */
+  --color-accent-50: #fff1f0;
+  --color-accent-100: #ffe1de;
+  --color-accent-200: #ffc6c0;
+  --color-accent-300: #ff9d92;
+  --color-accent-400: #fa6a5a;
+  --color-accent-500: #f13f2c;
+  --color-accent-600: #d92a1c;
+  --color-accent-700: #b21f14;
+  --color-accent-800: #8f1c13;
+  --color-accent-900: #741c15;
+
+  /* Gold — the third brand color. Decorative/highlight only: badges with
+     dark text, borders, focus-glow accents, the logo. Never a background
+     for white text — true gold can't clear 4.5:1 at this saturation. */
+  --color-gold-50: #fffbeb;
+  --color-gold-100: #fff3c4;
+  --color-gold-200: #ffe58a;
+  --color-gold-300: #ffd24d;
+  --color-gold-400: #fdc321;
+  --color-gold-500: #f2b000;
+  --color-gold-600: #d19400;
+  --color-gold-700: #a87400;
+  --color-gold-800: #7a5500;
+  --color-gold-900: #5c4100;
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+  --shadow-card-hover: 0 4px 14px 0 rgb(89 21 21 / 0.09), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+
+  --animate-fade-in-up: fade-in-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-in: fade-in 0.5s ease-out both;
+  --animate-logo-in: logo-in 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-shimmer: shimmer 2.4s linear infinite;
+  --animate-float: float 6s ease-in-out infinite;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes logo-in {
+  from {
+    opacity: 0;
+    transform: scale(0.82) rotate(-6deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes glow-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px rgb(217 42 28 / 0.16),
+      0 0 0 6px rgb(242 176 0 / 0.12);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px rgb(217 42 28 / 0.22),
+      0 0 0 9px rgb(242 176 0 / 0.18);
+  }
+}
+
+:root {
+  --background: #faf8f5;
+  --foreground: #2a1414;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+::selection {
+  background: var(--color-accent-200);
+  color: var(--color-brand-900);
+}
+
+/* A warm, two-tone red+gold focus treatment for text inputs/selects — the
+   "comes alive while typing" moment: border color shifts and a soft dual
+   ring pulses gently for as long as the field is focused. */
+.field-glow {
+  transition:
+    border-color 0.25s ease,
+    transform 0.2s ease,
+    box-shadow 0.25s ease;
+}
+
+.field-glow:focus {
+  transform: translateY(-1px);
+  animation: glow-pulse 1.9s ease-in-out infinite;
+}
+
+/* A slow-moving diagonal sheen, used sparingly (primary buttons, the logo
+   badge) for a subtle premium gloss without any extra markup. */
+.sheen {
+  position: relative;
+  overflow: hidden;
+}
+
+.sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 40%, rgb(255 255 255 / 0.16) 50%, transparent 60%);
+  background-size: 250% 100%;
+  animation: shimmer 3.2s ease-in-out infinite;
+  pointer-events: none;
+}

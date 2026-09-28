@@ -1,0 +1,1313 @@
+// ERP PT Berkah Purnama Sewu — Core Data Model
+// Derived from prd.md section "DATABASE DESIGN" + per-module field specs.
+// Auth is handled by Supabase Auth; User.id mirrors auth.users.id (uuid).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── ENUMS ──────────────────────────────────────────────────────────
+
+enum Role {
+  PRAMUNIAGA
+  SPV
+  OFFICE
+  OPS_ADMIN
+  FA_ADMIN
+  HRGA_ADMIN
+  MARKETING_ADMIN
+  MASTER_ADMIN
+}
+
+enum Shift {
+  SHIFT_1
+  SHIFT_2
+  FULLSHIFT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum OutletStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ProductCategory {
+  ALACARTE
+  PAKET_ONLINE
+  PAKET_MBG
+  PAKET_KOPDES
+  PAKET_PAHLAWAN
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  SEASONAL
+}
+
+enum MemberTier {
+  BRONZE
+  SILVER
+  GOLD
+}
+
+enum Channel {
+  CASH
+  CASHLESS
+  GRAB
+  GOFOOD
+  SHOPEE
+  QPON
+  TIKTOK
+}
+
+enum TransactionStatus {
+  COMPLETED
+  VOIDED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  OFF
+  SAKIT
+}
+
+enum LeaveType {
+  OFF
+  SAKIT
+  ANNUAL
+  PERSONAL
+  BEREAVEMENT
+  UNPAID
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVISION
+}
+
+enum VarianceStatus {
+  RECONCILED
+  AUTO_APPROVED
+  SPV_REVIEW
+  ESCALATED
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  ENDED
+}
+
+enum DistributionStatus {
+  PENDING
+  IN_TRANSIT
+  DELIVERED
+}
+
+// ── MASTER DATA ────────────────────────────────────────────────────
+
+model Region {
+  id        String   @id @default(uuid())
+  name      String
+  spvId     String?
+  spv       User?    @relation("RegionSpv", fields: [spvId], references: [id])
+  outlets   Outlet[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Outlet {
+  id              String       @id @default(uuid())
+  name            String
+  address         String?
+  regionId        String
+  region          Region       @relation(fields: [regionId], references: [id])
+  managerId       String?
+  manager         User?        @relation("OutletManager", fields: [managerId], references: [id])
+  status          OutletStatus @default(ACTIVE)
+  dailyTarget     Decimal      @default(0) @db.Decimal(14, 2)
+  weeklyTarget    Decimal      @default(0) @db.Decimal(14, 2)
+  monthlyTarget   Decimal      @default(0) @db.Decimal(14, 2)
+  insentifTarget  Decimal      @default(0) @db.Decimal(14, 2)
+  fullshiftTarget Decimal      @default(0) @db.Decimal(14, 2)
+
+  // How many pramuniaga may check in together on the same shared shift
+  // session at once (see AttendanceParticipant) — defaults to 4, raised
+  // per-outlet by Master Admin for outlets that genuinely need more.
+  maxPramuniagaPerShift Int @default(4)
+
+  users                User[]
+  transactions         Transaction[]
+  attendanceRecords    AttendanceRecord[]
+  checkpoints          AttendanceCheckpoint[]
+  dailyReports         DailyReport[]
+  inventoryRecords     InventoryRecord[]
+  stockAdjustments     StockAdjustment[]
+  expenseRecords       ExpenseRecord[]
+  memberRegistrations  Member[]
+  stockDistributions   StockDistribution[]
+  monthlyTargets       OutletMonthlyTarget[]
+  checklistSubmissions OperationalChecklistSubmission[]
+  voucherRedemptions   VoucherRedemption[]
+  kasbonRecords        Kasbon[]
+  promoDiscounts       PromoDiscount[]
+  expenseManualEntries ExpenseManualEntry[]
+  stockDrafts          DailyReportStockDraft[]
+  materialDrafts       DailyReportMaterialDraft[]
+  freezerStockRecords  FreezerStockRecord[]
+  journalEntries       JournalEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([regionId])
+}
+
+// Seasonal, per-calendar-month targets as supplied by the business
+// (2026-08-10) — distinct from Outlet.dailyTarget/monthlyTarget (a single
+// static year-round value, kept as the fallback when no row exists here for
+// the outlet/year/month in question, e.g. future years not yet loaded).
+model OutletMonthlyTarget {
+  id            String  @id @default(uuid())
+  outletId      String
+  outlet        Outlet  @relation(fields: [outletId], references: [id])
+  year          Int
+  month         Int // 1-12
+  monthlyTarget Decimal @db.Decimal(14, 2)
+  dailyTarget   Decimal @db.Decimal(14, 2)
+
+  // Insentif and Fullshift targets vary by month same as Omset's above (the
+  // business's own "Target Outlet 2026" sheet gives all three per month) —
+  // added alongside rather than as a separate model since it's the same
+  // one-row-per-outlet/year/month grain. Fullshift has no monthly variant in
+  // the source data, only a daily figure.
+  insentifMonthlyTarget Decimal @default(0) @db.Decimal(14, 2)
+  insentifDailyTarget   Decimal @default(0) @db.Decimal(14, 2)
+  fullshiftDailyTarget  Decimal @default(0) @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([outletId, year, month])
+  @@index([outletId, year])
+}
+
+model User {
+  // Mirrors Supabase auth.users.id
+  id       String     @id
+  email    String     @unique
+  name     String
+  phone    String?
+  role     Role
+  // Meaningful for PRAMUNIAGA only — which shift they cover at their outlet.
+  // An outlet's headcount is simply how many PRAMUNIAGA users have that
+  // outletId; multiple users may share the same shift value (extra coverage
+  // on a busy shift) or take different ones (Shift 1 + Shift 2 split).
+  shift    Shift      @default(FULLSHIFT)
+  outletId String?
+  outlet   Outlet?    @relation(fields: [outletId], references: [id])
+  status   UserStatus @default(ACTIVE)
+
+  managedOutlets Outlet[] @relation("OutletManager")
+  managedRegions Region[] @relation("RegionSpv")
+
+  transactions             Transaction[]
+  attendanceRecords        AttendanceRecord[]
+  checkpoints              AttendanceCheckpoint[]
+  leaveRequests            LeavePermission[]                @relation("LeaveRequester")
+  leaveApprovals           LeavePermission[]                @relation("LeaveApprover")
+  dailyReports             DailyReport[]                    @relation("ReportSubmitter")
+  reportReviews            DailyReport[]                    @relation("ReportReviewer")
+  stockAdjustmentsMade     StockAdjustment[]                @relation("StockAdjustmentRequester")
+  stockAdjustmentsApproved StockAdjustment[]                @relation("StockAdjustmentApprover")
+  expensesSubmitted        ExpenseRecord[]                  @relation("ExpenseSubmitter")
+  expensesApproved         ExpenseRecord[]                  @relation("ExpenseApprover")
+  auditEntries             AuditTrail[]
+  campaignsCreated         Campaign[]
+  policyUpdates            AttendancePolicy[]
+  businessSettingsUpdates  BusinessSettings[]
+  checklistSubmissions     OperationalChecklistSubmission[]
+  warehouseReceivings      WarehouseReceiving[]
+  distributionsRequested   StockDistribution[]              @relation("DistributionRequester")
+  distributionsDispatched  StockDistribution[]              @relation("DistributionDispatcher")
+  channelRuleUpdates       CategoryChannelRule[]
+  vouchersCreated          Voucher[]
+  voucherRedemptions       VoucherRedemption[]              @relation("VoucherRedeemer")
+  kasbonRequests           Kasbon[]                         @relation("KasbonRequester")
+  promoDiscountsSet        PromoDiscount[]                  @relation("PromoDiscountSetter")
+  expenseManualEntriesSet  ExpenseManualEntry[]             @relation("ExpenseManualEntrySetter")
+  expenseCategoryUpdates   ExpenseCategoryDef[]
+  stockDraftsSet           DailyReportStockDraft[]          @relation("DailyReportStockDraftSetter")
+  materialDraftsSet        DailyReportMaterialDraft[]       @relation("DailyReportMaterialDraftSetter")
+  journalEntriesCreated    JournalEntry[]                   @relation("JournalEntryCreator")
+  journalEntriesVoided     JournalEntry[]                   @relation("JournalEntryVoider")
+  chartOfAccountUpdates    ChartOfAccount[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([outletId])
+  @@index([role])
+}
+
+model Product {
+  id        String          @id @default(uuid())
+  sku       String          @unique
+  name      String
+  category  ProductCategory
+  price     Decimal         @db.Decimal(12, 2)
+  cost      Decimal         @db.Decimal(12, 2)
+  status    ProductStatus   @default(ACTIVE)
+  // Position in the menu as supplied by the business (spreadsheet row order)
+  // — display order for POS/admin lists, not a business rule. Alphabetical
+  // sorting scrambles e.g. Kebab Small→Medium→Super→Jumbo into Cheesy
+  // Black→Jumbo→Medium→Small→Super, so this drives every product listing.
+  sortOrder Int             @default(0)
+
+  transactionItems      TransactionItem[]
+  inventoryRecords      InventoryRecord[]
+  stockAdjustments      StockAdjustment[]
+  warehouseStock        WarehouseStock?
+  warehouseReceivings   WarehouseReceiving[]
+  stockDistributions    StockDistribution[]
+  rewardVouchers        Voucher[]
+  dailyReportStockLines DailyReportStockLine[]
+  packageComponents     PackageComponent[]     @relation("PackageComponents")
+  usedInPackages        PackageComponent[]     @relation("ComponentOfPackage")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+}
+
+// Extras/add-ons a pramuniaga can attach to a cart line at POS (e.g. Extra
+// Beef, Extra Keju) — priced separately from the base product.
+model Topping {
+  id     String        @id @default(uuid())
+  name   String
+  price  Decimal       @db.Decimal(10, 2)
+  status ProductStatus @default(ACTIVE)
+
+  transactionItemToppings TransactionItemTopping[]
+  dailyReportStockLines   DailyReportStockLine[]
+  packageComponents       PackageComponent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// What a paket Product (Kopdes/MBG/Trio/Mampir, etc.) physically contains —
+// e.g. "Kopdes 1" = 1x Kebab Jumbo + 1x Kebab Cheesy Black + 1x Extra Keju.
+// Informational for the POS/receipt display, and also decomposed into the
+// component's own `terjualSistem` count on the Daily Report stock table —
+// selling a package consumes its components from the kitchen's stock same
+// as selling them individually would, so the reconciliation has to account
+// for it or every outlet that sells packages would look permanently short.
+model PackageComponent {
+  id                 String   @id @default(uuid())
+  packageProductId   String
+  packageProduct     Product  @relation("PackageComponents", fields: [packageProductId], references: [id])
+  componentProductId String?
+  componentProduct   Product? @relation("ComponentOfPackage", fields: [componentProductId], references: [id])
+  componentToppingId String?
+  componentTopping   Topping? @relation(fields: [componentToppingId], references: [id])
+  qty                Int      @default(1)
+  sortOrder          Int      @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([packageProductId])
+}
+
+model Member {
+  id            String     @id @default(uuid())
+  // Short human-facing ID shown on receipts/registration UI, distinct from
+  // the internal uuid — nullable+unique so the additive migration doesn't
+  // need a default for pre-existing rows (backfilled separately).
+  code          String?    @unique
+  phone         String     @unique
+  name          String
+  birthDate     DateTime?  @db.Date
+  city          String?
+  tier          MemberTier @default(BRONZE)
+  pointsBalance Int        @default(0)
+  outletId      String?
+  outlet        Outlet?    @relation(fields: [outletId], references: [id])
+
+  transactions       Transaction[]
+  memberTransactions MemberTransaction[]
+  voucherRedemptions VoucherRedemption[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tier])
+}
+
+// ── TRANSACTIONAL DATA ────────────────────────────────────────────
+
+model Transaction {
+  id                String            @id @default(uuid())
+  outletId          String
+  outlet            Outlet            @relation(fields: [outletId], references: [id])
+  pramuniagaId      String
+  pramuniaga        User              @relation(fields: [pramuniagaId], references: [id])
+  memberId          String?
+  member            Member?           @relation(fields: [memberId], references: [id])
+  subtotal          Decimal           @db.Decimal(12, 2)
+  discount          Decimal           @default(0) @db.Decimal(12, 2)
+  tax               Decimal           @default(0) @db.Decimal(12, 2)
+  total             Decimal           @db.Decimal(12, 2)
+  channel           Channel
+  paymentMethod     String
+  pointsEarned      Int               @default(0)
+  pointsRedeemed    Int               @default(0)
+  deviceFingerprint String?
+  status            TransactionStatus @default(COMPLETED)
+  voidReason        String?
+  voidApprovedById  String?
+
+  items             TransactionItem[]
+  memberTransaction MemberTransaction?
+  voucherRedemption VoucherRedemption?
+
+  createdAt DateTime @default(now())
+
+  @@index([outletId, createdAt])
+  @@index([pramuniagaId])
+  @@index([memberId])
+}
+
+model TransactionItem {
+  id            String      @id @default(uuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+  productId     String
+  product       Product     @relation(fields: [productId], references: [id])
+  qty           Int
+  unitPrice     Decimal     @db.Decimal(12, 2)
+  discount      Decimal     @default(0) @db.Decimal(12, 2)
+
+  toppings TransactionItemTopping[]
+
+  @@index([transactionId])
+  @@index([productId])
+}
+
+// Snapshot of a topping attached to a cart line — qty/unitPrice are copied
+// at sale time so a later price change on Topping doesn't rewrite history.
+model TransactionItemTopping {
+  id                String          @id @default(uuid())
+  transactionItemId String
+  transactionItem   TransactionItem @relation(fields: [transactionItemId], references: [id])
+  toppingId         String
+  topping           Topping         @relation(fields: [toppingId], references: [id])
+  qty               Int
+  unitPrice         Decimal         @db.Decimal(10, 2)
+
+  @@index([transactionItemId])
+}
+
+model AttendanceRecord {
+  id         String           @id @default(uuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id])
+  outletId   String
+  outlet     Outlet           @relation(fields: [outletId], references: [id])
+  date       DateTime         @db.Date
+  timeIn     DateTime?
+  timeOut    DateTime?
+  totalHours Decimal?         @db.Decimal(5, 2)
+  status     AttendanceStatus @default(PRESENT)
+  gpsIn      String?
+  gpsOut     String?
+  photoUrl   String?
+
+  // Outlet/region are locked to the logged-in account (User.outlet), but the
+  // actual person on shift and which shift they're covering are declared at
+  // check-in time — a login can be used by whichever roster member is
+  // physically working that session.
+  //
+  // Genuinely independent per pramuniaga (round: multi-pramuniaga-per-shift,
+  // revised) — each roster member gets their OWN row, own timeIn/timeOut,
+  // own shift, own checklist, so up to Outlet.maxPramuniagaPerShift people
+  // can be checked in to the same outlet/date at once without clobbering
+  // each other. The unique key includes pramuniagaRosterId (not just
+  // userId+date) specifically to allow that.
+  pramuniagaRosterId String?
+  pramuniagaRoster   PramuniagaRoster? @relation(fields: [pramuniagaRosterId], references: [id])
+  shift              Shift             @default(FULLSHIFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date, pramuniagaRosterId])
+  @@index([outletId, date])
+}
+
+// Master roster of real pramuniaga names (business-supplied, 2026-08-10) —
+// distinct from `User` (login/outlet identity): a login account may be used
+// by whichever roster member is on duty, declared at check-in.
+model PramuniagaRoster {
+  id     String     @id @default(uuid())
+  name   String
+  status UserStatus @default(ACTIVE)
+
+  attendanceRecords            AttendanceRecord[]
+  checklistSubmissions         OperationalChecklistSubmission[]
+  kasbonRequests                Kasbon[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AttendanceCheckpoint {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  outletId         String
+  outlet           Outlet   @relation(fields: [outletId], references: [id])
+  checkpointNumber Int
+  timestamp        DateTime @default(now())
+  status           String
+  notes            String?
+  photoUrl         String?
+  locationGps      String?
+
+  @@index([userId, timestamp])
+  @@index([outletId, timestamp])
+}
+
+// Company-wide operational checklist (business-supplied, 2026-08-10) — daily
+// SOP tasks a pramuniaga documents with a photo during their shift (wash
+// equipment, screenshot online-ordering apps, uniform checks, etc). One
+// fixed catalog shared by every outlet; `OperationalChecklistSubmission`
+// records that outlet's proof for a given session date.
+model OperationalChecklistItem {
+  id        String  @id @default(uuid())
+  category  String // e.g. "Cuci Peralatan Outlet"
+  subLabel  String // e.g. "Saos Keju" — empty string for single-item categories
+  sortOrder Int
+  active    Boolean @default(true)
+
+  submissions OperationalChecklistSubmission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OperationalChecklistSubmission {
+  id     String                   @id @default(uuid())
+  itemId String
+  item   OperationalChecklistItem @relation(fields: [itemId], references: [id])
+
+  outletId String
+  outlet   Outlet @relation(fields: [outletId], references: [id])
+  userId   String
+  user     User   @relation(fields: [userId], references: [id])
+
+  // Which pramuniaga this checklist belongs to — each person on a shared
+  // outlet+date now keeps their own checklist, not one merged per outlet.
+  // Nullable for the (now-impossible for pramuniaga, but schema-permitted)
+  // case of a submitter with no roster identity.
+  pramuniagaRosterId String?
+  pramuniagaRoster   PramuniagaRoster? @relation(fields: [pramuniagaRosterId], references: [id])
+
+  // Session date (see getSessionDate in src/lib/session.ts), not the
+  // calendar day of submission — a task done after midnight still belongs
+  // to the shift that started the day before.
+  date        DateTime @db.Date
+  photoUrl    String
+  submittedAt DateTime @default(now())
+
+  @@unique([itemId, outletId, date, pramuniagaRosterId])
+  @@index([outletId, date])
+}
+
+model LeavePermission {
+  id            String         @id @default(uuid())
+  userId        String
+  user          User           @relation("LeaveRequester", fields: [userId], references: [id])
+  type          LeaveType
+  dateFrom      DateTime       @db.Date
+  dateTo        DateTime       @db.Date
+  reason        String
+  attachmentUrl String?
+  status        ApprovalStatus @default(PENDING)
+  approvedById  String?
+  approver      User?          @relation("LeaveApprover", fields: [approvedById], references: [id])
+  approvedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ── REPORTING & CONTROL ───────────────────────────────────────────
+
+model DailyReport {
+  id           String   @id @default(uuid())
+  outletId     String
+  outlet       Outlet   @relation(fields: [outletId], references: [id])
+  pramuniagaId String
+  pramuniaga   User     @relation("ReportSubmitter", fields: [pramuniagaId], references: [id])
+  date         DateTime @db.Date
+
+  omset             Decimal        @db.Decimal(14, 2)
+  nonTunai          Decimal        @db.Decimal(14, 2)
+  potongan          Decimal        @default(0) @db.Decimal(14, 2)
+  expenses          Decimal        @default(0) @db.Decimal(14, 2)
+  summarySetoran    Decimal        @db.Decimal(14, 2)
+  actualCashCounted Decimal        @db.Decimal(14, 2)
+  variance          Decimal        @db.Decimal(14, 2)
+  varianceStatus    VarianceStatus @default(RECONCILED)
+  notes             String?
+
+  status       ApprovalStatus @default(PENDING)
+  spvNotes     String?
+  reviewedById String?
+  reviewer     User?          @relation("ReportReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  submittedAt  DateTime       @default(now())
+
+  stockLines    DailyReportStockLine[]
+  materialLines DailyReportMaterialLine[]
+
+  @@unique([outletId, pramuniagaId, date])
+  @@index([outletId, date])
+  @@index([status])
+}
+
+enum RawMaterialGroup {
+  DAGING
+  SAYUR
+  SAOS_KEMASAN
+}
+
+// Ingredients/packaging tracked on the Daily Report's stock section —
+// distinct from Product (finished, sellable menu items): these never appear
+// on a receipt, only in the outlet's own shift-end usage log.
+model RawMaterial {
+  id        String           @id @default(uuid())
+  name      String
+  // Display unit for the "pakai" column — "Ketul", "Kg", "Pack" — a free
+  // label rather than an enum since the business may add a new unit kind
+  // without a schema change.
+  unit      String
+  group     RawMaterialGroup
+  sortOrder Int              @default(0)
+  status    ProductStatus    @default(ACTIVE)
+
+  usageLines DailyReportMaterialLine[]
+  usageDrafts DailyReportMaterialDraft[]
+
+  createdAt DateTime @default(now())
+
+  @@index([group])
+}
+
+// One row per sellable item (product OR topping) on a submitted Daily
+// Report's stock table. Snapshots name/price so a later rename or price
+// change doesn't rewrite history. `terjualSistem` is computed server-side
+// from that shift's actual POS sales at submit time — never trusted from
+// the client — so it can't be edited to hide a shortage.
+model DailyReportStockLine {
+  id            String      @id @default(uuid())
+  dailyReportId String
+  dailyReport   DailyReport @relation(fields: [dailyReportId], references: [id])
+  productId     String?
+  product       Product?    @relation(fields: [productId], references: [id])
+  toppingId     String?
+  topping       Topping?    @relation(fields: [toppingId], references: [id])
+  itemName      String
+  unitPrice     Decimal     @db.Decimal(12, 2)
+  ambil         Int         @default(0)
+  sisa          Int         @default(0)
+  terjualSistem Int         @default(0)
+  sortOrder     Int         @default(0)
+
+  @@index([dailyReportId])
+}
+
+model DailyReportMaterialLine {
+  id            String      @id @default(uuid())
+  dailyReportId String
+  dailyReport   DailyReport @relation(fields: [dailyReportId], references: [id])
+  rawMaterialId String
+  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id])
+  qtyUsed       Decimal     @default(0) @db.Decimal(10, 2)
+
+  @@index([dailyReportId])
+  @@index([rawMaterialId])
+}
+
+model InventoryRecord {
+  id        String   @id @default(uuid())
+  outletId  String
+  outlet    Outlet   @relation(fields: [outletId], references: [id])
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  date      DateTime @db.Date
+
+  openingBalance Int
+  received       Int     @default(0)
+  used           Int     @default(0)
+  rejected       Int     @default(0)
+  closingBalance Int
+  systemBalance  Int
+  variance       Int     @default(0)
+  varianceReason String?
+  photoUrl       String?
+  reconciled     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  @@unique([outletId, productId, date])
+  @@index([outletId, date])
+}
+
+model StockAdjustment {
+  id            String         @id @default(uuid())
+  outletId      String
+  outlet        Outlet         @relation(fields: [outletId], references: [id])
+  productId     String
+  product       Product        @relation(fields: [productId], references: [id])
+  qtyChange     Int
+  reason        String
+  photoUrl      String?
+  status        ApprovalStatus @default(PENDING)
+  requestedById String
+  requester     User           @relation("StockAdjustmentRequester", fields: [requestedById], references: [id])
+  approvedById  String?
+  approver      User?          @relation("StockAdjustmentApprover", fields: [approvedById], references: [id])
+  approvedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([outletId])
+  @@index([status])
+}
+
+// The Stock Freezer catalog — a fixed, admin-managed list of freezer/kitchen
+// items (raw meat, packaging, drinks) distinct from `RawMaterial` (which
+// only feeds Daily Report's Daging/Sayur/Saos & Kemasan usage tables) so
+// that adding freezer items never perturbs that already-shipped feature.
+// "Urutan list nya statis" per the business's own sheet — sortOrder mirrors
+// that fixed order, not alphabetical.
+model FreezerMaterial {
+  id        String        @id @default(uuid())
+  name      String
+  unit      String
+  sortOrder Int           @default(0)
+  status    ProductStatus @default(ACTIVE)
+  // "TIPIS" (low stock) badge threshold — Saldo Akhir at or below this
+  // triggers the warning. Per-item and admin-editable rather than a single
+  // hardcoded cutoff, since a sensible low-stock line differs wildly between
+  // e.g. Daging (Ketul units) and Kertas Roti (Rim units).
+  minStock  Int           @default(10)
+
+  stockRecords FreezerStockRecord[]
+
+  createdAt DateTime @default(now())
+
+  @@index([sortOrder])
+}
+
+// One outlet/item/day's freezer stock ledger row — Saldo Awal/Masuk/Reject
+// are manually entered by the pramuniaga; `used` ("Pakai") is a live mirror
+// of that item's own Laku/qtyUsed on the Laporan Harian tables (see
+// src/lib/freezer-stock.ts for the per-item mapping) snapshotted here at
+// save time, same snapshot-vs-live-recompute split already used for
+// DailyReportStockLine vs computeStockPreview. `closingBalance` is derived
+// (opening + received − used − rejected), stored rather than recomputed on
+// every read so a past date's history stays exactly what was saved.
+model FreezerStockRecord {
+  id                String          @id @default(uuid())
+  outletId          String
+  outlet            Outlet          @relation(fields: [outletId], references: [id])
+  freezerMaterialId String
+  freezerMaterial   FreezerMaterial @relation(fields: [freezerMaterialId], references: [id])
+  date              DateTime        @db.Date
+
+  openingBalance Int @default(0)
+  received       Int @default(0)
+  used           Int @default(0)
+  rejected       Int @default(0)
+  closingBalance Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([outletId, freezerMaterialId, date])
+  @@index([outletId, date])
+}
+
+// Category is a key into ExpenseCategoryDef (admin-manageable at
+// /admin/expense-categories) rather than a fixed enum — so Master Admin can
+// add/rename/deactivate operational expense accounts without a code change.
+model ExpenseRecord {
+  id             String             @id @default(uuid())
+  outletId       String
+  outlet         Outlet             @relation(fields: [outletId], references: [id])
+  category       String
+  categoryDef    ExpenseCategoryDef @relation(fields: [category], references: [key])
+  amount         Decimal            @db.Decimal(12, 2)
+  description    String?
+  receiptUrl     String?
+  date           DateTime           @db.Date
+  approvalStatus ApprovalStatus     @default(PENDING)
+  submittedById  String
+  submitter      User               @relation("ExpenseSubmitter", fields: [submittedById], references: [id])
+  approvedById   String?
+  approver       User?              @relation("ExpenseApprover", fields: [approvedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([outletId, date])
+  @@index([approvalStatus])
+}
+
+// Master-admin-managed list of operational expense accounts (Sayur, Gas
+// 3kg, ...) — replaces what was previously a fixed Prisma enum so the list
+// can be edited/extended from /admin/expense-categories without a prompt.
+model ExpenseCategoryDef {
+  id        String        @id @default(uuid())
+  key       String        @unique
+  label     String
+  sortOrder Int           @default(0)
+  status    ProductStatus @default(ACTIVE)
+
+  expenses ExpenseRecord[]
+
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// A single shift/day's manually-entered Online & Cashless per-channel
+// figures and Paket Kopdes/MBG sold counts — per stakeholder decision
+// (2026-08-12) these are cashier-entered, not derived from POS transaction
+// data, since delivery-platform payouts are reconciled by the cashier
+// directly against the platform's own dashboard, not the POS system.
+model ExpenseManualEntry {
+  id           String   @id @default(uuid())
+  outletId     String
+  outlet       Outlet   @relation(fields: [outletId], references: [id])
+  pramuniagaId String
+  pramuniaga   User     @relation("ExpenseManualEntrySetter", fields: [pramuniagaId], references: [id])
+  date         DateTime @db.Date
+
+  gofoodAmount   Decimal @default(0) @db.Decimal(12, 2)
+  grabAmount     Decimal @default(0) @db.Decimal(12, 2)
+  shopeeAmount   Decimal @default(0) @db.Decimal(12, 2)
+  tiktokAmount   Decimal @default(0) @db.Decimal(12, 2)
+  qponAmount     Decimal @default(0) @db.Decimal(12, 2)
+  cashlessAmount Decimal @default(0) @db.Decimal(12, 2)
+
+  qtyKopdes Int @default(0)
+  qtyMbg    Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([outletId, pramuniagaId, date])
+}
+
+// A pre-submission draft of one Daily Report stock row's manual Ambil/Sisa
+// count — shared between the Daily Report page and the Summary Setoran
+// Outlet page's "mirrored" stock table, so editing either one shows up on
+// the other (and Submit Laporan reads from here rather than trusting
+// whatever the submitting client last had in local state). Keyed by
+// position in DAILY_REPORT_STOCK_ITEMS (`itemIndex`) rather than a
+// productId/toppingId pair — that list is a fixed order, and an index key
+// sidesteps the nullable-dual-FK uniqueness headache DailyReportStockLine
+// doesn't have to deal with (it's a snapshot row, not looked up by index).
+model DailyReportStockDraft {
+  id           String   @id @default(uuid())
+  outletId     String
+  outlet       Outlet   @relation(fields: [outletId], references: [id])
+  pramuniagaId String
+  pramuniaga   User     @relation("DailyReportStockDraftSetter", fields: [pramuniagaId], references: [id])
+  date         DateTime @db.Date
+  itemIndex    Int
+  ambil        Int      @default(0)
+  sisa         Int      @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([outletId, pramuniagaId, date, itemIndex])
+}
+
+// Same shared-draft pattern as DailyReportStockDraft, for the Daging/Sayur/
+// Bahan Baku (Saos & Kemasan) usage tables — those moved to Summary Setoran
+// Outlet while Daily Report's own Submit Laporan button (Actual Cash
+// Counted) stayed put, so the two pages need a persisted go-between: submit
+// reads qtyUsed from here rather than trusting the submitting page's local
+// state, same as it already does for stock Ambil/Sisa.
+model DailyReportMaterialDraft {
+  id            String      @id @default(uuid())
+  outletId      String
+  outlet        Outlet      @relation(fields: [outletId], references: [id])
+  pramuniagaId  String
+  pramuniaga    User        @relation("DailyReportMaterialDraftSetter", fields: [pramuniagaId], references: [id])
+  date          DateTime    @db.Date
+  rawMaterialId String
+  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id])
+  qtyUsed       Decimal     @default(0) @db.Decimal(10, 2)
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([outletId, pramuniagaId, date, rawMaterialId])
+}
+
+// A cash advance a pramuniaga has drawn against the outlet's till — logged,
+// not approved (self-service, same as an operational expense entry), so it
+// can be netted against the day's cash setoran immediately.
+model Kasbon {
+  id           String   @id @default(uuid())
+  outletId     String
+  outlet       Outlet   @relation(fields: [outletId], references: [id])
+  pramuniagaId String
+  pramuniaga   User     @relation("KasbonRequester", fields: [pramuniagaId], references: [id])
+
+  // Which specific roster member actually requested this kasbon — a login
+  // may be shared by several checked-in pramuniaga on the same day, so this
+  // is recorded at creation time (picked from whoever's checked in) rather
+  // than inferred later from "whoever's on duty now", which would attribute
+  // every kasbon to the wrong person once someone else checks in.
+  pramuniagaRosterId String?
+  pramuniagaRoster   PramuniagaRoster? @relation(fields: [pramuniagaRosterId], references: [id])
+
+  amount Decimal @db.Decimal(12, 2)
+  notes  String?
+  date   DateTime @db.Date
+
+  createdAt DateTime @default(now())
+
+  @@index([outletId, date])
+  @@index([pramuniagaId])
+}
+
+// A manual/ad-hoc special discount for the shift ("Diskon Khusus") — one
+// value per pramuniaga per session, unlike Kasbon/ExpenseRecord which are
+// append-only logs. Sits alongside the auto-computed Paket Hemat discounts
+// in the Potongan Penjualan breakdown.
+model PromoDiscount {
+  id           String   @id @default(uuid())
+  outletId     String
+  outlet       Outlet   @relation(fields: [outletId], references: [id])
+  pramuniagaId String
+  pramuniaga   User     @relation("PromoDiscountSetter", fields: [pramuniagaId], references: [id])
+  amount       Decimal  @default(0) @db.Decimal(12, 2)
+  notes        String?
+  date         DateTime @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([outletId, pramuniagaId, date])
+}
+
+model MemberTransaction {
+  id             String      @id @default(uuid())
+  memberId       String
+  member         Member      @relation(fields: [memberId], references: [id])
+  transactionId  String      @unique
+  transaction    Transaction @relation(fields: [transactionId], references: [id])
+  pointsEarned   Int         @default(0)
+  pointsRedeemed Int         @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([memberId])
+}
+
+// Which sales channels a product category is allowed to sell through — e.g.
+// PAKET_ONLINE only rings up on Grab/GoFood/Shopee, PAKET_KOPDES everywhere
+// EXCEPT those three. One row per restricted category; a category with no
+// row here has no restriction (ALACARTE, PAKET_MBG today). Admin-editable
+// at /admin/channel-rules instead of being hardcoded, per stakeholder
+// request to change these without a code change.
+model CategoryChannelRule {
+  category        ProductCategory @id
+  allowedChannels Channel[]
+
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  updatedAt   DateTime @updatedAt
+}
+
+enum VoucherStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// A redeemable code that grants a specific product for free — not a
+// percentage/amount discount. Admin-configured (which product, how many
+// times it can be used, a validity window); redeemed at POS via
+// /api/vouchers/redeem, which is the only thing that's allowed to create a
+// VoucherRedemption row.
+model Voucher {
+  id              String        @id @default(uuid())
+  code            String        @unique
+  description     String?
+  rewardProductId String
+  rewardProduct   Product       @relation(fields: [rewardProductId], references: [id])
+  rewardQty       Int           @default(1)
+  // null = unlimited total redemptions.
+  maxRedemptions  Int?
+  redemptionCount Int           @default(0)
+  validFrom       DateTime?     @db.Date
+  validUntil      DateTime?     @db.Date
+  status          VoucherStatus @default(ACTIVE)
+
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  redemptions VoucherRedemption[]
+}
+
+// One row per successful redemption — created the moment a cashier enters a
+// valid code (not at checkout), the same way a physical voucher is
+// "spent" the moment it's handed over regardless of whether the sale it was
+// used on ultimately completes. transactionId is filled in once the POS
+// transaction that carried the free item is actually created, so a
+// redemption can be traced forward to the sale it ended up on, and so the
+// checkout route can verify a redemption hasn't already been attached to a
+// different transaction (see /api/pos/transactions).
+model VoucherRedemption {
+  id            String       @id @default(uuid())
+  voucherId     String
+  voucher       Voucher      @relation(fields: [voucherId], references: [id])
+  memberId      String?
+  member        Member?      @relation(fields: [memberId], references: [id])
+  outletId      String
+  outlet        Outlet       @relation(fields: [outletId], references: [id])
+  redeemedById  String
+  redeemedBy    User         @relation("VoucherRedeemer", fields: [redeemedById], references: [id])
+  transactionId String?      @unique
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+  redeemedAt    DateTime     @default(now())
+
+  @@index([voucherId])
+}
+
+// ── APPROVALS & AUDIT ──────────────────────────────────────────────
+
+model ApprovalWorkflow {
+  id            String         @id @default(uuid())
+  entityType    String
+  entityId      String
+  submittedById String
+  submittedAt   DateTime       @default(now())
+  approvedById  String?
+  approvedAt    DateTime?
+  status        ApprovalStatus @default(PENDING)
+
+  @@index([entityType, entityId])
+  @@index([status])
+}
+
+model AuditTrail {
+  id        String   @id @default(uuid())
+  tableName String
+  recordId  String
+  action    String
+  oldValue  Json?
+  newValue  Json?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  timestamp DateTime @default(now())
+
+  @@index([tableName, recordId])
+  @@index([userId])
+  @@index([timestamp])
+}
+
+// ── MARKETING (prd.md §6.4 "LOYALTY CAMPAIGN PLANNING") ───────────
+
+model Campaign {
+  id              String         @id @default(uuid())
+  name            String
+  description     String?
+  startDate       DateTime       @db.Date
+  endDate         DateTime       @db.Date
+  targetTier      MemberTier? // null = all tiers
+  bonusMultiplier Decimal        @default(1) @db.Decimal(3, 2) // e.g. 2.00 = 2x points
+  discountPercent Decimal?       @db.Decimal(5, 2)
+  budgetCap       Decimal?       @db.Decimal(14, 2)
+  status          CampaignStatus @default(DRAFT)
+  createdById     String
+  createdBy       User           @relation(fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([startDate, endDate])
+}
+
+// ── HRGA (prd.md §1.6, §5.3 "ATTENDANCE POLICY MANAGEMENT") ───────
+// Single-row config table: HRGA edits the one existing row.
+
+model AttendancePolicy {
+  id                        String   @id @default(uuid())
+  checkpointStartHour       Int      @default(9)
+  checkpointEndHour         Int      @default(20)
+  checkpointIntervalMinutes Int      @default(30)
+  gracePeriodMinutes        Int      @default(15)
+  annualLeaveDays           Int      @default(12)
+  sickLeaveDays             Int      @default(12)
+  personalLeaveDays         Int      @default(3)
+  updatedById               String?
+  updatedBy                 User?    @relation(fields: [updatedById], references: [id])
+  updatedAt                 DateTime @updatedAt
+}
+
+// Company-wide operational thresholds that were previously hardcoded
+// constants scattered across src/lib and src/app/api — now a single
+// admin-editable singleton row (same pattern as AttendancePolicy), so
+// finance/ops/inventory rules can be tuned from /admin/settings without a
+// code change. Falls back to DEFAULT_BUSINESS_SETTINGS (src/lib/business-
+// settings.ts) when no row exists yet.
+model BusinessSettings {
+  id String @id @default(uuid())
+
+  // Finance & POS
+  expenseAutoApproveLimit        Decimal @default(500000) @db.Decimal(12, 2)
+  posDiscountSpvThresholdPercent Decimal @default(10) @db.Decimal(5, 2)
+  voidWindowMinutes              Int     @default(30)
+  cashVarianceAutoApprove        Decimal @default(10000) @db.Decimal(12, 2)
+  cashVarianceSpvReview          Decimal @default(50000) @db.Decimal(12, 2)
+
+  // Loyalty program
+  memberAnnualSpendWindowDays   Int     @default(365)
+  loyaltySilverThreshold        Decimal @default(500000) @db.Decimal(14, 2)
+  loyaltyGoldThreshold          Decimal @default(2000000) @db.Decimal(14, 2)
+  loyaltyBronzeMultiplier       Decimal @default(1) @db.Decimal(4, 2)
+  loyaltySilverMultiplier       Decimal @default(1.2) @db.Decimal(4, 2)
+  loyaltyGoldMultiplier         Decimal @default(1.5) @db.Decimal(4, 2)
+  loyaltyPointsPerRupiah        Decimal @default(1) @db.Decimal(8, 4)
+  loyaltyRupiahPerPointRedeemed Decimal @default(100) @db.Decimal(10, 2)
+
+  // Inventory & warehouse
+  stockUnitTolerance       Int     @default(5)
+  stockPercentTolerance    Decimal @default(5) @db.Decimal(5, 2)
+  inventoryEscalationUnits Int     @default(10)
+  expiryWarningDays        Int     @default(30)
+
+  // Operations / pacing
+  businessHourStart            Int     @default(9)
+  businessHourEnd              Int     @default(21)
+  pacingRedThresholdPercent    Decimal @default(70) @db.Decimal(5, 2)
+  pacingYellowThresholdPercent Decimal @default(90) @db.Decimal(5, 2)
+
+  // Paket Hemat (Potongan Penjualan) — per-unit discount applied per package
+  // sold, feeding the Expenses page's auto-computed Potongan Penjualan table.
+  paketHematKopdesDiscount Decimal @default(3000) @db.Decimal(10, 2)
+  paketHematMbgDiscount    Decimal @default(5000) @db.Decimal(10, 2)
+
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  updatedAt   DateTime @updatedAt
+}
+
+// ── OPS ADMIN WAREHOUSE (prd.md §3.6-3.8) ──────────────────────────
+
+// ── FINANCE & ACCOUNTING (FA) ───────────────────────────────────────
+// Cash-basis general ledger: every JournalEntry always touches at least one
+// of the six physical cash books (isCashAccount accounts below) — a "cash
+// voucher" model (Kas Masuk / Kas Keluar / Transfer Antar Buku) rather than
+// a free-form multi-line journal, matching how the business actually
+// records money day to day. FA Outlet is a *report*, not a separate ledger:
+// it reads the outlet's own DailyReport (Setoran) rows already captured by
+// the pramuniaga flow. FA Company is this ledger, company-wide.
+
+enum AccountType {
+  ASET
+  KEWAJIBAN
+  EKUITAS
+  PENDAPATAN
+  HARGA_POKOK_PENJUALAN
+  BEBAN_LANGSUNG
+  BEBAN_OPERASIONAL
+  BEBAN_NON_OPERASIONAL
+  PENDAPATAN_NON_OPERASIONAL
+}
+
+enum NormalBalance {
+  DEBIT
+  KREDIT
+}
+
+enum AccountStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// The six physical cash books the business keeps — every JournalEntry is
+// filed under exactly one of these (its "point of cash truth"), never a
+// free-floating entry with no cash book at all.
+enum CashBook {
+  KASIR
+  BRANKAS
+  OUTLET
+  PETTY_CASH
+  BANK_BCA
+  BANK_MANDIRI
+}
+
+model ChartOfAccount {
+  id            String        @id @default(uuid())
+  code          String        @unique
+  name          String
+  type          AccountType
+  normalBalance NormalBalance
+  status        AccountStatus @default(ACTIVE)
+
+  parentId String?
+  parent   ChartOfAccount?  @relation("COAHierarchy", fields: [parentId], references: [id])
+  children ChartOfAccount[] @relation("COAHierarchy")
+
+  // Set only on the six control accounts that represent Kasir/Brankas/
+  // Outlet/Petty Cash/Bank BCA/Bank Mandiri themselves — every JournalEntry
+  // line pointing at one of these IS that book's own running balance.
+  cashBook CashBook?
+
+  journalLines JournalEntryLine[]
+
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([type])
+  @@index([parentId])
+}
+
+enum JournalEntryType {
+  KAS_MASUK
+  KAS_KELUAR
+  TRANSFER_ANTAR_BUKU
+}
+
+enum JournalEntryStatus {
+  POSTED
+  VOID
+}
+
+model JournalEntry {
+  id          String   @id @default(uuid())
+  // Human-readable voucher number, e.g. "KASIR-2026-000123" — generated
+  // from cashBook + year + a per-book sequence, shown on every printout.
+  entryNumber String   @unique
+  date        DateTime @db.Date
+  cashBook    CashBook
+  entryType   JournalEntryType
+
+  // Set for an FA Outlet-tagged transaction (e.g. an "OUTLET" book entry
+  // for a specific outlet's cash) — null means company-level (Kasir,
+  // Brankas, Petty Cash, Bank BCA, Bank Mandiri normally have no outlet).
+  outletId String?
+  outlet   Outlet? @relation(fields: [outletId], references: [id])
+
+  description String
+  reference   String?
+  status      JournalEntryStatus @default(POSTED)
+
+  createdById String
+  createdBy   User   @relation("JournalEntryCreator", fields: [createdById], references: [id])
+  voidedById  String?
+  voidedBy    User?    @relation("JournalEntryVoider", fields: [voidedById], references: [id])
+  voidedAt    DateTime?
+  voidReason  String?
+
+  createdAt DateTime @default(now())
+
+  lines JournalEntryLine[]
+
+  @@index([cashBook, date])
+  @@index([outletId])
+  @@index([date])
+}
+
+// Always exactly two lines per JournalEntry (the cash-book leg + its contra
+// account) — enforced in application code, not by the schema, so a v2 that
+// needs true multi-line vouchers isn't blocked by this shape.
+model JournalEntryLine {
+  id             String   @id @default(uuid())
+  journalEntryId String
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id])
+  accountId      String
+  account        ChartOfAccount @relation(fields: [accountId], references: [id])
+  debit          Decimal  @default(0) @db.Decimal(16, 2)
+  credit         Decimal  @default(0) @db.Decimal(16, 2)
+
+  @@index([journalEntryId])
+  @@index([accountId])
+}
+
+model WarehouseStock {
+  id        String   @id @default(uuid())
+  productId String   @unique
+  product   Product  @relation(fields: [productId], references: [id])
+  qtyOnHand Int      @default(0)
+  minLevel  Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model WarehouseReceiving {
+  id           String    @id @default(uuid())
+  productId    String
+  product      Product   @relation(fields: [productId], references: [id])
+  qty          Int
+  lotNumber    String
+  expiryDate   DateTime? @db.Date
+  supplierName String?
+  receivedById String
+  receivedBy   User      @relation(fields: [receivedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@index([expiryDate])
+}
+
+model StockDistribution {
+  id             String             @id @default(uuid())
+  productId      String
+  product        Product            @relation(fields: [productId], references: [id])
+  outletId       String
+  outlet         Outlet             @relation(fields: [outletId], references: [id])
+  qty            Int
+  lotNumber      String?
+  status         DistributionStatus @default(PENDING)
+  requestedById  String?
+  requestedBy    User?              @relation("DistributionRequester", fields: [requestedById], references: [id])
+  dispatchedById String?
+  dispatchedBy   User?              @relation("DistributionDispatcher", fields: [dispatchedById], references: [id])
+  deliveredAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([outletId])
+  @@index([status])
+}

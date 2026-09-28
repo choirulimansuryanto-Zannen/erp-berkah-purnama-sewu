@@ -1,0 +1,231 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import type { Role } from "@prisma/client";
+import {
+  LayoutDashboard,
+  ShoppingCart,
+  Clock,
+  ClipboardCheck,
+  FileText,
+  Receipt,
+  CheckSquare,
+  Package,
+  Warehouse,
+  Users,
+  Megaphone,
+  UsersRound,
+  Wallet,
+  UserCog,
+  Settings,
+  BarChart3,
+  CalendarOff,
+  Store,
+  Tag,
+  History,
+  Sparkles,
+  UserCheck,
+  Split,
+  Ticket,
+  Snowflake,
+  TrendingUp,
+  LayoutGrid,
+  ClipboardList,
+  ShieldCheck,
+  Archive,
+  MapPin,
+  NotebookPen,
+  PieChart,
+  FileCheck2,
+} from "lucide-react";
+import { can, type Permission } from "@/lib/permissions";
+import { cn } from "@/lib/cn";
+
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  permission?: Permission | Permission[];
+};
+
+type NavSection = {
+  label: string;
+  items: NavItem[];
+};
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    label: "Overview",
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/executive", label: "Executive", icon: BarChart3, permission: "executive:view_dashboard" },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
+      { href: "/pos", label: "POS / Kasir", icon: ShoppingCart, permission: "pos:ring_up" },
+      { href: "/attendance", label: "Attendance", icon: Clock },
+      { href: "/reports", label: "Daily Reports", icon: FileText },
+      { href: "/transactions", label: "Riwayat Transaksi", icon: History, permission: "transactions:view_history" },
+      { href: "/inventory", label: "Inventory", icon: Package },
+      { href: "/warehouse", label: "Warehouse", icon: Warehouse, permission: "warehouse:manage" },
+      {
+        href: "/validations",
+        label: "Validations",
+        icon: CheckSquare,
+        permission: ["report:validate", "expense:approve", "inventory:approve_adjustment", "attendance:approve_leave"],
+      },
+    ],
+  },
+  {
+    label: "Growth",
+    items: [
+      { href: "/members", label: "Members", icon: Users, permission: "member:view" },
+      { href: "/marketing", label: "Marketing", icon: Megaphone, permission: "marketing:manage_campaigns" },
+    ],
+  },
+  {
+    label: "People & Finance",
+    items: [
+      { href: "/hrga", label: "HRGA", icon: UsersRound, permission: "hrga:manage_policy" },
+      { href: "/finance", label: "Finance", icon: Wallet, permission: "finance:view_ledger" },    ],
+  },
+  {
+    label: "Administration",
+    items: [
+      { href: "/admin/users", label: "Users", icon: UserCog, permission: "admin:manage_users" },
+      { href: "/admin/outlets", label: "Outlets", icon: Store, permission: "admin:system_config" },
+      { href: "/admin/products", label: "Products", icon: Tag, permission: "admin:system_config" },
+      { href: "/admin/toppings", label: "Toppings", icon: Sparkles, permission: "admin:system_config" },
+      { href: "/admin/channel-rules", label: "Aturan Channel", icon: Split, permission: "admin:system_config" },
+      { href: "/admin/vouchers", label: "Vouchers", icon: Ticket, permission: "admin:system_config" },
+      { href: "/admin/package-composition", label: "Isi Paket", icon: Package, permission: "admin:system_config" },
+      { href: "/admin/expense-categories", label: "Kategori Pengeluaran", icon: Receipt, permission: "admin:system_config" },
+      { href: "/admin/pramuniaga-roster", label: "Roster Pramuniaga", icon: UserCheck, permission: "admin:system_config" },
+      { href: "/admin/freezer-materials", label: "Bahan Baku Freezer", icon: Snowflake, permission: "admin:system_config" },
+      { href: "/admin/settings", label: "System Settings", icon: Settings, permission: "admin:system_config" },
+    ],
+  },
+];
+
+// Pramuniaga has its own, explicitly-ordered menu (per stakeholder request)
+// rather than the permission-filtered NAV_SECTIONS every other role shares —
+// their day revolves around a specific sequence (check in, ring up sales,
+// report) that doesn't map cleanly onto the admin-oriented section grouping.
+const PRAMUNIAGA_NAV: NavItem[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/attendance", label: "Presensi Checklist Outlet", icon: ClipboardCheck },
+  { href: "/pos", label: "POS / Kasir", icon: ShoppingCart },
+  { href: "/transactions", label: "Riwayat Transaksi", icon: History },
+  { href: "/setoran", label: "Laporan Harian", icon: Wallet },
+  { href: "/inventory", label: "Stock Freezer & JPD", icon: Package },
+  { href: "/outlet-summary", label: "Ringkasan Outlet", icon: TrendingUp },
+  { href: "/leave", label: "Izin, Sakit & Libur", icon: CalendarOff },
+  { href: "/members", label: "Pelanggan & Member", icon: Users },
+];
+
+// SPV's own dedicated menu (per stakeholder spec) — 5 groups matching
+// Dashboard / Menu Wilayah / Verifikasi Wilayah / Presensi SPV Wilayah /
+// Ringkasan Wilayah exactly, instead of the shared permission-filtered
+// NAV_SECTIONS every other management role uses. Most destinations reuse
+// existing region-scoped pages (getScopedOutletIds already narrows them to
+// this SPV's own region) — a few are net-new subsystems (Purchase Order,
+// Kunjungan Outlet) still being built out.
+const SPV_NAV_SECTIONS: NavSection[] = [
+  {
+    label: "1. Dashboard",
+    items: [
+      { href: "/executive", label: "Dashboard Sales", icon: TrendingUp },
+      { href: "/wilayah", label: "Semua Menu Supervisor", icon: LayoutGrid },
+    ],
+  },
+  {
+    label: "2. Menu Wilayah",
+    items: [
+      { href: "/transactions", label: "Riwayat Transaksi Outlet", icon: History },
+      { href: "/reports", label: "Riwayat Summary Laporan Harian", icon: FileText },
+      { href: "/inventory", label: "Riwayat Summary Sisa Stock", icon: Package },
+      { href: "/purchase-orders", label: "Purchase Order Outlet", icon: ClipboardList },
+      { href: "/report-compliance", label: "Kepatuhan Laporan", icon: ShieldCheck },
+    ],
+  },
+  {
+    label: "3. Verifikasi Wilayah",
+    items: [
+      { href: "/validations#laporan", label: "Verifikasi Laporan", icon: CheckSquare },
+      { href: "/report-history", label: "Histori Laporan Terverifikasi", icon: Archive },
+      { href: "/purchase-orders/verify", label: "Verifikasi PO", icon: FileCheck2 },
+      { href: "/purchase-orders/history", label: "Histori PO", icon: History },
+      { href: "/validations#izin", label: "Persetujuan Izin", icon: CalendarOff },
+    ],
+  },
+  {
+    label: "4. Presensi SPV Wilayah",
+    items: [
+      { href: "/attendance", label: "Absen Masuk & Pulang", icon: Clock },
+      { href: "/outlet-visits", label: "Absen Kunjungan Outlet", icon: MapPin },
+      { href: "/outlet-visits/report", label: "Report Kunjungan Outlet", icon: NotebookPen },
+      { href: "/leave", label: "Pengajuan Izin, Sakit, Libur & Cuti", icon: CalendarOff },
+    ],
+  },
+  {
+    label: "5. Ringkasan Wilayah",
+    items: [{ href: "/region-summary", label: "Ringkasan", icon: PieChart }],
+  },
+];
+
+function hasAccess(role: Role, permission?: Permission | Permission[]): boolean {
+  if (!permission) return true;
+  const permissions = Array.isArray(permission) ? permission : [permission];
+  return permissions.some((p) => can(role, p));
+}
+
+export function Sidebar({ role, onNavigate }: { role: Role; onNavigate?: () => void }) {
+  const pathname = usePathname();
+  const sections: NavSection[] =
+    role === "PRAMUNIAGA"
+      ? [{ label: "Menu", items: PRAMUNIAGA_NAV }]
+      : role === "SPV"
+        ? SPV_NAV_SECTIONS
+        : NAV_SECTIONS.map((section) => ({
+            ...section,
+            items: section.items.filter((item) => hasAccess(role, item.permission)),
+          })).filter((section) => section.items.length > 0);
+
+  return (
+    <nav className="flex h-full w-64 flex-col gap-4 overflow-y-auto border-r border-slate-200/70 bg-white px-3 py-4">
+      {sections.map((section) => (
+        <div key={section.label}>
+          <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            {section.label}
+          </p>
+          <div className="flex flex-col gap-0.5">
+            {section.items.map((item) => {
+              const itemPath = item.href.split("#")[0];
+              const active = pathname === itemPath || pathname?.startsWith(`${itemPath}/`);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg border-l-[3px] py-2 pr-3 text-sm font-medium transition-all duration-150",
+                    active
+                      ? "border-gold-400 bg-accent-50 pl-[9px] text-accent-800"
+                      : "border-transparent pl-3 text-slate-600 hover:translate-x-0.5 hover:bg-slate-50 hover:text-slate-900",
+                  )}
+                >
+                  <Icon className={cn("h-[18px] w-[18px] shrink-0", active ? "text-accent-600" : "text-slate-400")} />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </nav>
+  );
+}
