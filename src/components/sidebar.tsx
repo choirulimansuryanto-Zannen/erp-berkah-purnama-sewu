@@ -65,6 +65,13 @@ type NavItem = {
 type NavSection = {
   label: string;
   items: NavItem[];
+  // Hides the whole section for these roles regardless of the individual
+  // items' own permissions — for a section that's structurally irrelevant
+  // to a role even though some items in it are unguarded or the role
+  // happens to hold one of an item's permissions for unrelated reasons
+  // (e.g. FA_ADMIN can validate reports/approve expenses, but "Operations"
+  // as a menu is still noise for a pure finance role).
+  hiddenForRoles?: Role[];
 };
 
 const NAV_SECTIONS: NavSection[] = [
@@ -77,6 +84,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     label: "Operations",
+    hiddenForRoles: ["FA_ADMIN"],
     items: [
       { href: "/pos", label: "POS / Kasir", icon: ShoppingCart, permission: "pos:ring_up" },
       { href: "/attendance", label: "Attendance", icon: Clock },
@@ -239,10 +247,12 @@ export function Sidebar({ role, onNavigate }: { role: Role; onNavigate?: () => v
       ? [{ label: "Menu", items: PRAMUNIAGA_NAV }]
       : role === "SPV"
         ? SPV_NAV_SECTIONS
-        : NAV_SECTIONS.map((section) => ({
-            ...section,
-            items: section.items.map((item) => filterItem(item, role)).filter((item): item is NavItem => item !== null),
-          })).filter((section) => section.items.length > 0);
+        : NAV_SECTIONS.filter((section) => !section.hiddenForRoles?.includes(role))
+            .map((section) => ({
+              ...section,
+              items: section.items.map((item) => filterItem(item, role)).filter((item): item is NavItem => item !== null),
+            }))
+            .filter((section) => section.items.length > 0);
 
   // Sub-pages (e.g. FA Company's 7 report pages) start collapsed and only
   // appear once their parent is clicked — auto-expanded here if the page
