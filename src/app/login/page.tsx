@@ -163,8 +163,11 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {process.env.NODE_ENV !== "production" && (
-            <div className="animate-fade-in-up relative mt-9 overflow-hidden rounded-2xl bg-gradient-to-br from-navy-900 via-navy-950 to-navy-900 p-[1px] shadow-lg shadow-navy-950/20" style={{ animationDelay: "0.15s" }}>
+          {/* Demo accounts intentionally shown regardless of environment —
+              this deployment itself is a demo/staging site (no real
+              customer-facing production instance exists yet), so gating on
+              NODE_ENV hid it everywhere it was actually needed. */}
+          <div className="animate-fade-in-up relative mt-9 overflow-hidden rounded-2xl bg-gradient-to-br from-navy-900 via-navy-950 to-navy-900 p-[1px] shadow-lg shadow-navy-950/20" style={{ animationDelay: "0.15s" }}>
               {/* Gold hairline frame — the "letter-box" premium touch, same
                   language as the logo's gold ring. */}
               <div className="rounded-[15px] bg-gradient-to-br from-navy-950 via-navy-900 to-navy-950 p-5">
@@ -230,8 +233,7 @@ export default function LoginPage() {
                   ))}
                 </div>
               </div>
-            </div>
-          )}
+          </div>
         </div>
       </div>
     </div>
