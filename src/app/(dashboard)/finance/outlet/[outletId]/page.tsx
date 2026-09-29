@@ -14,6 +14,7 @@ import { OutletMaterialAkhirInput } from "@/components/finance/outlet-material-a
 import { OutletLedgerEntryForm, OutletLedgerEntryDeleteButton } from "@/components/finance/outlet-ledger-entry-form";
 import { OutletPayrollInput } from "@/components/finance/outlet-payroll-input";
 import { OutletReportSelector } from "@/components/finance/outlet-report-selector";
+import { ExportExcelButton } from "@/components/ui/export-excel-button";
 import {
   getOmsetSheet,
   getJpdSheet,
@@ -162,16 +163,19 @@ export default async function OutletDetailReportPage({
       </div>
 
       {/* a. Omset Sheet */}
-      <Card>
-        <CardHeader>
-          <CardTitle>a. Omset Sheet — Rekap Penjualan per Produk</CardTitle>
-          <p className="text-xs text-slate-400">
-            Produk dengan latar <span className="rounded bg-yellow-200 px-1 font-semibold text-yellow-900">kuning</span> menggunakan daging ketul. Paket
-            (MBG/Kopdes/Trio/dll) diterjemahkan ke produk &amp; topping penyusunnya — paket itu sendiri tidak muncul sebagai kolom.
-          </p>
+      <Card id="omset-sheet-section">
+        <CardHeader className="sticky top-16 z-30 bg-white">
+          <div>
+            <CardTitle>OMSET SHEET</CardTitle>
+            <p className="text-xs text-slate-400">
+              Produk dengan latar <span className="rounded bg-yellow-200 px-1 font-semibold text-yellow-900">kuning</span> menggunakan daging ketul. Paket
+              (MBG/Kopdes/Trio/dll) diterjemahkan ke produk &amp; topping penyusunnya — paket itu sendiri tidak muncul sebagai kolom.
+            </p>
+          </div>
+          <ExportExcelButton containerId="omset-sheet-section" filename={`Omset_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
         </CardHeader>
         <div className="overflow-x-auto">
-          <Table>
+          <Table data-sheet-name="Omset">
             <Thead>
               <tr>
                 <Th className="sticky left-0 z-10 bg-slate-50">Tanggal</Th>
@@ -214,13 +218,16 @@ export default async function OutletDetailReportPage({
       </Card>
 
       {/* JPD Sheet — yield KPI (Jumlah Produk per Daging), daily rollup */}
-      <Card>
-        <CardHeader>
-          <CardTitle>JPD Sheet — Jumlah Produk per Daging</CardTitle>
-          <p className="text-xs text-slate-400">
-            Rata-rata Penggunaan Daging/Ketul (Pcs/4Kg) = produk daging ketul terjual ÷ pemakaian daging (dari data Freezer Material Daging @4kg + @2kg) — KPI
-            yield yang sama dengan kartu JPD di menu Inventory.
-          </p>
+      <Card id="jpd-sheet-section">
+        <CardHeader className="sticky top-16 z-30 bg-white">
+          <div>
+            <CardTitle>JPD SHEET</CardTitle>
+            <p className="text-xs text-slate-400">
+              Rata-rata Penggunaan Daging/Ketul (Pcs/4Kg) = produk daging ketul terjual ÷ pemakaian daging (dari data Freezer Material Daging @4kg + @2kg) —
+              KPI yield yang sama dengan kartu JPD di menu Inventory.
+            </p>
+          </div>
+          <ExportExcelButton containerId="jpd-sheet-section" filename={`JPD_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
         </CardHeader>
         {!jpd.hasFreezerData && (
           <div className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -228,7 +235,7 @@ export default async function OutletDetailReportPage({
           </div>
         )}
         <div className="overflow-x-auto">
-          <Table>
+          <Table data-sheet-name="JPD">
             <Thead>
               <tr>
                 <Th rowSpan={2}>Hari</Th>
@@ -286,15 +293,18 @@ export default async function OutletDetailReportPage({
       </Card>
 
       {/* b. Purchase Sheet */}
-      <Card>
-        <CardHeader>
-          <CardTitle>b. Purchase Sheet</CardTitle>
-          <p className="text-xs text-slate-400">Barang Masuk = data dari akun Pramuniaga (Inventory Record). Ditambah pembelian lokal manual di bawah.</p>
+      <Card id="purchase-sheet-section">
+        <CardHeader className="sticky top-16 z-30 bg-white">
+          <div>
+            <CardTitle>PURCHASE SHEET</CardTitle>
+            <p className="text-xs text-slate-400">Barang Masuk = data dari akun Pramuniaga (Inventory Record). Ditambah pembelian lokal manual di bawah.</p>
+          </div>
+          <ExportExcelButton containerId="purchase-sheet-section" filename={`Purchase_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
         </CardHeader>
         <div className="border-b border-slate-100 p-5">
           <OutletPurchaseForm outletId={outletId} materials={materialsForForms} />
         </div>
-        <Table>
+        <Table data-sheet-name="Purchase">
           <Thead>
             <tr>
               <Th>Tanggal</Th>
@@ -347,14 +357,15 @@ export default async function OutletDetailReportPage({
       </Card>
 
       {/* c. Adjustment Sheet */}
-      <Card>
-        <CardHeader>
-          <CardTitle>c. Adjustment Sheet</CardTitle>
+      <Card id="adjustment-sheet-section">
+        <CardHeader className="sticky top-16 z-30 bg-white">
+          <CardTitle>ADJUSTMENT SHEET</CardTitle>
+          <ExportExcelButton containerId="adjustment-sheet-section" filename={`Adjustment_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
         </CardHeader>
         <div className="border-b border-slate-100 p-5">
           <OutletAdjustmentForm outletId={outletId} materials={materialsForForms} />
         </div>
-        <Table>
+        <Table data-sheet-name="Adjustment">
           <Thead>
             <tr>
               <Th>Tanggal</Th>
@@ -401,21 +412,22 @@ export default async function OutletDetailReportPage({
       </Card>
 
       {/* d. Jurnal Sheet — Ledger (input manual, format spreadsheet asli) */}
-      <Card>
-        <CardHeader>
-          <CardTitle>d. Jurnal Sheet</CardTitle>
+      <Card id="jurnal-sheet-section">
+        <CardHeader className="sticky top-16 z-30 bg-white">
+          <CardTitle>JURNAL SHEET</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-xs text-slate-400">Tanggal / No. Akun / Keterangan / D-C / Nilai — dicatat manual, sama seperti kebiasaan pembukuan harian.</p>
             <Link href="/admin/outlet-ledger-accounts" className="text-xs font-bold text-accent-700 hover:text-accent-800">
               Kelola Chart of Accounts →
             </Link>
+            <ExportExcelButton containerId="jurnal-sheet-section" filename={`Jurnal_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
           </div>
         </CardHeader>
         <div className="border-b border-slate-100 p-5">
           <OutletLedgerEntryForm outletId={outletId} accounts={ledgerAccountOptions} />
         </div>
         <div className="overflow-x-auto">
-          <Table>
+          <Table data-sheet-name="Jurnal">
             <Thead>
               <tr>
                 <Th>Tanggal</Th>
@@ -468,12 +480,15 @@ export default async function OutletDetailReportPage({
       </Card>
 
       {/* e. Absen Sheet */}
-      <Card>
-        <CardHeader>
-          <CardTitle>e. Absen Sheet</CardTitle>
-          <p className="text-xs text-slate-400">
-            {outletCode} {outlet.name} — {MONTH_NAMES[month - 1]} {year}
-          </p>
+      <Card id="absen-sheet-section">
+        <CardHeader className="sticky top-16 z-30 bg-white">
+          <div>
+            <CardTitle>ABSEN SHEET</CardTitle>
+            <p className="text-xs text-slate-400">
+              {outletCode} {outlet.name} — {MONTH_NAMES[month - 1]} {year}
+            </p>
+          </div>
+          <ExportExcelButton containerId="absen-sheet-section" filename={`Absen_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
         </CardHeader>
         <div className="grid grid-cols-3 gap-4 border-b border-slate-100 p-5 text-sm sm:grid-cols-3">
           <div>
@@ -495,7 +510,7 @@ export default async function OutletDetailReportPage({
           </div>
         )}
         <div className="overflow-x-auto">
-          <Table>
+          <Table data-sheet-name="Absen">
             <Thead>
               <tr>
                 <Th>No.</Th>
@@ -579,15 +594,18 @@ export default async function OutletDetailReportPage({
       </Card>
 
       {/* f. Insentive Sheet */}
-      <Card>
-        <CardHeader>
-          <CardTitle>f. Insentive Sheet</CardTitle>
-          <Link href="/admin/incentive-brackets" className="text-xs font-bold text-accent-700 hover:text-accent-800">
-            Kelola Bracket Omset →
-          </Link>
+      <Card id="insentive-sheet-section">
+        <CardHeader className="sticky top-16 z-30 bg-white">
+          <CardTitle>INSENTIVE SHEET</CardTitle>
+          <div className="flex items-center gap-2">
+            <Link href="/admin/incentive-brackets" className="text-xs font-bold text-accent-700 hover:text-accent-800">
+              Kelola Bracket Omset →
+            </Link>
+            <ExportExcelButton containerId="insentive-sheet-section" filename={`Insentive_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
+          </div>
         </CardHeader>
         <div className="overflow-x-auto">
-          <Table>
+          <Table data-sheet-name="Insentif_Harian">
             <Thead>
               <tr>
                 <Th>Hari</Th>
@@ -632,7 +650,7 @@ export default async function OutletDetailReportPage({
         </div>
 
         <p className="mt-4 px-5 text-xs font-bold uppercase tracking-wide text-slate-400">Rekap Insentif per Pramuniaga</p>
-        <Table>
+        <Table data-sheet-name="Rekap_Pramuniaga">
           <Thead>
             <tr>
               <Th>Nama</Th>
@@ -689,16 +707,19 @@ export default async function OutletDetailReportPage({
       </Card>
 
       {/* g. Inventory Sheet */}
-      <Card>
-        <CardHeader>
-          <CardTitle>g. Inventory Sheet — Data Stock Available</CardTitle>
-          <p className="text-xs text-slate-400">Kolom &quot;Akhir&quot; diisi manual (hasil stock opname); kolom lain otomatis dari transaksi bulan ini.</p>
+      <Card id="inventory-sheet-section">
+        <CardHeader className="sticky top-16 z-30 bg-white">
+          <div>
+            <CardTitle>INVENTORY SHEET</CardTitle>
+            <p className="text-xs text-slate-400">Kolom &quot;Akhir&quot; diisi manual (hasil stock opname); kolom lain otomatis dari transaksi bulan ini.</p>
+          </div>
+          <ExportExcelButton containerId="inventory-sheet-section" filename={`Inventory_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
         </CardHeader>
         {[...materialsByCategory.entries()].map(([category, rows]) => (
           <div key={category} className="border-b border-slate-100">
             <p className="bg-slate-50 px-5 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">{MATERIAL_CATEGORY_LABELS[category] ?? category}</p>
             <div className="overflow-x-auto">
-              <Table>
+              <Table data-sheet-name={(MATERIAL_CATEGORY_LABELS[category] ?? category).replace(/[^A-Za-z0-9]+/g, "_")}>
                 <Thead>
                   <tr>
                     <Th>Kode</Th>
@@ -745,16 +766,19 @@ export default async function OutletDetailReportPage({
       </Card>
 
       {/* h. Report Sheet */}
-      <Card>
-        <CardHeader>
-          <CardTitle>h. Report Sheet</CardTitle>
-          <p className="text-xs text-slate-400">
-            Diambil langsung dari Jurnal Sheet bulan ini ({MONTH_NAMES[month - 1]} {year}) — bukan hasil hitung otomatis dari transaksi/pengeluaran.
-          </p>
+      <Card id="report-sheet-section">
+        <CardHeader className="sticky top-16 z-30 bg-white">
+          <div>
+            <CardTitle>{`REPORT OUTLET (${outlet.name})`}</CardTitle>
+            <p className="text-xs text-slate-400">
+              Diambil langsung dari Jurnal Sheet bulan ini ({MONTH_NAMES[month - 1]} {year}) — bukan hasil hitung otomatis dari transaksi/pengeluaran.
+            </p>
+          </div>
+          <ExportExcelButton containerId="report-sheet-section" filename={`Report_Outlet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
         </CardHeader>
         <div className="p-5 pt-2 text-sm">
           <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-400">A. Penjualan</p>
-          <Table>
+          <Table data-sheet-name="A_Penjualan">
             <tbody>
               {report.penjualanRows
                 .filter((r) => r.amount !== 0)
@@ -773,7 +797,7 @@ export default async function OutletDetailReportPage({
           </Table>
 
           <p className="mb-1 mt-6 text-xs font-bold uppercase tracking-wide text-slate-400">B. Pembelian</p>
-          <Table>
+          <Table data-sheet-name="B_Pembelian">
             <tbody>
               {report.pembelianRows.map((r, i) => (
                 <Tr key={i}>
@@ -785,15 +809,15 @@ export default async function OutletDetailReportPage({
                 <Td>TOTAL HPP</Td>
                 <Td className="text-right tabular-nums">{currency.format(report.totalHpp)}</Td>
               </Tr>
+              <Tr className={report.labaKotor < 0 ? "bg-rose-50 font-bold text-rose-700" : "bg-brand-50 font-bold text-brand-900"}>
+                <Td>LABA/RUGI KOTOR</Td>
+                <Td className="text-right tabular-nums">{currency.format(report.labaKotor)}</Td>
+              </Tr>
             </tbody>
           </Table>
-          <div className={`mt-2 flex items-center justify-between rounded-lg px-3 py-2 font-bold ${report.labaKotor < 0 ? "bg-rose-50 text-rose-700" : "bg-brand-50 text-brand-900"}`}>
-            <span>LABA/RUGI KOTOR</span>
-            <span>{currency.format(report.labaKotor)}</span>
-          </div>
 
           <p className="mb-1 mt-6 text-xs font-bold uppercase tracking-wide text-slate-400">C. Biaya</p>
-          <Table>
+          <Table data-sheet-name="C_Biaya">
             <tbody>
               <Tr className="bg-slate-50">
                 <Td className="font-semibold" colSpan={2}>
@@ -829,12 +853,12 @@ export default async function OutletDetailReportPage({
                 <Td>TOTAL BIAYA</Td>
                 <Td className="text-right tabular-nums">{currency.format(report.totalBiaya)}</Td>
               </Tr>
+              <Tr className={reportLabaBersih < 0 ? "bg-rose-50 font-bold text-rose-700" : "bg-brand-50 font-bold text-brand-900"}>
+                <Td>LABA/RUGI BERSIH</Td>
+                <Td className="text-right tabular-nums">{currency.format(reportLabaBersih)}</Td>
+              </Tr>
             </tbody>
           </Table>
-          <div className={`mt-2 flex items-center justify-between rounded-lg px-3 py-3 font-bold ${reportLabaBersih < 0 ? "bg-rose-50 text-rose-700" : "bg-brand-50 text-brand-900"}`}>
-            <span>LABA/RUGI BERSIH</span>
-            <span>{currency.format(reportLabaBersih)}</span>
-          </div>
 
           <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
             <FileBarChart className="h-3.5 w-3.5" />
