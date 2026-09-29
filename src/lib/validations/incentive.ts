@@ -44,7 +44,7 @@ export const runCalculationSchema = z.object({
 });
 
 // ── Adjustment Sheet — Barang Rusak / Barang Reject / Barang Selisih ──────
-const OUTLET_ADJUSTMENT_TYPES = ["RUSAK", "REJECT", "SELISIH"] as const;
+const OUTLET_ADJUSTMENT_TYPES = ["RUSAK", "REJECT", "SELISIH", "KELUAR"] as const;
 
 export const outletAdjustmentSchema = z.object({
   outletId: z.string().uuid(),

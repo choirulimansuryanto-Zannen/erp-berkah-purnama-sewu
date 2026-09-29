@@ -10,7 +10,7 @@ export function OutletLedgerEntryDeleteButton({ id }: { id: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   function remove() {
-    if (!window.confirm("Hapus baris Akun Sheet ini?")) return;
+    if (!window.confirm("Hapus baris Jurnal Sheet ini?")) return;
     startTransition(async () => {
       const res = await fetch(`/api/finance/outlet-ledger/${id}`, { method: "DELETE" });
       if (res.ok) router.refresh();
@@ -30,7 +30,7 @@ function todayStr(): string {
 
 type LedgerAccountOption = { id: string; number: number; label: string; defaultSide: "D" | "C" };
 
-// Akun Sheet ledger input — a direct digitization of the business's own
+// Jurnal Sheet ledger input — a direct digitization of the business's own
 // daily bookkeeping habit: type the No. Akun (a plain number field, no
 // dropdown to scroll through), and Nama Akun looks itself up and displays
 // automatically as you type (e.g. typing "1" shows "Penjualan Produk
@@ -76,7 +76,7 @@ export function OutletLedgerEntryForm({ outletId, accounts }: { outletId: string
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage("Baris Akun Sheet tersimpan.");
+        setMessage("Baris Jurnal Sheet tersimpan.");
         setSuccess(true);
         setDescription("");
         setAmount("");

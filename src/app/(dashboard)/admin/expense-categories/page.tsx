@@ -38,7 +38,7 @@ export default async function AdminExpenseCategoriesPage() {
               <Th>Label</Th>
               <Th>Urutan</Th>
               <Th>Status</Th>
-              <Th>Kelompok (Akun Sheet)</Th>
+              <Th>Kelompok (Jurnal Sheet)</Th>
               <Th></Th>
             </tr>
           </Thead>

@@ -166,7 +166,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/admin/pramuniaga-roster", label: "Roster Pramuniaga", icon: UserCheck, permission: "admin:system_config" },
       { href: "/admin/freezer-materials", label: "Bahan Baku Freezer", icon: Snowflake, permission: "admin:system_config" },
       { href: "/admin/outlet-materials", label: "Data Stock Available", icon: Boxes, permission: "admin:system_config" },
-      { href: "/admin/outlet-ledger-accounts", label: "Akun Sheet — Chart of Accounts", icon: Table2, permission: "admin:system_config" },
+      { href: "/admin/outlet-ledger-accounts", label: "Jurnal Sheet — Chart of Accounts", icon: Table2, permission: "admin:system_config" },
       { href: "/admin/incentive-brackets", label: "Bracket Insentif Outlet", icon: Layers, permission: "finance:manage_incentive_rules" },
       { href: "/admin/settings", label: "System Settings", icon: Settings, permission: "admin:system_config" },
     ],

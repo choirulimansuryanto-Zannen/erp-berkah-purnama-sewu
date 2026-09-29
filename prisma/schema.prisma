@@ -1654,6 +1654,11 @@ enum OutletAdjustmentType {
   RUSAK
   REJECT
   SELISIH
+  // Mutasi keluar — stock deliberately moved OUT to another outlet/gudang,
+  // not a loss (unlike RUSAK/REJECT/SELISIH), so it's tracked as its own
+  // Inventory Sheet column and excluded from the Adjustment Sheet's loss
+  // total.
+  KELUAR
 }
 
 // The Adjustment Sheet's own input (distinct from StockAdjustment, which is

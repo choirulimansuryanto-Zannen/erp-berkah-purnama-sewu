@@ -8,7 +8,7 @@ import { Table, Thead, Th, EmptyRow } from "@/components/ui/table";
 import { CreateOutletLedgerAccountForm } from "@/components/admin/create-outlet-ledger-account-form";
 import { OutletLedgerAccountRow } from "@/components/admin/outlet-ledger-account-row";
 
-// Master data for the Laporan Outlet Akun Sheet's fixed chart of accounts
+// Master data for the Laporan Outlet Jurnal Sheet's fixed chart of accounts
 // (No. Akun 1-42) — the accounts an FA/SPV picks from when logging each
 // day's ledger line (Tanggal / No. Akun / Keterangan / D-C / Nilai).
 export default async function AdminOutletLedgerAccountsPage() {
@@ -25,8 +25,8 @@ export default async function AdminOutletLedgerAccountsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Akun Sheet — Chart of Accounts"
-        description="Kelola daftar No. Akun tetap yang dipakai saat mencatat Akun Sheet Laporan Outlet (Tanggal / No. Akun / Keterangan / D-C / Nilai)."
+        title="Jurnal Sheet — Chart of Accounts"
+        description="Kelola daftar No. Akun tetap yang dipakai saat mencatat Jurnal Sheet Laporan Outlet (Tanggal / No. Akun / Keterangan / D-C / Nilai)."
       />
 
       <CreateOutletLedgerAccountForm />

@@ -6,7 +6,12 @@ import { X } from "lucide-react";
 import { Label, Input, Textarea, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
-const TYPE_LABELS: Record<string, string> = { RUSAK: "Barang Rusak", REJECT: "Barang Reject", SELISIH: "Barang Selisih" };
+const TYPE_LABELS: Record<string, string> = {
+  RUSAK: "Barang Rusak",
+  REJECT: "Barang Reject",
+  SELISIH: "Barang Selisih",
+  KELUAR: "Barang Keluar (Mutasi)",
+};
 
 export function OutletAdjustmentDeleteButton({ id }: { id: string }) {
   const router = useRouter();

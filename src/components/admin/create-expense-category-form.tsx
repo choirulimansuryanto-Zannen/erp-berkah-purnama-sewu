@@ -56,7 +56,7 @@ export function CreateExpenseCategoryForm() {
             <Input className="mt-1" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Contoh: Biaya Parkir" />
           </div>
           <div>
-            <Label>Kelompok (Akun Sheet)</Label>
+            <Label>Kelompok (Jurnal Sheet)</Label>
             <Select className="mt-1" value={overheadGroup} onChange={(e) => setOverheadGroup(e.target.value)}>
               {Object.entries(OVERHEAD_GROUP_LABELS).map(([g, l]) => (
                 <option key={g} value={g}>

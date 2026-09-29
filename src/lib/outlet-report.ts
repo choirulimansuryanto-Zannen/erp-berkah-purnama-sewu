@@ -278,7 +278,9 @@ export async function getPurchaseSheet(outletId: string, year: number, month: nu
 
 // ═══════════════════════════════════════════════════════════════════════
 // c. Adjustment Sheet — OutletAdjustment entries (input-driven, Barang
-// Rusak/Reject/Selisih).
+// Rusak/Reject/Selisih/Keluar). Keluar (mutasi keluar — stock deliberately
+// moved out to another outlet/gudang) is tracked alongside the other
+// three but is NOT a loss, so it's excluded from the loss `total`.
 // ═══════════════════════════════════════════════════════════════════════
 export async function getAdjustmentSheet(outletId: string, year: number, month: number) {
   const { start, end } = monthRange(year, month);
@@ -287,23 +289,25 @@ export async function getAdjustmentSheet(outletId: string, year: number, month: 
     include: { material: { select: { name: true } }, createdBy: { select: { name: true } } },
     orderBy: { date: "asc" },
   });
-  const byType = { RUSAK: 0, REJECT: 0, SELISIH: 0 } as Record<string, number>;
-  const qtyByType = { RUSAK: 0, REJECT: 0, SELISIH: 0 } as Record<string, number>;
+  const byType = { RUSAK: 0, REJECT: 0, SELISIH: 0, KELUAR: 0 } as Record<string, number>;
+  const qtyByType = { RUSAK: 0, REJECT: 0, SELISIH: 0, KELUAR: 0 } as Record<string, number>;
   for (const r of rows) {
     byType[r.type] += Number(r.amount);
     qtyByType[r.type] += Number(r.qty);
   }
   const total = byType.RUSAK + byType.REJECT + byType.SELISIH;
-  return { rows, byType, qtyByType, total };
+  return { rows, byType, qtyByType, total, totalKeluar: byType.KELUAR };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
 // g. Inventory Sheet — "Data Stock Available": every OutletMaterial's
-// Awal/Masuk/Keluar(Pakai+Rusak+ADJ)/Saldo, qty + nominal, grouped by
-// category. Awal Masuk/Rusak/Selisih all have a real source; Pakai is the
-// residual (Awal + Masuk - Rusak - Reject - Selisih - Akhir) — the same
-// "back out the plug" approach FA Company's own HPP report uses, since
-// there's no per-product recipe/BOM tracked to compute it directly.
+// Awal/Masuk/Rusak/Reject/Selisih/Keluar/Saldo, qty + nominal, grouped by
+// category. Awal/Masuk/Rusak/Reject/Selisih/Keluar all have a real
+// source; Pakai is the residual (Awal + Masuk - Rusak - Reject - Selisih
+// - Keluar - Akhir) — the same "back out the plug" approach FA Company's
+// own HPP report uses, since there's no per-product recipe/BOM tracked to
+// compute it directly. Keluar (mutasi keluar) is a deliberate transfer
+// out to another outlet/gudang, not a loss like Rusak/Reject/Selisih.
 // ═══════════════════════════════════════════════════════════════════════
 export type MaterialStockRow = {
   id: string;
@@ -317,6 +321,7 @@ export type MaterialStockRow = {
   rusakQty: number;
   rejectQty: number;
   selisihQty: number;
+  keluarQty: number;
   pakaiQty: number;
   akhirQty: number;
   akhirRecorded: boolean;
@@ -340,8 +345,11 @@ export async function getInventorySheet(outletId: string, year: number, month: n
   const rusakByMaterial = new Map<string, number>();
   const rejectByMaterial = new Map<string, number>();
   const selisihByMaterial = new Map<string, number>();
+  const keluarByMaterial = new Map<string, number>();
+  const byTypeMap: Record<string, Map<string, number>> = { RUSAK: rusakByMaterial, REJECT: rejectByMaterial, SELISIH: selisihByMaterial, KELUAR: keluarByMaterial };
   for (const a of adjustmentsMonth) {
-    const map = a.type === "RUSAK" ? rusakByMaterial : a.type === "REJECT" ? rejectByMaterial : selisihByMaterial;
+    const map = byTypeMap[a.type];
+    if (!map) continue;
     map.set(a.materialId!, (map.get(a.materialId!) ?? 0) + Number(a.qty));
   }
   const akhirByMaterial = new Map(akhirThis.map((r) => [r.materialId, Number(r.qty)]));
@@ -353,9 +361,10 @@ export async function getInventorySheet(outletId: string, year: number, month: n
     const rusakQty = rusakByMaterial.get(m.id) ?? 0;
     const rejectQty = rejectByMaterial.get(m.id) ?? 0;
     const selisihQty = selisihByMaterial.get(m.id) ?? 0;
+    const keluarQty = keluarByMaterial.get(m.id) ?? 0;
     const akhirRecorded = akhirByMaterial.has(m.id);
-    const akhirQty = akhirByMaterial.get(m.id) ?? awalQty + masukQty - rusakQty - rejectQty - selisihQty;
-    const pakaiQty = awalQty + masukQty - rusakQty - rejectQty - selisihQty - akhirQty;
+    const akhirQty = akhirByMaterial.get(m.id) ?? awalQty + masukQty - rusakQty - rejectQty - selisihQty - keluarQty;
+    const pakaiQty = awalQty + masukQty - rusakQty - rejectQty - selisihQty - keluarQty - akhirQty;
     return {
       id: m.id,
       code: m.code,
@@ -368,6 +377,7 @@ export async function getInventorySheet(outletId: string, year: number, month: n
       rusakQty,
       rejectQty,
       selisihQty,
+      keluarQty,
       pakaiQty,
       akhirQty,
       akhirRecorded,
@@ -384,7 +394,7 @@ export async function getInventorySheet(outletId: string, year: number, month: n
 // ═══════════════════════════════════════════════════════════════════════
 // d./h. Report Sheet — A. Penjualan / B. Pembelian (HPP) / C. Biaya
 // (Overhead Langsung/Tidak Langsung), computed directly from this month's
-// Akun Sheet ledger entries (OutletLedgerEntry), grouped by account — the
+// Jurnal Sheet ledger entries (OutletLedgerEntry), grouped by account — the
 // business's own "jurnal yg di input", not a Transaction/ExpenseRecord
 // rollup. Persediaan Awal/Akhir are the only two lines that aren't ledger
 // accounts — they come from the Inventory Sheet's own stock data
@@ -468,7 +478,7 @@ export async function getReportSheet(outletId: string, year: number, month: numb
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// d. Akun Sheet — LEDGER format: a direct digitization of the business's
+// d. Jurnal Sheet — LEDGER format: a direct digitization of the business's
 // own daily bookkeeping habit (Tanggal / No. Akun / Keterangan / D-C /
 // Nilai), posted against the fixed OutletLedgerAccount chart of accounts.
 // Accum. is a running D-adds/C-subtracts balance that resets to 0 at the

@@ -44,7 +44,12 @@ const MATERIAL_CATEGORY_LABELS: Record<string, string> = {
   PACKAGING: "Packaging",
   BAHAN_ALAT_PENDUKUNG: "Bahan & Alat Pendukung",
 };
-const ADJUSTMENT_TYPE_LABELS: Record<string, string> = { RUSAK: "Barang Rusak", REJECT: "Barang Reject", SELISIH: "Barang Selisih" };
+const ADJUSTMENT_TYPE_LABELS: Record<string, string> = {
+  RUSAK: "Barang Rusak",
+  REJECT: "Barang Reject",
+  SELISIH: "Barang Selisih",
+  KELUAR: "Barang Keluar (Mutasi)",
+};
 
 // Laporan Outlet — one outlet, one month, all 8 sheets exactly as specified
 // from the real spreadsheets: Omset (per-product + daging ketul usage),
@@ -126,7 +131,7 @@ export default async function OutletDetailReportPage({
   const outletCode = outletShortCode(outlet.name);
 
   // ── h. Report Sheet — the investor-facing summary, taken straight from
-  // the Akun Sheet ledger (report.labaBersih already includes whatever
+  // the Jurnal Sheet ledger (report.labaBersih already includes whatever
   // Insentive figure was actually posted to account #22 that month) —
   // the bracket-calculated totalInsentifSemua below is a separate
   // reference/KPI figure, not subtracted again here.
@@ -365,7 +370,9 @@ export default async function OutletDetailReportPage({
               <Tr key={r.id}>
                 <Td>{r.date.toLocaleDateString("id-ID")}</Td>
                 <Td>
-                  <Badge tone={r.type === "RUSAK" ? "danger" : r.type === "REJECT" ? "warning" : "neutral"}>{ADJUSTMENT_TYPE_LABELS[r.type]}</Badge>
+                  <Badge tone={r.type === "RUSAK" ? "danger" : r.type === "REJECT" ? "warning" : r.type === "KELUAR" ? "info" : "neutral"}>
+                    {ADJUSTMENT_TYPE_LABELS[r.type]}
+                  </Badge>
                 </Td>
                 <Td>
                   {r.description}
@@ -384,14 +391,19 @@ export default async function OutletDetailReportPage({
               <Td className="text-right">{currency.format(adjustment.total)}</Td>
               <Td></Td>
             </Tr>
+            <Tr className="text-slate-500">
+              <Td colSpan={4}>Total Barang Keluar (Mutasi — bukan kerugian, tidak dihitung ke total di atas)</Td>
+              <Td className="text-right">{currency.format(adjustment.totalKeluar)}</Td>
+              <Td></Td>
+            </Tr>
           </tbody>
         </Table>
       </Card>
 
-      {/* d. Akun Sheet — Ledger (input manual, format spreadsheet asli) */}
+      {/* d. Jurnal Sheet — Ledger (input manual, format spreadsheet asli) */}
       <Card>
         <CardHeader>
-          <CardTitle>d. Akun Sheet</CardTitle>
+          <CardTitle>d. Jurnal Sheet</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-xs text-slate-400">Tanggal / No. Akun / Keterangan / D-C / Nilai — dicatat manual, sama seperti kebiasaan pembukuan harian.</p>
             <Link href="/admin/outlet-ledger-accounts" className="text-xs font-bold text-accent-700 hover:text-accent-800">
@@ -439,7 +451,7 @@ export default async function OutletDetailReportPage({
                   </Tr>
                 )),
               )}
-              {ledger.dayGroups.length === 0 && <EmptyRow colSpan={9}>Belum ada baris Akun Sheet bulan ini.</EmptyRow>}
+              {ledger.dayGroups.length === 0 && <EmptyRow colSpan={9}>Belum ada baris Jurnal Sheet bulan ini.</EmptyRow>}
               <Tr className="bg-gold-50 font-bold text-brand-900">
                 <Td colSpan={5}>TOTAL (D − C)</Td>
                 <Td className="text-right tabular-nums">
@@ -691,6 +703,7 @@ export default async function OutletDetailReportPage({
                     <Th className="text-right">Rusak</Th>
                     <Th className="text-right">Reject</Th>
                     <Th className="text-right">Selisih</Th>
+                    <Th className="text-right">Keluar</Th>
                     <Th className="text-right">Pakai</Th>
                     <Th className="text-right">Akhir</Th>
                     <Th className="text-right">Nilai Akhir</Th>
@@ -707,6 +720,9 @@ export default async function OutletDetailReportPage({
                       <Td className="text-right tabular-nums text-rose-600">{r.rusakQty > 0 ? number0.format(r.rusakQty) : "-"}</Td>
                       <Td className="text-right tabular-nums text-amber-600">{r.rejectQty > 0 ? number0.format(r.rejectQty) : "-"}</Td>
                       <Td className="text-right tabular-nums">{r.selisihQty !== 0 ? number0.format(r.selisihQty) : "-"}</Td>
+                      <Td className="text-right tabular-nums text-sky-600" title="Mutasi keluar ke outlet/gudang lain">
+                        {r.keluarQty > 0 ? number0.format(r.keluarQty) : "-"}
+                      </Td>
                       <Td className="text-right tabular-nums text-slate-500">{number0.format(r.pakaiQty)}</Td>
                       <Td className="text-right">
                         <OutletMaterialAkhirInput outletId={outletId} materialId={r.id} year={year} month={month} defaultValue={r.akhirQty} recorded={r.akhirRecorded} />
@@ -714,7 +730,7 @@ export default async function OutletDetailReportPage({
                       <Td className="text-right font-semibold tabular-nums">{currency.format(r.akhirQty * r.unitPrice)}</Td>
                     </Tr>
                   ))}
-                  {rows.length === 0 && <EmptyRow colSpan={11}>Belum ada material di kategori ini.</EmptyRow>}
+                  {rows.length === 0 && <EmptyRow colSpan={12}>Belum ada material di kategori ini.</EmptyRow>}
                 </tbody>
               </Table>
             </div>
@@ -731,7 +747,7 @@ export default async function OutletDetailReportPage({
         <CardHeader>
           <CardTitle>h. Report Sheet</CardTitle>
           <p className="text-xs text-slate-400">
-            Diambil langsung dari jurnal Akun Sheet bulan ini ({MONTH_NAMES[month - 1]} {year}) — bukan hasil hitung otomatis dari transaksi/pengeluaran.
+            Diambil langsung dari Jurnal Sheet bulan ini ({MONTH_NAMES[month - 1]} {year}) — bukan hasil hitung otomatis dari transaksi/pengeluaran.
           </p>
         </CardHeader>
         <div className="p-5 pt-2 text-sm">

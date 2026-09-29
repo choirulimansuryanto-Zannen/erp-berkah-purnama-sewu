@@ -34,7 +34,7 @@ export function CreateOutletLedgerAccountForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Tambah Akun — Akun Sheet</CardTitle>
+        <CardTitle>Tambah Akun — Jurnal Sheet</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="grid gap-3 sm:grid-cols-4">

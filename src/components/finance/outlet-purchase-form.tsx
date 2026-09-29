@@ -121,7 +121,7 @@ export function OutletPurchaseForm({
           <Input className="mt-1" type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
         </div>
         <div>
-          <Label className="text-[11px]">Kategori (Akun Sheet)</Label>
+          <Label className="text-[11px]">Kategori (Jurnal Sheet)</Label>
           <Select className="mt-1" value={category} onChange={(e) => setCategory(e.target.value)}>
             {Object.entries(CATEGORY_LABELS).map(([k, l]) => (
               <option key={k} value={k}>
