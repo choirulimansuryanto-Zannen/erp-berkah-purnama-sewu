@@ -504,6 +504,7 @@ export default async function OutletDetailReportPage({
                 <Th className="text-right">Qty Sales</Th>
                 <Th className="text-right">Insentive Value</Th>
                 <Th className="text-right">Labor Cost</Th>
+                <Th className="text-right">Gaji Pokok</Th>
                 {Array.from({ length: absen.nDays }, (_, i) => {
                   const date = new Date(Date.UTC(year, month - 1, i + 1));
                   const isSunday = date.getUTCDay() === 0;
@@ -517,7 +518,7 @@ export default async function OutletDetailReportPage({
                 <Th className="text-right">Total Standby</Th>
                 <Th className="text-right">Masa non Insentive</Th>
                 <Th className="text-right">Total Absen</Th>
-                <Th className="text-right">Salary</Th>
+                <Th className="text-right">Total Salary</Th>
                 <Th>Remarks</Th>
               </tr>
             </Thead>
@@ -536,7 +537,7 @@ export default async function OutletDetailReportPage({
                       year={year}
                       month={month}
                       defaultLaborCost={r.laborCost}
-                      defaultSalary={r.salary}
+                      defaultBaseSalary={r.baseSalary}
                       recorded={r.payrollRecorded}
                     />
                   </Td>
@@ -548,27 +549,32 @@ export default async function OutletDetailReportPage({
                   <Td className="text-right font-semibold tabular-nums">{r.totalStandby}</Td>
                   <Td className="text-right tabular-nums">{r.totalNonInsentif}</Td>
                   <Td className="text-right tabular-nums">{absen.nDays}</Td>
+                  <Td className="text-right font-semibold tabular-nums" title={`(${r.totalStandby} hari kerja / 27) × ${currency.format(r.baseSalary)} Gaji Pokok`}>
+                    {currency.format(r.totalSalary)}
+                  </Td>
                   <Td></Td>
                 </Tr>
               ))}
-              {absen.rows.length === 0 && <EmptyRow colSpan={absen.nDays + 11}>Belum ada data absensi/omset harian bulan ini.</EmptyRow>}
+              {absen.rows.length === 0 && <EmptyRow colSpan={absen.nDays + 12}>Belum ada data absensi/omset harian bulan ini.</EmptyRow>}
               <Tr className="bg-gold-50 font-bold text-brand-900">
                 <Td colSpan={3}>TOTAL</Td>
                 <Td className="text-right tabular-nums">{Math.round(absen.totalQtySales)}</Td>
                 <Td className="text-right tabular-nums">{currency.format(absen.totalInsentiveValue)}</Td>
                 <Td className="text-right tabular-nums" colSpan={2}>
-                  {currency.format(absen.rows.reduce((s, r) => s + r.laborCost, 0))} / {currency.format(absen.rows.reduce((s, r) => s + r.salary, 0))}
+                  Labor {currency.format(absen.rows.reduce((s, r) => s + r.laborCost, 0))}
                 </Td>
                 <Td colSpan={absen.nDays}></Td>
                 <Td className="text-right tabular-nums">{absen.totalStandbyAll}</Td>
-                <Td colSpan={3}></Td>
+                <Td colSpan={2}></Td>
+                <Td className="text-right tabular-nums">{currency.format(absen.rows.reduce((s, r) => s + r.totalSalary, 0))}</Td>
+                <Td></Td>
               </Tr>
             </tbody>
           </Table>
         </div>
         <p className="px-5 py-3 text-xs text-slate-400">
-          Labor Cost &amp; Salary diisi manual per pramuniaga (belum ada data gaji pokok/HR untuk dihitung otomatis) — kolom berlatar kuning berarti belum
-          pernah diisi bulan ini.
+          Labor Cost &amp; Gaji Pokok diisi manual per pramuniaga (belum ada data gaji pokok/HR untuk dihitung otomatis) — kolom berlatar kuning berarti
+          belum pernah diisi bulan ini. Total Salary dihitung otomatis: (Hari Kerja ÷ 27) × Gaji Pokok.
         </p>
       </Card>
 

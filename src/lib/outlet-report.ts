@@ -613,9 +613,13 @@ async function getDailyRoster(outletId: string, year: number, month: number, oms
 // same split the Insentive Sheet uses), Total Standby (days present),
 // Masa non Insentive (days present but that day earned no incentive —
 // zero Omset or no bracket matched), and Total Absen (days in the
-// month). Labor Cost/Salary have no wage-rate/HR data model to compute
-// from, so they're manually entered (OutletPayroll) instead of guessed at.
+// month). Labor Cost has no wage-rate/HR data model to compute from, so
+// it's manually entered (OutletPayroll). Salary is prorated from a
+// manually-entered base ("Gaji Pokok", assuming a standard 27-day working
+// month): Total Salary = (Hari Kerja / 27) × Gaji Pokok.
 // ═══════════════════════════════════════════════════════════════════════
+const STANDARD_WORKING_DAYS = 27;
+
 export type AbsenSheetRow = {
   userId: string;
   name: string;
@@ -625,7 +629,8 @@ export type AbsenSheetRow = {
   totalStandby: number;
   totalNonInsentif: number;
   laborCost: number;
-  salary: number;
+  baseSalary: number; // "Gaji Pokok" — the manually-entered full-27-day rate
+  totalSalary: number; // computed: (totalStandby / 27) × baseSalary
   payrollRecorded: boolean;
 };
 
@@ -637,7 +642,7 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
   const nDays = daysInMonth(year, month);
   const payrollByUserId = new Map(payrolls.map((p) => [p.userId, p]));
 
-  const byEmployee = new Map<string, AbsenSheetRow>();
+  const byEmployee = new Map<string, Omit<AbsenSheetRow, "totalSalary">>();
   for (let i = 0; i < roster.days.length; i++) {
     const day = roster.days[i];
     const perPersonQty = day.present.length > 0 ? day.qtyAllProducts / day.present.length : 0;
@@ -653,7 +658,7 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
         totalStandby: 0,
         totalNonInsentif: 0,
         laborCost: Number(payroll?.laborCost ?? 0),
-        salary: Number(payroll?.salary ?? 0),
+        baseSalary: Number(payroll?.salary ?? 0),
         payrollRecorded: Boolean(payroll),
       };
       row.attendance[i] = true;
@@ -665,7 +670,9 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
     }
   }
 
-  const rows = [...byEmployee.values()].sort((a, b) => b.qtySales - a.qtySales);
+  const rows: AbsenSheetRow[] = [...byEmployee.values()]
+    .map((r) => ({ ...r, totalSalary: Math.round((r.totalStandby / STANDARD_WORKING_DAYS) * r.baseSalary) }))
+    .sort((a, b) => b.qtySales - a.qtySales);
   const totalQtySales = rows.reduce((s, r) => s + r.qtySales, 0);
   const totalInsentiveValue = rows.reduce((s, r) => s + r.insentiveValue, 0);
   const totalStandbyAll = rows.reduce((s, r) => s + r.totalStandby, 0);

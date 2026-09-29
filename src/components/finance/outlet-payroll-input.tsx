@@ -4,8 +4,11 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
 
-// Absen Sheet's Labor Cost / Salary — manually entered per pramuniaga per
-// month (no wage-rate/HR data model exists to compute them from).
+// Absen Sheet's Labor Cost / Gaji Pokok — manually entered per pramuniaga
+// per month (no wage-rate/HR data model exists to compute them from).
+// Gaji Pokok is the full-27-working-day base rate; the Absen Sheet's own
+// "Total Salary" column then prorates it by actual days worked
+// ((Hari Kerja / 27) × Gaji Pokok) — computed server-side, not here.
 // Submitting the same outlet+user+month again replaces the figures (see
 // the upsert in the API route), so correcting a typo is just re-entering.
 export function OutletPayrollInput({
@@ -14,7 +17,7 @@ export function OutletPayrollInput({
   year,
   month,
   defaultLaborCost,
-  defaultSalary,
+  defaultBaseSalary,
   recorded,
 }: {
   outletId: string;
@@ -22,12 +25,12 @@ export function OutletPayrollInput({
   year: number;
   month: number;
   defaultLaborCost: number;
-  defaultSalary: number;
+  defaultBaseSalary: number;
   recorded: boolean;
 }) {
   const router = useRouter();
   const [laborCost, setLaborCost] = useState(String(defaultLaborCost || ""));
-  const [salary, setSalary] = useState(String(defaultSalary || ""));
+  const [baseSalary, setBaseSalary] = useState(String(defaultBaseSalary || ""));
   const [saved, setSaved] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -43,7 +46,7 @@ export function OutletPayrollInput({
           year,
           month,
           laborCost: Number(laborCost) || 0,
-          salary: Number(salary) || 0,
+          salary: Number(baseSalary) || 0,
         }),
       });
       if (res.ok) {
@@ -61,11 +64,19 @@ export function OutletPayrollInput({
   return (
     <div className="flex items-center justify-end gap-1">
       <input type="number" min="0" value={laborCost} onChange={(e) => setLaborCost(e.target.value)} placeholder="Labor Cost" className={fieldClass} />
-      <input type="number" min="0" value={salary} onChange={(e) => setSalary(e.target.value)} placeholder="Salary" className={fieldClass} />
+      <input
+        type="number"
+        min="0"
+        value={baseSalary}
+        onChange={(e) => setBaseSalary(e.target.value)}
+        placeholder="Gaji Pokok"
+        title="Gaji Pokok — rate penuh 27 hari kerja"
+        className={fieldClass}
+      />
       <button
         onClick={save}
         disabled={pending}
-        title="Simpan Labor Cost & Salary"
+        title="Simpan Labor Cost & Gaji Pokok"
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-accent-600 hover:bg-accent-50 disabled:opacity-30"
       >
         <Check className="h-3.5 w-3.5" />
