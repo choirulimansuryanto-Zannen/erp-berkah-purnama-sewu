@@ -104,7 +104,7 @@ export default async function FinanceOutletPage({
     <div className="space-y-6">
       <PageHeader
         title="FA Outlet"
-        description="Rekap keuangan per outlet — dari laporan harian (Setoran) yang sudah diverifikasi SPV, per outlet."
+        description="Rekap keuangan per outlet — dari laporan harian (Setoran) yang sudah diverifikasi SPV. Klik nama outlet untuk laporan lengkap 8 sheet (Omset, Purchase, Adjustment, Akun, Absen, Insentive, Inventory, Report)."
         actions={<DateRangeFilter from={localDateStr(rangeFrom)} to={localDateStr(rangeTo)} />}
       />
 
@@ -137,7 +137,15 @@ export default async function FinanceOutletPage({
           <tbody>
             {rows.map((r) => (
               <Tr key={r.id}>
-                <Td className="font-medium text-slate-900">{r.name}</Td>
+                <Td className="sticky left-0 z-10 bg-white">
+                  <Link
+                    href={`/finance/outlet/${r.id}`}
+                    className="inline-flex items-center gap-1 font-semibold text-accent-700 hover:text-accent-800 hover:underline"
+                    title="Buka laporan lengkap 8 sheet outlet ini"
+                  >
+                    {r.name} <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                  </Link>
+                </Td>
                 <Td>{r.count}</Td>
                 <Td>{currency.format(r.omset)}</Td>
                 <Td>{currency.format(r.nonTunai)}</Td>
