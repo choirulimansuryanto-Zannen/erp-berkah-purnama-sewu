@@ -12,7 +12,7 @@ import { OutletPurchaseForm, OutletPurchaseDeleteButton } from "@/components/fin
 import { OutletAdjustmentForm, OutletAdjustmentDeleteButton } from "@/components/finance/outlet-adjustment-form";
 import { OutletMaterialAkhirInput } from "@/components/finance/outlet-material-akhir-input";
 import { OutletReportSelector } from "@/components/finance/outlet-report-selector";
-import { getOmsetSheet, getPurchaseSheet, getAdjustmentSheet, getAkunSheet, getAbsenInsentiveSheet, getInventorySheet } from "@/lib/outlet-report";
+import { getOmsetSheet, getJpdSheet, getPurchaseSheet, getAdjustmentSheet, getAkunSheet, getAbsenInsentiveSheet, getInventorySheet } from "@/lib/outlet-report";
 import { Wallet, ShoppingBag, AlertTriangle, Sparkles, FileBarChart } from "lucide-react";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
@@ -87,8 +87,9 @@ export default async function OutletDetailReportPage({
     }
   }
 
-  const [omset, purchase, adjustment, inventory, absenInsentive] = await Promise.all([
-    getOmsetSheet(outletId, year, month),
+  const omset = await getOmsetSheet(outletId, year, month);
+  const [jpd, purchase, adjustment, inventory, absenInsentive] = await Promise.all([
+    getJpdSheet(outletId, year, month, omset),
     getPurchaseSheet(outletId, year, month),
     getAdjustmentSheet(outletId, year, month),
     getInventorySheet(outletId, year, month),
@@ -147,8 +148,6 @@ export default async function OutletDetailReportPage({
                     {it.kind === "topping" && <span className="ml-1 text-[10px] font-normal text-slate-400">(Topping)</span>}
                   </Th>
                 ))}
-                <Th className="text-right">Total Qty</Th>
-                <Th className="text-right">Kg Ketul</Th>
               </tr>
             </Thead>
             <tbody>
@@ -161,12 +160,10 @@ export default async function OutletDetailReportPage({
                       {d.qtyByKey[it.key] ?? 0}
                     </Td>
                   ))}
-                  <Td className="text-right font-semibold tabular-nums">{d.qtyAllProducts}</Td>
-                  <Td className="text-right tabular-nums">{number0.format(d.kgDagingKetul)}</Td>
                 </Tr>
               ))}
               {omset.days.every((d) => d.qtyAllProducts === 0) && (
-                <EmptyRow colSpan={omset.items.length + 4}>Belum ada penjualan tercatat bulan ini.</EmptyRow>
+                <EmptyRow colSpan={omset.items.length + 2}>Belum ada penjualan tercatat bulan ini.</EmptyRow>
               )}
               <Tr className="bg-gold-50 font-bold text-brand-900">
                 <Td className="sticky left-0 z-10 bg-gold-50">TOTAL</Td>
@@ -176,32 +173,82 @@ export default async function OutletDetailReportPage({
                     {omset.days.reduce((s, d) => s + (d.qtyByKey[it.key] ?? 0), 0)}
                   </Td>
                 ))}
-                <Td className="text-right tabular-nums">{omset.days.reduce((s, d) => s + d.qtyAllProducts, 0)}</Td>
-                <Td className="text-right tabular-nums">{number0.format(omset.days.reduce((s, d) => s + d.kgDagingKetul, 0))}</Td>
               </Tr>
             </tbody>
           </Table>
         </div>
-        {omset.cumulative.length > 0 && (
-          <div className="grid grid-cols-3 gap-4 border-t border-slate-100 p-5 text-sm sm:grid-cols-4">
-            <div>
-              <p className="text-xs text-slate-400">Kumulatif Qty Semua Produk</p>
-              <p className="font-bold text-brand-900">{omset.cumulative.at(-1)?.qtyAllProducts ?? 0}</p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400">Kumulatif Qty Produk Ketul</p>
-              <p className="font-bold text-brand-900">{omset.cumulative.at(-1)?.qtyDagingKetulProducts ?? 0}</p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400">Kumulatif Kg Daging Ketul</p>
-              <p className="font-bold text-brand-900">{number0.format(omset.cumulative.at(-1)?.kgDagingKetul ?? 0)} Kg</p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400">Rata-rata Pcs per 4 Kg</p>
-              <p className="font-bold text-brand-900">{omset.cumulative.at(-1)?.pcsPer4Kg ?? 0} pcs</p>
-            </div>
+      </Card>
+
+      {/* JPD Sheet — yield KPI (Jumlah Produk per Daging), daily rollup */}
+      <Card>
+        <CardHeader>
+          <CardTitle>JPD Sheet — Jumlah Produk per Daging</CardTitle>
+          <p className="text-xs text-slate-400">
+            Rata-rata Penggunaan Daging/Ketul (Pcs/4Kg) = produk daging ketul terjual ÷ pemakaian daging (dari data Freezer Material Daging @4kg + @2kg) — KPI
+            yield yang sama dengan kartu JPD di menu Inventory.
+          </p>
+        </CardHeader>
+        {!jpd.hasFreezerData && (
+          <div className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Material freezer &quot;Daging @4kg&quot; / &quot;daging @2kg&quot; belum ditemukan — kolom pemakaian daging tidak dapat dihitung.
           </div>
         )}
+        <div className="overflow-x-auto">
+          <Table>
+            <Thead>
+              <tr>
+                <Th rowSpan={2}>Hari</Th>
+                <Th rowSpan={2}>Tanggal</Th>
+                <Th rowSpan={2} className="text-right">
+                  Total Omset (Rp.)
+                </Th>
+                <Th colSpan={2} className="text-center">
+                  Qty Omset /hari
+                </Th>
+                <Th colSpan={2} className="text-center">
+                  Kumulatif
+                </Th>
+                <Th colSpan={2} className="text-center">
+                  Rata-rata (AVG)
+                </Th>
+              </tr>
+              <tr>
+                <Th className="text-right">Semua Produk</Th>
+                <Th className="text-right">Produk dgn daging Ketul</Th>
+                <Th className="text-right">Produk dgn daging Ketul</Th>
+                <Th className="text-right">Penggunaan Daging (Kg)</Th>
+                <Th className="text-right">Penggunaan Daging/Ketul (Pcs/4Kg)</Th>
+                <Th className="text-right">Sales /hari (Pcs)</Th>
+              </tr>
+            </Thead>
+            <tbody>
+              {jpd.days.map((d, i) => (
+                <Tr key={i}>
+                  <Td>{d.dayName}</Td>
+                  <Td>{d.date.getUTCDate()}</Td>
+                  <Td className="text-right font-semibold tabular-nums text-rose-700">{d.totalOmset > 0 ? currency.format(d.totalOmset) : "-"}</Td>
+                  <Td className="text-right tabular-nums">{d.qtyAllProducts}</Td>
+                  <Td className="text-right tabular-nums">{d.qtyDagingKetulProducts}</Td>
+                  <Td className="text-right tabular-nums">{d.cumulativeDagingKetulProducts}</Td>
+                  <Td className="text-right tabular-nums">{number0.format(d.cumulativeDagingKg)}</Td>
+                  <Td className="text-right tabular-nums">{number0.format(d.avgYieldPcsPer4Kg)}</Td>
+                  <Td className="text-right tabular-nums">{number0.format(d.avgSalesPerDay)}</Td>
+                </Tr>
+              ))}
+              {jpd.days.length === 0 && <EmptyRow colSpan={9}>Belum ada data.</EmptyRow>}
+              <Tr className="bg-gold-50 font-bold text-brand-900">
+                <Td colSpan={2}>TOTAL</Td>
+                <Td className="text-right tabular-nums text-rose-700">{currency.format(jpd.totalOmset)}</Td>
+                <Td className="text-right tabular-nums">{jpd.totalSemuaProduk}</Td>
+                <Td className="text-right tabular-nums">{jpd.totalProdukKetul}</Td>
+                <Td className="text-right tabular-nums">{jpd.totalProdukKetul}</Td>
+                <Td className="text-right tabular-nums">{number0.format(jpd.totalDagingKg)}</Td>
+                <Td className="text-right tabular-nums">{number0.format(jpd.finalAvgYield)}</Td>
+                <Td className="text-right tabular-nums">{number0.format(jpd.finalAvgSales)}</Td>
+              </Tr>
+            </tbody>
+          </Table>
+        </div>
       </Card>
 
       {/* b. Purchase Sheet */}

@@ -1,6 +1,9 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { CHANNEL_LABELS } from "@/components/transactions/channel-badge";
+import { JPD_DAGING_4KG_NAME, JPD_DAGING_2KG_NAME } from "@/lib/jpd";
+
+const HARI_NAMES = ["Ahad", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
 
 function monthRange(year: number, month: number) {
   return { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)) };
@@ -149,6 +152,83 @@ export async function getOmsetSheet(outletId: string, year: number, month: numbe
 
   const totalOmset = days.reduce((s, d) => s + d.totalOmset, 0);
   return { items, days, cumulative, totalOmset };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// JPD Sheet — the "Jumlah Produk per Daging" yield KPI (see src/lib/jpd.ts)
+// as a full daily rollup instead of a single as-of-today number: per day
+// Total Omset, Qty terjual (semua produk & produk daging ketul), running
+// Kumulatif produk-ketul + pemakaian daging (from the REAL FreezerMaterial
+// "Pakai" records — Daging @4kg + daging @2kg×0.5 — not an estimate), and
+// the two running averages (yield Pcs/4Kg, and Sales/hari).
+// ═══════════════════════════════════════════════════════════════════════
+export type JpdSheetDay = {
+  date: Date;
+  dayName: string;
+  totalOmset: number;
+  qtyAllProducts: number;
+  qtyDagingKetulProducts: number;
+  cumulativeDagingKetulProducts: number;
+  cumulativeDagingKg: number;
+  avgYieldPcsPer4Kg: number;
+  avgSalesPerDay: number;
+};
+
+export async function getJpdSheet(outletId: string, year: number, month: number, omset: Awaited<ReturnType<typeof getOmsetSheet>>) {
+  const { start, end } = monthRange(year, month);
+  const materials = await prisma.freezerMaterial.findMany({ where: { name: { in: [JPD_DAGING_4KG_NAME, JPD_DAGING_2KG_NAME] } } });
+  const daging4kg = materials.find((m) => m.name === JPD_DAGING_4KG_NAME);
+  const daging2kg = materials.find((m) => m.name === JPD_DAGING_2KG_NAME);
+  const materialIds = [daging4kg?.id, daging2kg?.id].filter((id): id is string => Boolean(id));
+
+  const records = materialIds.length
+    ? await prisma.freezerStockRecord.findMany({
+        where: { outletId, freezerMaterialId: { in: materialIds }, date: { gte: start, lte: end } },
+        select: { date: true, freezerMaterialId: true, used: true },
+      })
+    : [];
+
+  const nDays = daysInMonth(year, month);
+  const daging4kgUsedByDay = new Array(nDays).fill(0);
+  const daging2kgUsedByDay = new Array(nDays).fill(0);
+  for (const r of records) {
+    const dayIdx = r.date.getUTCDate() - 1;
+    if (dayIdx < 0 || dayIdx >= nDays) continue;
+    if (r.freezerMaterialId === daging4kg?.id) daging4kgUsedByDay[dayIdx] += r.used;
+    else if (r.freezerMaterialId === daging2kg?.id) daging2kgUsedByDay[dayIdx] += r.used;
+  }
+
+  let cumProdukKetul = 0;
+  let cumBlocks = 0; // pemakaianDaging in 4kg-equivalent block units (same unit computeJpdSummary uses)
+  let cumAllProducts = 0;
+  const days: JpdSheetDay[] = omset.days.map((d, i) => {
+    cumBlocks += daging4kgUsedByDay[i] + daging2kgUsedByDay[i] * 0.5;
+    cumProdukKetul += d.qtyDagingKetulProducts;
+    cumAllProducts += d.qtyAllProducts;
+    return {
+      date: d.date,
+      dayName: HARI_NAMES[d.date.getUTCDay()],
+      totalOmset: d.totalOmset,
+      qtyAllProducts: d.qtyAllProducts,
+      qtyDagingKetulProducts: d.qtyDagingKetulProducts,
+      cumulativeDagingKetulProducts: cumProdukKetul,
+      cumulativeDagingKg: cumBlocks * 4,
+      avgYieldPcsPer4Kg: cumBlocks > 0 ? cumProdukKetul / cumBlocks : 0,
+      avgSalesPerDay: cumAllProducts / (i + 1),
+    };
+  });
+
+  const last = days.at(-1);
+  return {
+    days,
+    totalOmset: omset.totalOmset,
+    totalSemuaProduk: cumAllProducts,
+    totalProdukKetul: cumProdukKetul,
+    totalDagingKg: cumBlocks * 4,
+    finalAvgYield: last?.avgYieldPcsPer4Kg ?? 0,
+    finalAvgSales: last?.avgSalesPerDay ?? 0,
+    hasFreezerData: materialIds.length === 2,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
