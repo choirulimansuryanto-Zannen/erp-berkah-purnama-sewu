@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { can } from "@/lib/permissions";
@@ -8,6 +9,7 @@ import { DateRangeFilter } from "@/components/ui/date-range-filter";
 import { JournalVoucherForm } from "@/components/finance/journal-voucher-form";
 import { JournalEntryList, type JournalEntryRow } from "@/components/finance/journal-entry-list";
 import { CASH_BOOK_LABELS } from "@/lib/accounting";
+import { cn } from "@/lib/cn";
 
 function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -16,13 +18,14 @@ function localDateStr(d: Date): string {
 export default async function FinanceJournalPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; book?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) return null;
   if (!can(user.role, "finance:view_ledger")) redirect("/dashboard");
 
-  const { from, to } = await searchParams;
+  const { from, to, book: bookParam } = await searchParams;
+  const activeBook = bookParam && bookParam in CASH_BOOK_LABELS ? (bookParam as keyof typeof CASH_BOOK_LABELS) : null;
   let rangeFrom: Date;
   let rangeTo: Date;
   if (from || to) {
@@ -100,23 +103,50 @@ export default async function FinanceJournalPage({
     return { book, label: CASH_BOOK_LABELS[book], count: bookEntries.length };
   });
 
+  // Clicking a buku kas box filters "Riwayat Jurnal" below to just that
+  // book's entries — the box's own link (and the date range it carries)
+  // stays put, only `book` changes, so the period picked up top survives.
+  const dateQuery = `from=${localDateStr(rangeFrom)}&to=${localDateStr(rangeTo)}`;
+  const filteredRows = activeBook ? rows.filter((r) => r.cashBook === activeBook) : rows;
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Jurnal — 6 Buku Kas"
-        description="Input Kas Masuk, Kas Keluar, dan Transfer Antar Buku — setiap entri otomatis berimbang (debit = kredit)."
+        description="Input Kas Masuk, Kas Keluar, dan Transfer Antar Buku — setiap entri otomatis berimbang (debit = kredit). Klik salah satu buku kas untuk memfilter Riwayat Jurnal di bawah."
         actions={<DateRangeFilter from={localDateStr(rangeFrom)} to={localDateStr(rangeTo)} />}
       />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {cashBookTotals.map((c) => (
-          <div key={c.book} className="rounded-xl border border-slate-200/70 bg-white p-3 text-center shadow-[var(--shadow-card)]">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{c.label}</p>
+          <Link
+            key={c.book}
+            href={`?${dateQuery}&book=${c.book}`}
+            className={cn(
+              "rounded-xl border p-3 text-center shadow-[var(--shadow-card)] transition-colors",
+              activeBook === c.book
+                ? "border-accent-500 bg-accent-50 ring-1 ring-accent-500"
+                : "border-slate-200/70 bg-white hover:border-accent-300 hover:bg-accent-50/40",
+            )}
+          >
+            <p className={cn("text-[11px] font-semibold uppercase tracking-wide", activeBook === c.book ? "text-accent-700" : "text-slate-400")}>
+              {c.label}
+            </p>
             <p className="mt-1 text-lg font-bold text-brand-900">{c.count}</p>
             <p className="text-[10px] text-slate-400">entri periode ini</p>
-          </div>
+          </Link>
         ))}
       </div>
+      {activeBook && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-slate-500">
+            Menampilkan hanya <span className="font-bold text-accent-700">{CASH_BOOK_LABELS[activeBook]}</span>.
+          </span>
+          <Link href={`?${dateQuery}`} className="font-bold text-accent-700 hover:text-accent-800">
+            Tampilkan semua buku kas →
+          </Link>
+        </div>
+      )}
 
       <JournalVoucherForm
         accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, type: a.type, cashBook: a.cashBook }))}
@@ -125,9 +155,11 @@ export default async function FinanceJournalPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Riwayat Jurnal ({rows.length})</CardTitle>
+          <CardTitle>
+            Riwayat Jurnal ({filteredRows.length}){activeBook ? ` — ${CASH_BOOK_LABELS[activeBook]}` : ""}
+          </CardTitle>
         </CardHeader>
-        <JournalEntryList entries={rows} />
+        <JournalEntryList entries={filteredRows} />
       </Card>
     </div>
   );
