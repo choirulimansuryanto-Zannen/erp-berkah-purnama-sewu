@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { can } from "@/lib/permissions";
@@ -8,7 +9,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { Table, Thead, Th, Tr, Td, EmptyRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { DateRangeFilter } from "@/components/ui/date-range-filter";
-import { Wallet, TrendingDown, TrendingUp, Store } from "lucide-react";
+import { Wallet, TrendingDown, TrendingUp, Store, ChevronRight } from "lucide-react";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 
@@ -104,6 +105,7 @@ export default async function FinanceOutletPage({
               <Th>Setoran Fisik</Th>
               <Th>Actual Cash</Th>
               <Th>Variance</Th>
+              <Th></Th>
             </tr>
           </Thead>
           <tbody>
@@ -122,9 +124,17 @@ export default async function FinanceOutletPage({
                     {currency.format(r.variance)}
                   </Badge>
                 </Td>
+                <Td>
+                  <Link
+                    href={`/finance/outlet/${r.id}`}
+                    className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-accent-50 px-2.5 py-1.5 text-xs font-bold text-accent-700 hover:bg-accent-100"
+                  >
+                    Detail 8 Sheet <ChevronRight className="h-3.5 w-3.5" />
+                  </Link>
+                </Td>
               </Tr>
             ))}
-            {rows.length === 0 && <EmptyRow colSpan={9}>Belum ada laporan terverifikasi pada periode ini.</EmptyRow>}
+            {rows.length === 0 && <EmptyRow colSpan={10}>Belum ada laporan terverifikasi pada periode ini.</EmptyRow>}
           </tbody>
           {rows.length > 0 && (
             <tfoot>
@@ -139,6 +149,7 @@ export default async function FinanceOutletPage({
                 <td className="px-5 py-2.5">{currency.format(totalSetoran)}</td>
                 <td className="px-5 py-2.5">{currency.format(rows.reduce((s, r) => s + r.actual, 0))}</td>
                 <td className="px-5 py-2.5">{currency.format(totalVariance)}</td>
+                <td className="px-5 py-2.5"></td>
               </tr>
             </tfoot>
           )}

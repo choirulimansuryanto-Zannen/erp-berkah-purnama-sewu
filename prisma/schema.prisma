@@ -1387,6 +1387,11 @@ enum IncentiveRuleType {
   HEAD_FA
   HEAD_OPERASIONAL
   MANAGEMENT
+  // Franchise royalty the outlet itself pays, not a performance incentive
+  // — reuses this same rate-table engine anyway (a rate x a base,
+  // computed and locked per period) since it's the same shape, and Laporan
+  // Outlet's Insentive Sheet shows it alongside Pramu/Pengelola.
+  ROYALTY
 }
 
 // PRAMU/PENGELOLA are computed per outlet, SPV per region, everything else

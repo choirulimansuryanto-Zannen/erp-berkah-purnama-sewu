@@ -14,6 +14,7 @@ export const INCENTIVE_TYPE_LABELS: Record<IncentiveRuleType, string> = {
   HEAD_FA: "Insentive Head FA",
   HEAD_OPERASIONAL: "Insentive Head Operasional",
   MANAGEMENT: "Insentive Management",
+  ROYALTY: "Royalty Outlet",
 };
 
 export const INCENTIVE_SCOPE_LABELS: Record<IncentiveScope, string> = {
@@ -209,7 +210,8 @@ export async function runIncentiveCalculation(year: number, month: number, calcu
 
   const pramuRule = ruleByType.get("PRAMU");
   const pengelolaRule = ruleByType.get("PENGELOLA");
-  if (pramuRule || pengelolaRule) {
+  const royaltyRule = ruleByType.get("ROYALTY");
+  if (pramuRule || pengelolaRule || royaltyRule) {
     for (const o of outlets) {
       const omset = outletFigures.omset(o.id);
       if (pramuRule) {
@@ -225,6 +227,13 @@ export async function runIncentiveCalculation(year: number, month: number, calcu
           type: "PENGELOLA", scope: "OUTLET", outletId: o.id, regionId: null, ruleId: pengelolaRule.id,
           basis: pengelolaRule.basis, rateSnapshot: Number(pengelolaRule.rate), baseAmount: base,
           amount: computeAmount(pengelolaRule.basis, Number(pengelolaRule.rate), base),
+        });
+      }
+      if (royaltyRule) {
+        writes.push({
+          type: "ROYALTY", scope: "OUTLET", outletId: o.id, regionId: null, ruleId: royaltyRule.id,
+          basis: royaltyRule.basis, rateSnapshot: Number(royaltyRule.rate), baseAmount: omset,
+          amount: computeAmount(royaltyRule.basis, Number(royaltyRule.rate), omset),
         });
       }
     }

@@ -18,6 +18,7 @@ const TYPE_LABELS: Record<string, string> = {
   HEAD_FA: "Insentive Head FA",
   HEAD_OPERASIONAL: "Insentive Head Operasional",
   MANAGEMENT: "Insentive Management",
+  ROYALTY: "Royalty Outlet",
 };
 const SCOPE_LABELS: Record<string, string> = { OUTLET: "Per Outlet", REGION: "Per Wilayah", COMPANY: "Perusahaan" };
 const BASIS_OPTIONS = [
