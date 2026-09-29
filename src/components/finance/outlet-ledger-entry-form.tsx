@@ -31,9 +31,12 @@ function todayStr(): string {
 type LedgerAccountOption = { id: string; number: number; label: string; defaultSide: "D" | "C" };
 
 // Akun Sheet ledger input — a direct digitization of the business's own
-// daily bookkeeping habit: pick the date, pick a No. Akun (which pre-fills
-// D/C from that account's default, overridable), type the Keterangan, and
-// the Nilai. Accum./Total-Day are computed server-side from every row.
+// daily bookkeeping habit: pick the date, pick a No. Akun OR a Nama Akun
+// (two separate fields, kept in sync — picking either one auto-fills the
+// other, since both just name the same underlying account and D/C
+// pre-fills from that account's default, overridable), type the
+// Keterangan, and the Nilai. Accum./Total-Day are computed server-side
+// from every row.
 export function OutletLedgerEntryForm({ outletId, accounts }: { outletId: string; accounts: LedgerAccountOption[] }) {
   const router = useRouter();
   const [date, setDate] = useState(todayStr());
@@ -81,12 +84,22 @@ export function OutletLedgerEntryForm({ outletId, accounts }: { outletId: string
           <Label className="text-[11px]">Tanggal</Label>
           <Input className="mt-1" type="date" value={date} max={todayStr()} onChange={(e) => setDate(e.target.value)} />
         </div>
-        <div className="sm:col-span-2">
+        <div>
           <Label className="text-[11px]">No. Akun</Label>
           <Select className="mt-1" value={accountId} onChange={(e) => onAccountChange(e.target.value)}>
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
-                {a.number} — {a.label}
+                {a.number}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="sm:col-span-2">
+          <Label className="text-[11px]">Nama Akun</Label>
+          <Select className="mt-1" value={accountId} onChange={(e) => onAccountChange(e.target.value)}>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label}
               </option>
             ))}
           </Select>
@@ -95,6 +108,8 @@ export function OutletLedgerEntryForm({ outletId, accounts }: { outletId: string
           <Label className="text-[11px]">Keterangan</Label>
           <Input className="mt-1" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Contoh: Faktur AB" />
         </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div>
           <Label className="text-[11px]">D/C</Label>
           <Select className="mt-1" value={side} onChange={(e) => setSide(e.target.value as "D" | "C")}>
@@ -102,13 +117,11 @@ export function OutletLedgerEntryForm({ outletId, accounts }: { outletId: string
             <option value="C">C</option>
           </Select>
         </div>
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div>
           <Label className="text-[11px]">Nilai (Rp.)</Label>
           <Input className="mt-1" type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
         </div>
-        <div className="sm:col-span-2">
+        <div className="col-span-2">
           <Label className="text-[11px]">Catatan (Opsional)</Label>
           <Textarea className="mt-1" rows={1} value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
