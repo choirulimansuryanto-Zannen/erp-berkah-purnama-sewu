@@ -475,6 +475,71 @@ export async function getAkunSheet(outletId: string, year: number, month: number
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// d. Akun Sheet — LEDGER format: a direct digitization of the business's
+// own daily bookkeeping habit (Tanggal / No. Akun / Keterangan / D-C /
+// Nilai), posted against the fixed OutletLedgerAccount chart of accounts.
+// Accum. is a running D-adds/C-subtracts balance that resets to 0 at the
+// start of each month; Total/Day is that day's ending Accum.
+// ═══════════════════════════════════════════════════════════════════════
+export type LedgerSheetRow = {
+  id: string;
+  date: Date;
+  accountNumber: number;
+  accountLabel: string;
+  description: string;
+  side: "D" | "C";
+  amount: number;
+  accum: number;
+};
+export type LedgerSheetDayGroup = {
+  date: Date;
+  rows: LedgerSheetRow[];
+  totalDay: number;
+};
+
+export async function getAkunLedgerSheet(outletId: string, year: number, month: number) {
+  const { start, end } = monthRange(year, month);
+  const entries = await prisma.outletLedgerEntry.findMany({
+    where: { outletId, date: { gte: start, lte: end } },
+    include: { account: true },
+    orderBy: [{ date: "asc" }, { createdAt: "asc" }],
+  });
+
+  const dayGroups: LedgerSheetDayGroup[] = [];
+  const dayGroupByKey = new Map<string, LedgerSheetDayGroup>();
+  let runningAccum = 0;
+  let totalDebit = 0;
+  let totalCredit = 0;
+  for (const e of entries) {
+    const amount = Number(e.amount);
+    runningAccum += e.side === "D" ? amount : -amount;
+    if (e.side === "D") totalDebit += amount;
+    else totalCredit += amount;
+
+    const dayKey = e.date.toISOString().slice(0, 10);
+    let group = dayGroupByKey.get(dayKey);
+    if (!group) {
+      group = { date: e.date, rows: [], totalDay: 0 };
+      dayGroupByKey.set(dayKey, group);
+      dayGroups.push(group);
+    }
+    group.rows.push({
+      id: e.id,
+      date: e.date,
+      accountNumber: e.account.number,
+      accountLabel: e.account.label,
+      description: e.description,
+      side: e.side,
+      amount,
+      accum: runningAccum,
+    });
+    group.totalDay = runningAccum;
+  }
+
+  return { dayGroups, totalDebit, totalCredit, endingBalance: runningAccum };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // e+f. Absen + Insentive Sheet — per-employee daily attendance, each day's
 // Omset picked into exactly one IncentiveBracket by range, that bracket's
 // rate (single-PIC vs multi-PIC, by how many pramuniaga were present that

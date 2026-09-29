@@ -176,6 +176,7 @@ model Outlet {
   purchases            OutletPurchase[]
   materialClosingBalances OutletMaterialClosingBalance[]
   adjustments             OutletAdjustment[]
+  ledgerEntries           OutletLedgerEntry[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -273,6 +274,8 @@ model User {
   outletMaterialClosingBalancesRecorded OutletMaterialClosingBalance[]
   outletAdjustmentsRecorded OutletAdjustment[]
   incentiveBracketUpdates  IncentiveBracket[]
+  outletLedgerAccountUpdates OutletLedgerAccount[]
+  outletLedgerEntriesCreated OutletLedgerEntry[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1695,4 +1698,59 @@ model IncentiveBracket {
   updatedBy   User?    @relation(fields: [updatedById], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+enum LedgerSide {
+  D
+  C
+}
+
+// Akun Sheet's fixed chart of accounts (No. Akun 1-42, e.g. "1 — Penjualan
+// Produk (Outlet)", "18 — Pembelian Gas") — admin-manageable per the
+// standing "every new list gets Super Admin CRUD" rule. Numbers are kept
+// exactly as the business's own spreadsheet (41/42 for Qpon were appended
+// later but slot in after Shopee Food in display order — see sortOrder).
+// `defaultSide` just pre-fills D/C on the entry form; the entry itself
+// still records its own `side` so an edge case can be overridden.
+model OutletLedgerAccount {
+  id          String        @id @default(uuid())
+  number      Int           @unique
+  label       String
+  defaultSide LedgerSide
+  sortOrder   Int           @default(0)
+  status      ProductStatus @default(ACTIVE)
+
+  entries OutletLedgerEntry[]
+
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// One line item on the outlet's Akun Sheet ledger — a direct digitization
+// of the business's own daily bookkeeping habit (Tanggal / No. Akun /
+// Keterangan / D-C / Nilai), not derived from Transaction/ExpenseRecord —
+// the source spreadsheet mixes structured channel sales with ad-hoc
+// invoice-level purchase lines (e.g. "Faktur AB") with no single existing
+// system-of-record to auto-populate from, so it's entered directly like
+// the spreadsheet itself. Accum. (a running D-adds/C-subtracts balance)
+// and Total/Day are computed from these rows, resetting to 0 each month.
+model OutletLedgerEntry {
+  id          String              @id @default(uuid())
+  outletId    String
+  outlet      Outlet              @relation(fields: [outletId], references: [id])
+  date        DateTime            @db.Date
+  accountId   String
+  account     OutletLedgerAccount @relation(fields: [accountId], references: [id])
+  description String
+  side        LedgerSide
+  amount      Decimal             @db.Decimal(14, 2)
+  note        String?
+  createdById String
+  createdBy   User                @relation(fields: [createdById], references: [id])
+  createdAt   DateTime            @default(now())
+
+  @@index([outletId, date])
+  @@index([accountId, date])
 }

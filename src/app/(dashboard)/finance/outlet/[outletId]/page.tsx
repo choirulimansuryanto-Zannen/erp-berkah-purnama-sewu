@@ -11,8 +11,18 @@ import { Badge } from "@/components/ui/badge";
 import { OutletPurchaseForm, OutletPurchaseDeleteButton } from "@/components/finance/outlet-purchase-form";
 import { OutletAdjustmentForm, OutletAdjustmentDeleteButton } from "@/components/finance/outlet-adjustment-form";
 import { OutletMaterialAkhirInput } from "@/components/finance/outlet-material-akhir-input";
+import { OutletLedgerEntryForm, OutletLedgerEntryDeleteButton } from "@/components/finance/outlet-ledger-entry-form";
 import { OutletReportSelector } from "@/components/finance/outlet-report-selector";
-import { getOmsetSheet, getJpdSheet, getPurchaseSheet, getAdjustmentSheet, getAkunSheet, getAbsenInsentiveSheet, getInventorySheet } from "@/lib/outlet-report";
+import {
+  getOmsetSheet,
+  getJpdSheet,
+  getPurchaseSheet,
+  getAdjustmentSheet,
+  getAkunSheet,
+  getAkunLedgerSheet,
+  getAbsenInsentiveSheet,
+  getInventorySheet,
+} from "@/lib/outlet-report";
 import { Wallet, ShoppingBag, AlertTriangle, Sparkles, FileBarChart } from "lucide-react";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
@@ -49,10 +59,11 @@ export default async function OutletDetailReportPage({
   const { year: yearParam, month: monthParam } = await searchParams;
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i);
 
-  const [outlet, allOutlets, materials] = await Promise.all([
+  const [outlet, allOutlets, materials, ledgerAccounts] = await Promise.all([
     prisma.outlet.findUnique({ where: { id: outletId }, include: { region: true } }),
     prisma.outlet.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.outletMaterial.findMany({ where: { status: "ACTIVE" }, orderBy: [{ category: "asc" }, { sortOrder: "asc" }] }),
+    prisma.outletLedgerAccount.findMany({ where: { status: "ACTIVE" }, orderBy: { sortOrder: "asc" } }),
   ]);
   if (!outlet) notFound();
 
@@ -88,18 +99,20 @@ export default async function OutletDetailReportPage({
   }
 
   const omset = await getOmsetSheet(outletId, year, month);
-  const [jpd, purchase, adjustment, inventory, absenInsentive] = await Promise.all([
+  const [jpd, purchase, adjustment, inventory, absenInsentive, ledger] = await Promise.all([
     getJpdSheet(outletId, year, month, omset),
     getPurchaseSheet(outletId, year, month),
     getAdjustmentSheet(outletId, year, month),
     getInventorySheet(outletId, year, month),
     getAbsenInsentiveSheet(outletId, year, month),
+    getAkunLedgerSheet(outletId, year, month),
   ]);
   const akun = await getAkunSheet(outletId, year, month, purchase);
 
   const materialsForForms = materials.map((m) => ({ id: m.id, code: m.code, name: m.name, unit: m.unit }));
   const materialsByCategory = new Map<string, typeof inventory.rows>();
   for (const r of inventory.rows) materialsByCategory.set(r.category, [...(materialsByCategory.get(r.category) ?? []), r]);
+  const ledgerAccountOptions = ledgerAccounts.map((a) => ({ id: a.id, number: a.number, label: a.label, defaultSide: a.defaultSide }));
 
   // ── h. Report Sheet — the investor-facing summary ─────────────────────
   const reportLabaBersih = akun.labaBersih - absenInsentive.totalInsentif;
@@ -359,11 +372,14 @@ export default async function OutletDetailReportPage({
         </Table>
       </Card>
 
-      {/* d. Akun Sheet */}
+      {/* d. Akun Sheet — Ringkasan Otomatis */}
       <Card>
         <CardHeader>
-          <CardTitle>d. Akun Sheet</CardTitle>
-          <p className="text-xs text-slate-400">A. Penjualan (per channel) — B. Pembelian (HPP) — C. Biaya (Overhead Langsung/Tidak Langsung).</p>
+          <CardTitle>d. Akun Sheet — Ringkasan Otomatis</CardTitle>
+          <p className="text-xs text-slate-400">
+            A. Penjualan (per channel) — B. Pembelian (HPP) — C. Biaya (Overhead Langsung/Tidak Langsung). Dihitung otomatis dari data transaksi &amp;
+            pengeluaran — dipakai untuk Report Sheet. Untuk catatan Akun Sheet baris-per-baris, lihat Ledger di bawah.
+          </p>
         </CardHeader>
         <div className="p-5 pt-2">
           <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-400">A. Penjualan</p>
@@ -455,6 +471,73 @@ export default async function OutletDetailReportPage({
               <Tr className="bg-brand-50 font-bold text-brand-900">
                 <Td>Laba/Rugi Bersih (sebelum Insentif)</Td>
                 <Td className="text-right">{currency.format(akun.labaBersih)}</Td>
+              </Tr>
+            </tbody>
+          </Table>
+        </div>
+      </Card>
+
+      {/* d. Akun Sheet — Ledger (input manual, format spreadsheet asli) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>d. Akun Sheet — Ledger</CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs text-slate-400">Tanggal / No. Akun / Keterangan / D-C / Nilai — dicatat manual, sama seperti kebiasaan pembukuan harian.</p>
+            <Link href="/admin/outlet-ledger-accounts" className="text-xs font-bold text-accent-700 hover:text-accent-800">
+              Kelola Chart of Accounts →
+            </Link>
+          </div>
+        </CardHeader>
+        <div className="border-b border-slate-100 p-5">
+          <OutletLedgerEntryForm outletId={outletId} accounts={ledgerAccountOptions} />
+        </div>
+        <div className="overflow-x-auto">
+          <Table>
+            <Thead>
+              <tr>
+                <Th>Tanggal</Th>
+                <Th>No. Akun</Th>
+                <Th>Nama Akun</Th>
+                <Th>Keterangan</Th>
+                <Th className="text-center">D/C</Th>
+                <Th className="text-right">Nilai (Rp.)</Th>
+                <Th className="text-right">Accum.</Th>
+                <Th className="text-right">Total/Day</Th>
+                <Th></Th>
+              </tr>
+            </Thead>
+            <tbody>
+              {ledger.dayGroups.map((group) =>
+                group.rows.map((row, i) => (
+                  <Tr key={row.id}>
+                    <Td className="font-medium text-slate-900">{i === 0 ? row.date.getUTCDate() : ""}</Td>
+                    <Td className="font-mono text-xs text-slate-400">{row.accountNumber}</Td>
+                    <Td>{row.accountLabel}</Td>
+                    <Td>{row.description}</Td>
+                    <Td className="text-center">
+                      <Badge tone={row.side === "D" ? "info" : "danger"}>{row.side}</Badge>
+                    </Td>
+                    <Td className="text-right tabular-nums">{currency.format(row.amount)}</Td>
+                    <Td className="text-right tabular-nums">{row.accum < 0 ? `(${currency.format(Math.abs(row.accum))})` : currency.format(row.accum)}</Td>
+                    <Td className="text-right font-bold tabular-nums text-rose-700">
+                      {i === 0 ? (group.totalDay < 0 ? `(${currency.format(Math.abs(group.totalDay))})` : currency.format(group.totalDay)) : ""}
+                    </Td>
+                    <Td>
+                      <OutletLedgerEntryDeleteButton id={row.id} />
+                    </Td>
+                  </Tr>
+                )),
+              )}
+              {ledger.dayGroups.length === 0 && <EmptyRow colSpan={9}>Belum ada baris Akun Sheet bulan ini.</EmptyRow>}
+              <Tr className="bg-gold-50 font-bold text-brand-900">
+                <Td colSpan={5}>TOTAL (D − C)</Td>
+                <Td className="text-right tabular-nums">
+                  {currency.format(ledger.totalDebit)} / {currency.format(ledger.totalCredit)}
+                </Td>
+                <Td className="text-right tabular-nums" colSpan={2}>
+                  {ledger.endingBalance < 0 ? `(${currency.format(Math.abs(ledger.endingBalance))})` : currency.format(ledger.endingBalance)}
+                </Td>
+                <Td></Td>
               </Tr>
             </tbody>
           </Table>
