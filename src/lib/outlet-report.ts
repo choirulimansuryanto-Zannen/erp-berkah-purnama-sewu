@@ -1,6 +1,5 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { CHANNEL_LABELS } from "@/components/transactions/channel-badge";
 import { JPD_DAGING_4KG_NAME, JPD_DAGING_2KG_NAME } from "@/lib/jpd";
 
 export const HARI_NAMES = ["Ahad", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
@@ -383,75 +382,71 @@ export async function getInventorySheet(outletId: string, year: number, month: n
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// d. Akun Sheet — A. Penjualan (per channel, incl. Potongan) -> Total
-// Penjualan; B. Pembelian (HPP build-up) -> Laba/Rugi Kotor; C. Biaya
-// (Overhead Langsung/Tidak Langsung, from ExpenseCategoryDef's group) ->
-// Laba/Rugi Bersih.
+// d./h. Report Sheet — A. Penjualan / B. Pembelian (HPP) / C. Biaya
+// (Overhead Langsung/Tidak Langsung), computed directly from this month's
+// Akun Sheet ledger entries (OutletLedgerEntry), grouped by account — the
+// business's own "jurnal yg di input", not a Transaction/ExpenseRecord
+// rollup. Persediaan Awal/Akhir are the only two lines that aren't ledger
+// accounts — they come from the Inventory Sheet's own stock data
+// (OutletMaterialClosingBalance, BAHAN_UTAMA + BAHAN_BAKU_TAMBAHAN).
+//
+// Each account's ledger net (sum of D minus sum of C, in Rupiah) is
+// signed so that summing a section's lines directly gives the correct
+// section total — e.g. a "Potongan Penjualan" line (habitually entered as
+// C) nets negative on its own, so Total Penjualan = sum(A's raw nets)
+// already subtracts it correctly. B/C sections flip that sign (C-D
+// instead of D-C) so a cost account posted as C displays as a positive
+// cost, matching the source spreadsheet's "always show the magnitude"
+// style — the UI applies Math.abs() for display and uses the signed
+// amount only for totals.
 // ═══════════════════════════════════════════════════════════════════════
-const SALES_CHANNEL_ORDER = ["CASH", "GOFOOD", "GRAB", "TIKTOK", "SHOPEE", "QPON", "CASHLESS"] as const;
+const SALES_ACCOUNT_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 41, 42, 11, 12, 13];
+const PEMBELIAN_ACCOUNT_NUMBERS = [14, 15, 16, 17, 18, 19, 20];
+const OVERHEAD_LANGSUNG_NUMBERS = [21, 22, 23, 24, 25, 26];
+const OVERHEAD_TIDAK_LANGSUNG_NUMBERS = [27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40];
 
-export async function getAkunSheet(outletId: string, year: number, month: number, purchaseSheet: Awaited<ReturnType<typeof getPurchaseSheet>>) {
+export type ReportSheetLine = { number: number; label: string; amount: number };
+
+export async function getReportSheet(outletId: string, year: number, month: number, inventory: Awaited<ReturnType<typeof getInventorySheet>>) {
   const { start, end } = monthRange(year, month);
-
-  const [channelTotals, expenseCategoryTotals, materialAwal, materialAkhir] = await Promise.all([
-    prisma.transaction.groupBy({
-      by: ["channel"],
-      where: { outletId, status: "COMPLETED", createdAt: { gte: start, lte: end } },
-      _sum: { total: true, discount: true },
+  const [entries, accounts] = await Promise.all([
+    prisma.outletLedgerEntry.findMany({
+      where: { outletId, date: { gte: start, lte: end } },
+      select: { side: true, amount: true, account: { select: { number: true } } },
     }),
-    prisma.expenseRecord.groupBy({
-      by: ["category"],
-      where: { outletId, approvalStatus: "APPROVED", date: { gte: start, lte: end } },
-      _sum: { amount: true },
-    }),
-    getInventorySheet(outletId, year, month), // reused for beginning/ending BAHAN_UTAMA+BAHAN_BAKU_TAMBAHAN stock value
-    Promise.resolve(null),
+    prisma.outletLedgerAccount.findMany(),
   ]);
-  void materialAkhir;
 
-  const penjualanRows = SALES_CHANNEL_ORDER.map((channel) => {
-    const row = channelTotals.find((c) => c.channel === channel);
-    return { channel, label: CHANNEL_LABELS[channel] ?? channel, penjualan: Number(row?._sum.total ?? 0), potongan: Number(row?._sum.discount ?? 0) };
-  }).filter((r) => r.penjualan > 0 || r.potongan > 0);
-  const totalPenjualanKotor = penjualanRows.reduce((s, r) => s + r.penjualan, 0);
-  const totalPotongan = penjualanRows.reduce((s, r) => s + r.potongan, 0);
-  const totalPenjualan = totalPenjualanKotor - totalPotongan;
+  const accountByNumber = new Map(accounts.map((a) => [a.number, a]));
+  const netByNumber = new Map<number, number>();
+  for (const e of entries) {
+    const amt = Number(e.amount);
+    const delta = e.side === "D" ? amt : -amt;
+    netByNumber.set(e.account.number, (netByNumber.get(e.account.number) ?? 0) + delta);
+  }
+  function line(number: number, sign: 1 | -1): ReportSheetLine {
+    const acc = accountByNumber.get(number);
+    const net = netByNumber.get(number) ?? 0;
+    return { number, label: acc?.label ?? `Akun ${number}`, amount: sign * net };
+  }
 
-  const categoryDefs = await prisma.expenseCategoryDef.findMany({ orderBy: { sortOrder: "asc" } });
-  const expenseByKey = new Map(expenseCategoryTotals.map((e) => [e.category, Number(e._sum.amount ?? 0)]));
+  const penjualanRows = SALES_ACCOUNT_NUMBERS.map((n) => line(n, 1));
+  const totalPenjualan = penjualanRows.reduce((s, r) => s + r.amount, 0);
 
-  // B. PEMBELIAN — bahan baku stock movement (Awal/Akhir from the raw-
-  // material categories) + this month's purchases + the SAYUR/GAS expense
-  // categories that were historically recorded as "expenses" but really
-  // belong here.
-  const bahanBakuMaterials = materialAwal.rows.filter((r) => r.category === "BAHAN_UTAMA" || r.category === "BAHAN_BAKU_TAMBAHAN");
+  const bahanBakuMaterials = inventory.rows.filter((r) => r.category === "BAHAN_UTAMA" || r.category === "BAHAN_BAKU_TAMBAHAN");
   const persediaanAwal = bahanBakuMaterials.reduce((s, r) => s + r.awalQty * r.unitPrice, 0);
   const persediaanAkhir = bahanBakuMaterials.reduce((s, r) => s + r.akhirQty * r.unitPrice, 0);
-  const pembelianSayur = expenseByKey.get("SAYUR") ?? 0;
-  const pembelianGas = expenseByKey.get("GAS_3KG") ?? 0;
 
-  const pembelianRows = [
-    { label: "Persediaan Barang Awal", amount: persediaanAwal },
-    { label: "Pembelian Bahan (Barang Masuk)", amount: purchaseSheet.totalReceived + (purchaseSheet.manualRows.filter((r) => r.category === "BAHAN").reduce((s, r) => s + r.amount, 0)) },
-    { label: "Pembelian Bahan (Eksternal)", amount: purchaseSheet.manualRows.filter((r) => r.category === "BAHAN_EKSTERNAL").reduce((s, r) => s + r.amount, 0) },
-    { label: "Bahan & Alat Pendukung", amount: purchaseSheet.manualRows.filter((r) => r.category === "BAHAN_PENDUKUNG").reduce((s, r) => s + r.amount, 0) },
-    { label: "Pembelian Sayur", amount: pembelianSayur + purchaseSheet.manualRows.filter((r) => r.category === "SAYUR").reduce((s, r) => s + r.amount, 0) },
-    { label: "Pembelian Gas", amount: pembelianGas + purchaseSheet.manualRows.filter((r) => r.category === "GAS").reduce((s, r) => s + r.amount, 0) },
-    { label: "Biaya Angkut Pembelian", amount: purchaseSheet.manualRows.filter((r) => r.category === "ANGKUT").reduce((s, r) => s + r.amount, 0) },
-    { label: "Potongan Pembelian", amount: -purchaseSheet.manualRows.filter((r) => r.category === "POTONGAN").reduce((s, r) => s + r.amount, 0) },
-    { label: "Persediaan Barang Akhir", amount: -persediaanAkhir },
+  const pembelianRows: ReportSheetLine[] = [
+    { number: 0, label: "Persediaan Barang Awal", amount: persediaanAwal },
+    ...PEMBELIAN_ACCOUNT_NUMBERS.map((n) => line(n, -1)),
+    { number: 0, label: "Stock Bahan Baku (Persediaan Akhir)", amount: -persediaanAkhir },
   ];
   const totalHpp = pembelianRows.reduce((s, r) => s + r.amount, 0);
   const labaKotor = totalPenjualan - totalHpp;
 
-  function overheadRows(group: "DIRECT" | "INDIRECT") {
-    return categoryDefs
-      .filter((c) => c.overheadGroup === group)
-      .map((c) => ({ label: c.label, amount: expenseByKey.get(c.key) ?? 0 }))
-      .filter((r) => r.amount > 0);
-  }
-  const overheadLangsungRows = overheadRows("DIRECT");
-  const overheadTidakLangsungRows = overheadRows("INDIRECT");
+  const overheadLangsungRows = OVERHEAD_LANGSUNG_NUMBERS.map((n) => line(n, -1));
+  const overheadTidakLangsungRows = OVERHEAD_TIDAK_LANGSUNG_NUMBERS.map((n) => line(n, -1));
   const totalOverheadLangsung = overheadLangsungRows.reduce((s, r) => s + r.amount, 0);
   const totalOverheadTidakLangsung = overheadTidakLangsungRows.reduce((s, r) => s + r.amount, 0);
   const totalBiaya = totalOverheadLangsung + totalOverheadTidakLangsung;
@@ -459,8 +454,6 @@ export async function getAkunSheet(outletId: string, year: number, month: number
 
   return {
     penjualanRows,
-    totalPenjualanKotor,
-    totalPotongan,
     totalPenjualan,
     pembelianRows,
     totalHpp,
@@ -610,8 +603,8 @@ async function getDailyRoster(outletId: string, year: number, month: number, oms
 // same split the Insentive Sheet uses), Total Standby (days present),
 // Masa non Insentive (days present but that day earned no incentive —
 // zero Omset or no bracket matched), and Total Absen (days in the
-// month). Labor Cost/Salary/Remarks have no wage-rate data model yet, so
-// they're left blank for manual/HR entry rather than a fabricated number.
+// month). Labor Cost/Salary have no wage-rate/HR data model to compute
+// from, so they're manually entered (OutletPayroll) instead of guessed at.
 // ═══════════════════════════════════════════════════════════════════════
 export type AbsenSheetRow = {
   userId: string;
@@ -621,11 +614,18 @@ export type AbsenSheetRow = {
   insentiveValue: number;
   totalStandby: number;
   totalNonInsentif: number;
+  laborCost: number;
+  salary: number;
+  payrollRecorded: boolean;
 };
 
 export async function getAbsenSheet(outletId: string, year: number, month: number, omset: Awaited<ReturnType<typeof getOmsetSheet>>) {
-  const roster = await getDailyRoster(outletId, year, month, omset);
+  const [roster, payrolls] = await Promise.all([
+    getDailyRoster(outletId, year, month, omset),
+    prisma.outletPayroll.findMany({ where: { outletId, year, month } }),
+  ]);
   const nDays = daysInMonth(year, month);
+  const payrollByUserId = new Map(payrolls.map((p) => [p.userId, p]));
 
   const byEmployee = new Map<string, AbsenSheetRow>();
   for (let i = 0; i < roster.days.length; i++) {
@@ -633,6 +633,7 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
     const perPersonQty = day.present.length > 0 ? day.qtyAllProducts / day.present.length : 0;
     const perPersonInsentif = day.present.length > 0 ? day.totalInsentifHari / day.present.length : 0;
     for (const p of day.present) {
+      const payroll = payrollByUserId.get(p.userId);
       const row = byEmployee.get(p.userId) ?? {
         userId: p.userId,
         name: p.name,
@@ -641,6 +642,9 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
         insentiveValue: 0,
         totalStandby: 0,
         totalNonInsentif: 0,
+        laborCost: Number(payroll?.laborCost ?? 0),
+        salary: Number(payroll?.salary ?? 0),
+        payrollRecorded: Boolean(payroll),
       };
       row.attendance[i] = true;
       row.qtySales += perPersonQty;
@@ -697,7 +701,7 @@ export async function getInsentiveSheet(
   year: number,
   month: number,
   jpd: Awaited<ReturnType<typeof getJpdSheet>>,
-  akun: Awaited<ReturnType<typeof getAkunSheet>>,
+  report: Awaited<ReturnType<typeof getReportSheet>>,
   absen: Awaited<ReturnType<typeof getAbsenSheet>>,
 ) {
   const [incentiveCalcs, outletRow, companyOmset] = await Promise.all([
@@ -728,7 +732,7 @@ export async function getInsentiveSheet(
     royalti,
     insentiveOfficer,
     insentiveHead,
-    omsetBersih: akun.totalPenjualan,
+    omsetBersih: report.totalPenjualan,
     avgSales: absen.avgSalesPerAbsen,
     avgBeef: avgBeefPerAbsen,
   };

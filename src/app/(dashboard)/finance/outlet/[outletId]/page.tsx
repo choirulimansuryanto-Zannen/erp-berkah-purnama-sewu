@@ -12,13 +12,14 @@ import { OutletPurchaseForm, OutletPurchaseDeleteButton } from "@/components/fin
 import { OutletAdjustmentForm, OutletAdjustmentDeleteButton } from "@/components/finance/outlet-adjustment-form";
 import { OutletMaterialAkhirInput } from "@/components/finance/outlet-material-akhir-input";
 import { OutletLedgerEntryForm, OutletLedgerEntryDeleteButton } from "@/components/finance/outlet-ledger-entry-form";
+import { OutletPayrollInput } from "@/components/finance/outlet-payroll-input";
 import { OutletReportSelector } from "@/components/finance/outlet-report-selector";
 import {
   getOmsetSheet,
   getJpdSheet,
   getPurchaseSheet,
   getAdjustmentSheet,
-  getAkunSheet,
+  getReportSheet,
   getAkunLedgerSheet,
   getAbsenSheet,
   getInsentiveSheet,
@@ -114,9 +115,9 @@ export default async function OutletDetailReportPage({
     getInventorySheet(outletId, year, month),
     getAkunLedgerSheet(outletId, year, month),
   ]);
-  const akun = await getAkunSheet(outletId, year, month, purchase);
+  const report = await getReportSheet(outletId, year, month, inventory);
   const absen = await getAbsenSheet(outletId, year, month, omset);
-  const insentive = await getInsentiveSheet(outletId, year, month, jpd, akun, absen);
+  const insentive = await getInsentiveSheet(outletId, year, month, jpd, report, absen);
 
   const materialsForForms = materials.map((m) => ({ id: m.id, code: m.code, name: m.name, unit: m.unit }));
   const materialsByCategory = new Map<string, typeof inventory.rows>();
@@ -124,9 +125,13 @@ export default async function OutletDetailReportPage({
   const ledgerAccountOptions = ledgerAccounts.map((a) => ({ id: a.id, number: a.number, label: a.label, defaultSide: a.defaultSide }));
   const outletCode = outletShortCode(outlet.name);
 
-  // ── h. Report Sheet — the investor-facing summary ─────────────────────
+  // ── h. Report Sheet — the investor-facing summary, taken straight from
+  // the Akun Sheet ledger (report.labaBersih already includes whatever
+  // Insentive figure was actually posted to account #22 that month) —
+  // the bracket-calculated totalInsentifSemua below is a separate
+  // reference/KPI figure, not subtracted again here.
   const totalInsentifSemua = absen.totalInsentiveValue + insentive.royalti + insentive.insentiveOfficer + insentive.insentiveHead;
-  const reportLabaBersih = akun.labaBersih - totalInsentifSemua;
+  const reportLabaBersih = report.labaBersih;
 
   return (
     <div className="space-y-6">
@@ -512,8 +517,16 @@ export default async function OutletDetailReportPage({
                   <Td>{outlet.name}</Td>
                   <Td className="text-right tabular-nums">{Math.round(r.qtySales)}</Td>
                   <Td className="text-right tabular-nums">{currency.format(r.insentiveValue)}</Td>
-                  <Td className="text-right tabular-nums text-slate-400" title="Belum terhubung ke data gaji pokok/HR">
-                    —
+                  <Td colSpan={2}>
+                    <OutletPayrollInput
+                      outletId={outletId}
+                      userId={r.userId}
+                      year={year}
+                      month={month}
+                      defaultLaborCost={r.laborCost}
+                      defaultSalary={r.salary}
+                      recorded={r.payrollRecorded}
+                    />
                   </Td>
                   {r.attendance.map((present, i) => (
                     <Td key={i} className="text-center text-xs text-slate-500">
@@ -523,9 +536,6 @@ export default async function OutletDetailReportPage({
                   <Td className="text-right font-semibold tabular-nums">{r.totalStandby}</Td>
                   <Td className="text-right tabular-nums">{r.totalNonInsentif}</Td>
                   <Td className="text-right tabular-nums">{absen.nDays}</Td>
-                  <Td className="text-right tabular-nums text-slate-400" title="Belum terhubung ke data gaji pokok/HR">
-                    —
-                  </Td>
                   <Td></Td>
                 </Tr>
               ))}
@@ -534,7 +544,9 @@ export default async function OutletDetailReportPage({
                 <Td colSpan={3}>TOTAL</Td>
                 <Td className="text-right tabular-nums">{Math.round(absen.totalQtySales)}</Td>
                 <Td className="text-right tabular-nums">{currency.format(absen.totalInsentiveValue)}</Td>
-                <Td></Td>
+                <Td className="text-right tabular-nums" colSpan={2}>
+                  {currency.format(absen.rows.reduce((s, r) => s + r.laborCost, 0))} / {currency.format(absen.rows.reduce((s, r) => s + r.salary, 0))}
+                </Td>
                 <Td colSpan={absen.nDays}></Td>
                 <Td className="text-right tabular-nums">{absen.totalStandbyAll}</Td>
                 <Td colSpan={3}></Td>
@@ -543,8 +555,8 @@ export default async function OutletDetailReportPage({
           </Table>
         </div>
         <p className="px-5 py-3 text-xs text-slate-400">
-          Labor Cost &amp; Salary belum terhubung ke data gaji pokok (HR) — kolom ini menunggu sumber data tersebut, tidak dihitung otomatis agar tidak
-          menampilkan angka yang keliru.
+          Labor Cost &amp; Salary diisi manual per pramuniaga (belum ada data gaji pokok/HR untuk dihitung otomatis) — kolom berlatar kuning berarti belum
+          pernah diisi bulan ini.
         </p>
       </Card>
 
@@ -717,36 +729,99 @@ export default async function OutletDetailReportPage({
       {/* h. Report Sheet */}
       <Card>
         <CardHeader>
-          <CardTitle>h. Report Sheet — Ringkasan untuk Investor</CardTitle>
+          <CardTitle>h. Report Sheet</CardTitle>
+          <p className="text-xs text-slate-400">
+            Diambil langsung dari jurnal Akun Sheet bulan ini ({MONTH_NAMES[month - 1]} {year}) — bukan hasil hitung otomatis dari transaksi/pengeluaran.
+          </p>
         </CardHeader>
-        <div className="space-y-1 p-5 pt-2 text-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 py-2">
-            <span className="text-slate-600">Total Penjualan (Bersih)</span>
-            <span className="font-semibold text-brand-900">{currency.format(akun.totalPenjualan)}</span>
+        <div className="p-5 pt-2 text-sm">
+          <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-400">A. Penjualan</p>
+          <Table>
+            <tbody>
+              {report.penjualanRows
+                .filter((r) => r.amount !== 0)
+                .map((r) => (
+                  <Tr key={r.number}>
+                    <Td>{r.label}</Td>
+                    <Td className="text-right tabular-nums">{currency.format(Math.abs(r.amount))}</Td>
+                  </Tr>
+                ))}
+              {report.penjualanRows.every((r) => r.amount === 0) && <EmptyRow colSpan={2}>Belum ada transaksi penjualan di jurnal bulan ini.</EmptyRow>}
+              <Tr className="bg-gold-50 font-bold text-brand-900">
+                <Td>TOTAL PENJUALAN</Td>
+                <Td className="text-right tabular-nums">{currency.format(report.totalPenjualan)}</Td>
+              </Tr>
+            </tbody>
+          </Table>
+
+          <p className="mb-1 mt-6 text-xs font-bold uppercase tracking-wide text-slate-400">B. Pembelian</p>
+          <Table>
+            <tbody>
+              {report.pembelianRows.map((r, i) => (
+                <Tr key={i}>
+                  <Td>{r.label}</Td>
+                  <Td className="text-right tabular-nums">{currency.format(Math.abs(r.amount))}</Td>
+                </Tr>
+              ))}
+              <Tr className="bg-gold-50 font-bold text-brand-900">
+                <Td>TOTAL HPP</Td>
+                <Td className="text-right tabular-nums">{currency.format(report.totalHpp)}</Td>
+              </Tr>
+            </tbody>
+          </Table>
+          <div className={`mt-2 flex items-center justify-between rounded-lg px-3 py-2 font-bold ${report.labaKotor < 0 ? "bg-rose-50 text-rose-700" : "bg-brand-50 text-brand-900"}`}>
+            <span>LABA/RUGI KOTOR</span>
+            <span>{currency.format(report.labaKotor)}</span>
           </div>
-          <div className="flex items-center justify-between border-b border-slate-100 py-2">
-            <span className="text-slate-600">(-) Total HPP (Pembelian)</span>
-            <span className="font-semibold text-rose-700">({currency.format(akun.totalHpp)})</span>
-          </div>
-          <div className="flex items-center justify-between border-b border-slate-100 py-2 font-semibold">
-            <span className="text-slate-700">Laba Kotor</span>
-            <span className="text-brand-900">{currency.format(akun.labaKotor)}</span>
-          </div>
-          <div className="flex items-center justify-between border-b border-slate-100 py-2">
-            <span className="text-slate-600">(-) Total Biaya (Overhead)</span>
-            <span className="font-semibold text-rose-700">({currency.format(akun.totalBiaya)})</span>
-          </div>
-          <div className="flex items-center justify-between border-b border-slate-100 py-2">
-            <span className="text-slate-600">(-) Total Insentif (Pramuniaga + Royalti + Officer/Head)</span>
-            <span className="font-semibold text-rose-700">({currency.format(totalInsentifSemua)})</span>
-          </div>
-          <div className="flex items-center justify-between rounded-lg bg-gold-50 px-3 py-3 font-bold text-brand-900">
-            <span>LABA/RUGI BERSIH OUTLET</span>
+
+          <p className="mb-1 mt-6 text-xs font-bold uppercase tracking-wide text-slate-400">C. Biaya</p>
+          <Table>
+            <tbody>
+              <Tr className="bg-slate-50">
+                <Td className="font-semibold" colSpan={2}>
+                  Overhead Langsung
+                </Td>
+              </Tr>
+              {report.overheadLangsungRows.map((r) => (
+                <Tr key={r.number}>
+                  <Td>{r.label}</Td>
+                  <Td className="text-right tabular-nums">{currency.format(Math.abs(r.amount))}</Td>
+                </Tr>
+              ))}
+              <Tr className="font-semibold">
+                <Td>Total Overhead Langsung</Td>
+                <Td className="text-right tabular-nums">{currency.format(report.totalOverheadLangsung)}</Td>
+              </Tr>
+              <Tr className="bg-slate-50">
+                <Td className="font-semibold" colSpan={2}>
+                  Overhead Tidak Langsung
+                </Td>
+              </Tr>
+              {report.overheadTidakLangsungRows.map((r) => (
+                <Tr key={r.number}>
+                  <Td>{r.label}</Td>
+                  <Td className="text-right tabular-nums">{currency.format(Math.abs(r.amount))}</Td>
+                </Tr>
+              ))}
+              <Tr className="font-semibold">
+                <Td>Total Overhead Tidak Langsung</Td>
+                <Td className="text-right tabular-nums">{currency.format(report.totalOverheadTidakLangsung)}</Td>
+              </Tr>
+              <Tr className="bg-gold-50 font-bold text-brand-900">
+                <Td>TOTAL BIAYA</Td>
+                <Td className="text-right tabular-nums">{currency.format(report.totalBiaya)}</Td>
+              </Tr>
+            </tbody>
+          </Table>
+          <div className={`mt-2 flex items-center justify-between rounded-lg px-3 py-3 font-bold ${reportLabaBersih < 0 ? "bg-rose-50 text-rose-700" : "bg-brand-50 text-brand-900"}`}>
+            <span>LABA/RUGI BERSIH</span>
             <span>{currency.format(reportLabaBersih)}</span>
           </div>
-          <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+
+          <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
             <FileBarChart className="h-3.5 w-3.5" />
-            {outlet.name} — {MONTH_NAMES[month - 1]} {year} — Nilai stock akhir: {currency.format(inventory.totalAkhirNominal)}
+            {outlet.name} — {MONTH_NAMES[month - 1]} {year} — Insentif per hitungan bracket (referensi, di luar jurnal): {currency.format(totalInsentifSemua)} —
+            Nilai stock akhir Inventory Sheet: {currency.format(inventory.totalAkhirNominal)}
           </div>
         </div>
       </Card>

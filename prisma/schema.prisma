@@ -177,6 +177,7 @@ model Outlet {
   materialClosingBalances OutletMaterialClosingBalance[]
   adjustments             OutletAdjustment[]
   ledgerEntries           OutletLedgerEntry[]
+  payrolls                OutletPayroll[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -276,6 +277,8 @@ model User {
   incentiveBracketUpdates  IncentiveBracket[]
   outletLedgerAccountUpdates OutletLedgerAccount[]
   outletLedgerEntriesCreated OutletLedgerEntry[]
+  outletPayrollsAsEmployee   OutletPayroll[] @relation("OutletPayrollUser")
+  outletPayrollsRecorded     OutletPayroll[] @relation("OutletPayrollRecordedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1753,4 +1756,29 @@ model OutletLedgerEntry {
 
   @@index([outletId, date])
   @@index([accountId, date])
+}
+
+// Absen Sheet's Labor Cost / Salary — manually entered per pramuniaga per
+// month, since there's no wage-rate/HR data model to compute them from.
+// One row per (outlet, user, year, month); re-submitting the same month
+// replaces the figures, same upsert convention as InventoryClosingBalance/
+// OutletMaterialClosingBalance.
+model OutletPayroll {
+  id           String   @id @default(uuid())
+  outletId     String
+  outlet       Outlet   @relation(fields: [outletId], references: [id])
+  userId       String
+  user         User     @relation("OutletPayrollUser", fields: [userId], references: [id])
+  year         Int
+  month        Int
+  laborCost    Decimal  @default(0) @db.Decimal(14, 2)
+  salary       Decimal  @default(0) @db.Decimal(14, 2)
+  note         String?
+  recordedById String
+  recordedBy   User     @relation("OutletPayrollRecordedBy", fields: [recordedById], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([outletId, userId, year, month])
+  @@index([outletId, year, month])
 }
