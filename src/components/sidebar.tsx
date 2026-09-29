@@ -50,6 +50,7 @@ import {
   HandCoins,
   Columns3,
   Percent,
+  Layers,
 } from "lucide-react";
 import { can, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/cn";
@@ -164,6 +165,8 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/admin/investors", label: "Investor & Sharing Profit", icon: HandCoins, permission: "finance:manage_incentive_rules" },
       { href: "/admin/pramuniaga-roster", label: "Roster Pramuniaga", icon: UserCheck, permission: "admin:system_config" },
       { href: "/admin/freezer-materials", label: "Bahan Baku Freezer", icon: Snowflake, permission: "admin:system_config" },
+      { href: "/admin/outlet-materials", label: "Data Stock Available", icon: Boxes, permission: "admin:system_config" },
+      { href: "/admin/incentive-brackets", label: "Bracket Insentif Outlet", icon: Layers, permission: "finance:manage_incentive_rules" },
       { href: "/admin/settings", label: "System Settings", icon: Settings, permission: "admin:system_config" },
     ],
   },

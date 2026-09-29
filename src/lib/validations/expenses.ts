@@ -52,10 +52,15 @@ export const expenseCategorySchema = z.object({
   label: z.string().min(1),
   sortOrder: z.number().int().optional(),
   status: z.enum(["ACTIVE", "INACTIVE", "SEASONAL"]).optional(),
+  // Which section of the Akun Sheet (Laporan Outlet, d.) this category
+  // feeds: DIRECT/INDIRECT = "C. BIAYA" overhead split, NONE = it's really
+  // a purchase (SAYUR, GAS) and belongs in "B. PEMBELIAN" instead.
+  overheadGroup: z.enum(["DIRECT", "INDIRECT", "NONE"]).optional(),
 });
 
 export const updateExpenseCategorySchema = z.object({
   label: z.string().min(1).optional(),
   sortOrder: z.number().int().optional(),
   status: z.enum(["ACTIVE", "INACTIVE", "SEASONAL"]).optional(),
+  overheadGroup: z.enum(["DIRECT", "INDIRECT", "NONE"]).optional(),
 });

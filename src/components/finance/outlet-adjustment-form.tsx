@@ -6,24 +6,15 @@ import { X } from "lucide-react";
 import { Label, Input, Textarea, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
-const CATEGORY_LABELS: Record<string, string> = {
-  BAHAN: "Bahan (Barang Masuk Manual)",
-  BAHAN_EKSTERNAL: "Bahan Eksternal",
-  BAHAN_PENDUKUNG: "Bahan & Alat Pendukung",
-  SAYUR: "Sayur",
-  GAS: "Gas",
-  ANGKUT: "Angkut",
-  POTONGAN: "Potongan Pembelian",
-  LAINNYA: "Lainnya",
-};
+const TYPE_LABELS: Record<string, string> = { RUSAK: "Barang Rusak", REJECT: "Barang Reject", SELISIH: "Barang Selisih" };
 
-export function OutletPurchaseDeleteButton({ id }: { id: string }) {
+export function OutletAdjustmentDeleteButton({ id }: { id: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   function remove() {
-    if (!window.confirm("Hapus data pembelian ini?")) return;
+    if (!window.confirm("Hapus data adjustment ini?")) return;
     startTransition(async () => {
-      const res = await fetch(`/api/finance/outlet-purchases/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/finance/outlet-adjustments/${id}`, { method: "DELETE" });
       if (res.ok) router.refresh();
       else window.alert("Gagal menghapus data.");
     });
@@ -39,10 +30,10 @@ function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-// Purchase Sheet input — direct/local outlet purchases (fresh produce from
-// a nearby market, a local mitra vendor, ...), distinct from warehouse
-// distributions which already show up on the Inventory Sheet's "Masuk".
-export function OutletPurchaseForm({
+// Adjustment Sheet input — Barang Rusak / Barang Reject / Barang Selisih,
+// each optionally tied to a material from the Inventory Sheet's catalog so
+// it feeds that sheet's Keluar column automatically.
+export function OutletAdjustmentForm({
   outletId,
   materials = [],
 }: {
@@ -51,13 +42,12 @@ export function OutletPurchaseForm({
 }) {
   const router = useRouter();
   const [date, setDate] = useState(todayStr());
+  const [type, setType] = useState("RUSAK");
+  const [materialId, setMaterialId] = useState("");
   const [description, setDescription] = useState("");
-  const [qty, setQty] = useState("1");
-  const [unit, setUnit] = useState("pcs");
+  const [qty, setQty] = useState("");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
-  const [category, setCategory] = useState("BAHAN");
-  const [materialId, setMaterialId] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -65,27 +55,26 @@ export function OutletPurchaseForm({
   function submit() {
     setSuccess(false);
     startTransition(async () => {
-      const res = await fetch("/api/finance/outlet-purchases", {
+      const res = await fetch("/api/finance/outlet-adjustments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           outletId,
           date,
-          description,
-          qty: Number(qty),
-          unit,
-          amount: Number(amount),
-          note: note || undefined,
-          category,
+          type,
           materialId: materialId || undefined,
+          description,
+          qty: Number(qty) || 0,
+          amount: Number(amount) || 0,
+          note: note || undefined,
         }),
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage("Pembelian tersimpan.");
+        setMessage("Adjustment tersimpan.");
         setSuccess(true);
         setDescription("");
-        setQty("1");
+        setQty("");
         setAmount("");
         setNote("");
         router.refresh();
@@ -102,28 +91,10 @@ export function OutletPurchaseForm({
           <Label className="text-[11px]">Tanggal</Label>
           <Input className="mt-1" type="date" value={date} max={todayStr()} onChange={(e) => setDate(e.target.value)} />
         </div>
-        <div className="sm:col-span-2">
-          <Label className="text-[11px]">Deskripsi</Label>
-          <Input className="mt-1" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Contoh: Sayur dari pasar lokal" />
-        </div>
         <div>
-          <Label className="text-[11px]">Qty</Label>
-          <Input className="mt-1" type="number" min="0" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} />
-        </div>
-        <div>
-          <Label className="text-[11px]">Satuan</Label>
-          <Input className="mt-1" value={unit} onChange={(e) => setUnit(e.target.value)} />
-        </div>
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-        <div>
-          <Label className="text-[11px]">Nominal (Rp)</Label>
-          <Input className="mt-1" type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
-        </div>
-        <div>
-          <Label className="text-[11px]">Kategori (Akun Sheet)</Label>
-          <Select className="mt-1" value={category} onChange={(e) => setCategory(e.target.value)}>
-            {Object.entries(CATEGORY_LABELS).map(([k, l]) => (
+          <Label className="text-[11px]">Jenis</Label>
+          <Select className="mt-1" value={type} onChange={(e) => setType(e.target.value)}>
+            {Object.entries(TYPE_LABELS).map(([k, l]) => (
               <option key={k} value={k}>
                 {l}
               </option>
@@ -143,13 +114,27 @@ export function OutletPurchaseForm({
             </Select>
           </div>
         )}
-        <div className={materials.length > 0 ? "" : "sm:col-span-2"}>
+        <div className="sm:col-span-2">
+          <Label className="text-[11px]">Deskripsi</Label>
+          <Input className="mt-1" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Contoh: Daging basi 2 pack" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div>
+          <Label className="text-[11px]">Qty</Label>
+          <Input className="mt-1" type="number" min="0" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} />
+        </div>
+        <div>
+          <Label className="text-[11px]">Nominal (Rp)</Label>
+          <Input className="mt-1" type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+        </div>
+        <div>
           <Label className="text-[11px]">Catatan (Opsional)</Label>
           <Textarea className="mt-1" rows={1} value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
       </div>
-      <Button onClick={submit} disabled={pending || !description || !amount}>
-        {pending ? "Menyimpan..." : "Tambah Pembelian"}
+      <Button onClick={submit} disabled={pending || !description}>
+        {pending ? "Menyimpan..." : "Tambah Adjustment"}
       </Button>
       {message && <p className={`text-sm ${success ? "text-emerald-700" : "text-rose-600"}`}>{message}</p>}
     </div>

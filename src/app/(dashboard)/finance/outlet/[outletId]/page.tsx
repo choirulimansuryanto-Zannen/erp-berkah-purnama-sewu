@@ -9,24 +9,30 @@ import { StatCard } from "@/components/ui/stat-card";
 import { Table, Thead, Th, Tr, Td, EmptyRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { OutletPurchaseForm, OutletPurchaseDeleteButton } from "@/components/finance/outlet-purchase-form";
+import { OutletAdjustmentForm, OutletAdjustmentDeleteButton } from "@/components/finance/outlet-adjustment-form";
+import { OutletMaterialAkhirInput } from "@/components/finance/outlet-material-akhir-input";
 import { OutletReportSelector } from "@/components/finance/outlet-report-selector";
-import { getCompanyMonthlyFigures, INCENTIVE_TYPE_LABELS } from "@/lib/incentive";
-import { Wallet, ShoppingBag, AlertTriangle, BookOpen, Users, Sparkles, Boxes, FileBarChart } from "lucide-react";
+import { getOmsetSheet, getPurchaseSheet, getAdjustmentSheet, getAkunSheet, getAbsenInsentiveSheet, getInventorySheet } from "@/lib/outlet-report";
+import { Wallet, ShoppingBag, AlertTriangle, Sparkles, FileBarChart } from "lucide-react";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
+const number0 = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 });
 const MONTH_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
-const ATTENDANCE_STATUS_LABELS: Record<string, string> = { PRESENT: "Hadir", LATE: "Terlambat", ABSENT: "Absen", OFF: "Libur", SAKIT: "Sakit" };
 
-function monthRange(year: number, month: number) {
-  return { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)) };
-}
+const MATERIAL_CATEGORY_LABELS: Record<string, string> = {
+  BAHAN_UTAMA: "Bahan Utama",
+  BAHAN_BAKU_TAMBAHAN: "Bahan Baku Tambahan",
+  PACKAGING: "Packaging",
+  BAHAN_ALAT_PENDUKUNG: "Bahan & Alat Pendukung",
+};
+const ADJUSTMENT_TYPE_LABELS: Record<string, string> = { RUSAK: "Barang Rusak", REJECT: "Barang Reject", SELISIH: "Barang Selisih" };
 
-// Laporan Outlet — one outlet, one month, all 8 sheets from the source
-// spec: Omset, Purchase, Adjustment, Akun, Absen, Insentive, Inventory,
-// Report. Every sheet is derived from data that already exists elsewhere
-// in the system (DailyReport, StockAdjustment, InventoryRecord,
-// ExpenseRecord, AttendanceRecord, IncentiveCalculation) plus the one
-// genuinely new input this report needed — OutletPurchase.
+// Laporan Outlet — one outlet, one month, all 8 sheets exactly as specified
+// from the real spreadsheets: Omset (per-product + daging ketul usage),
+// Purchase (barang masuk pramuniaga + local buys), Adjustment (input form),
+// Akun (Penjualan per channel / Pembelian / Biaya Overhead), Absen+Insentive
+// (bracket-based per-employee), Inventory (Data Stock Available), and
+// Report (investor summary). See src/lib/outlet-report.ts for the engine.
 export default async function OutletDetailReportPage({
   params,
   searchParams,
@@ -43,9 +49,10 @@ export default async function OutletDetailReportPage({
   const { year: yearParam, month: monthParam } = await searchParams;
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i);
 
-  const [outlet, allOutlets] = await Promise.all([
+  const [outlet, allOutlets, materials] = await Promise.all([
     prisma.outlet.findUnique({ where: { id: outletId }, include: { region: true } }),
     prisma.outlet.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.outletMaterial.findMany({ where: { status: "ACTIVE" }, orderBy: [{ category: "asc" }, { sortOrder: "asc" }] }),
   ]);
   if (!outlet) notFound();
 
@@ -80,126 +87,21 @@ export default async function OutletDetailReportPage({
     }
   }
 
-  const { start, end } = monthRange(year, month);
-  const yearStart = new Date(Date.UTC(year, 0, 1));
-
-  const [
-    dailyReports,
-    purchases,
-    stockAdjustments,
-    inventoryRecordsMonth,
-    inventoryRecordsBefore,
-    expenses,
-    attendance,
-    incentiveCalcs,
-    companyFigures,
-  ] = await Promise.all([
-    prisma.dailyReport.findMany({ where: { outletId, status: "APPROVED", date: { gte: start, lte: end } }, orderBy: { date: "asc" } }),
-    prisma.outletPurchase.findMany({ where: { outletId, date: { gte: start, lte: end } }, include: { createdBy: { select: { name: true } } }, orderBy: { date: "asc" } }),
-    prisma.stockAdjustment.findMany({ where: { outletId, status: "APPROVED", createdAt: { gte: start, lte: end } }, include: { product: true } }),
-    prisma.inventoryRecord.findMany({ where: { outletId, date: { gte: start, lte: end } }, include: { product: true } }),
-    prisma.inventoryRecord.findMany({ where: { outletId, date: { gte: yearStart, lt: start } }, include: { product: true }, orderBy: { date: "asc" } }),
-    prisma.expenseRecord.findMany({ where: { outletId, approvalStatus: "APPROVED", date: { gte: start, lte: end } }, include: { categoryDef: true } }),
-    prisma.attendanceRecord.findMany({ where: { outletId, date: { gte: start, lte: end } }, include: { user: { select: { name: true } } } }),
-    prisma.incentiveCalculation.findMany({ where: { year, month, OR: [{ outletId }, { scope: "COMPANY" }] }, include: { rule: true } }),
-    getCompanyMonthlyFigures(year, month),
+  const [omset, purchase, adjustment, inventory, absenInsentive] = await Promise.all([
+    getOmsetSheet(outletId, year, month),
+    getPurchaseSheet(outletId, year, month),
+    getAdjustmentSheet(outletId, year, month),
+    getInventorySheet(outletId, year, month),
+    getAbsenInsentiveSheet(outletId, year, month),
   ]);
+  const akun = await getAkunSheet(outletId, year, month, purchase);
 
-  // ── a. Omset Sheet ────────────────────────────────────────────────────
-  const totalOmset = dailyReports.reduce((s, r) => s + Number(r.omset), 0);
-  const totalNonTunai = dailyReports.reduce((s, r) => s + Number(r.nonTunai), 0);
-  const totalSetoran = dailyReports.reduce((s, r) => s + Number(r.summarySetoran), 0);
-  const totalVarianceOmset = dailyReports.reduce((s, r) => s + Number(r.variance), 0);
-
-  // ── b. Purchase Sheet ─────────────────────────────────────────────────
-  const totalPurchase = purchases.reduce((s, p) => s + Number(p.amount), 0);
-
-  // ── c. Adjustment Sheet ───────────────────────────────────────────────
-  const rusakQty = stockAdjustments.reduce((s, a) => s + Math.abs(a.qtyChange), 0);
-  const rusakNominal = stockAdjustments.reduce((s, a) => s + Math.abs(a.qtyChange) * Number(a.product.cost), 0);
-  const rejectQty = inventoryRecordsMonth.reduce((s, r) => s + r.rejected, 0);
-  const rejectNominal = inventoryRecordsMonth.reduce((s, r) => s + r.rejected * Number(r.product.cost), 0);
-  const selisihQty = inventoryRecordsMonth.reduce((s, r) => s + r.variance, 0);
-  const selisihNominal = inventoryRecordsMonth.reduce((s, r) => s + r.variance * Number(r.product.cost), 0);
-  const totalAdjustmentNominal = rusakNominal + rejectNominal + Math.abs(selisihNominal);
-
-  // ── d. Akun Sheet — a formatted Debit/Kredit recap, not a real posted
-  // ledger (see the FA Company 6-book journal for that) ─────────────────
-  const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
-  const expensesByCategory = new Map<string, number>();
-  for (const e of expenses) expensesByCategory.set(e.categoryDef.label, (expensesByCategory.get(e.categoryDef.label) ?? 0) + Number(e.amount));
-  const akunRows = [
-    { label: "Omset (Penjualan Outlet)", debit: 0, kredit: totalOmset },
-    { label: "Setoran Fisik ke Kas", debit: totalSetoran, kredit: 0 },
-    { label: "Pembelian Lokal (Purchase Sheet)", debit: totalPurchase, kredit: 0 },
-    ...[...expensesByCategory.entries()].map(([name, amount]) => ({ label: `Beban — ${name}`, debit: amount, kredit: 0 })),
-    { label: "Kerugian Barang Rusak/Reject/Selisih", debit: totalAdjustmentNominal, kredit: 0 },
-  ];
-  const akunTotalDebit = akunRows.reduce((s, r) => s + r.debit, 0);
-  const akunTotalKredit = akunRows.reduce((s, r) => s + r.kredit, 0);
-
-  // ── e. Absen Sheet ────────────────────────────────────────────────────
-  const attendanceByUser = new Map<string, { name: string; counts: Record<string, number>; hours: number }>();
-  for (const a of attendance) {
-    const entry = attendanceByUser.get(a.userId) ?? { name: a.user.name, counts: {}, hours: 0 };
-    entry.counts[a.status] = (entry.counts[a.status] ?? 0) + 1;
-    entry.hours += Number(a.totalHours ?? 0);
-    attendanceByUser.set(a.userId, entry);
-  }
-
-  // ── f. Insentive Sheet — direct outlet-scope rows, plus Officer/Head
-  // Sales prorated by this outlet's share of company Omset this month
-  // (those two are company-wide rules, not computed per outlet). ────────
-  const directIncentives = incentiveCalcs.filter((c) => c.outletId === outletId);
-  const companyIncentives = incentiveCalcs.filter((c) => c.scope === "COMPANY" && (c.type === "OFFICER_SALES" || c.type === "HEAD_SALES"));
-  const outletShare = companyFigures.omset > 0 ? totalOmset / companyFigures.omset : 0;
-  const proratedIncentives = companyIncentives.map((c) => ({
-    type: c.type,
-    amount: Number(c.amount) * outletShare,
-  }));
-  const totalInsentif = directIncentives.reduce((s, c) => s + Number(c.amount), 0) + proratedIncentives.reduce((s, c) => s + c.amount, 0);
-  const royaltyRow = directIncentives.find((c) => c.type === "ROYALTY");
-
-  // ── g. Inventory Sheet — Saldo Awal (carried forward), Masuk, Keluar,
-  // Saldo Akhir, qty + nominal ───────────────────────────────────────────
-  const lastBeforeByProduct = new Map<string, { balance: number; cost: number }>();
-  for (const r of inventoryRecordsBefore) lastBeforeByProduct.set(r.productId, { balance: r.closingBalance, cost: Number(r.product.cost) });
-  const productsInvolved = new Set([...inventoryRecordsBefore.map((r) => r.productId), ...inventoryRecordsMonth.map((r) => r.productId)]);
-  let saldoAwalQty = 0;
-  let saldoAwalNominal = 0;
-  for (const productId of productsInvolved) {
-    const before = lastBeforeByProduct.get(productId);
-    if (before) {
-      saldoAwalQty += before.balance;
-      saldoAwalNominal += before.balance * before.cost;
-    }
-  }
-  const masukQty = inventoryRecordsMonth.reduce((s, r) => s + r.received, 0);
-  const masukNominal = inventoryRecordsMonth.reduce((s, r) => s + r.received * Number(r.product.cost), 0);
-  const dipakaiQty = inventoryRecordsMonth.reduce((s, r) => s + r.used, 0);
-  const dipakaiNominal = inventoryRecordsMonth.reduce((s, r) => s + r.used * Number(r.product.cost), 0);
-  const keluarQty = dipakaiQty + rejectQty + rusakQty;
-  const keluarNominal = dipakaiNominal + rejectNominal + rusakNominal;
-  // Saldo Akhir per product = the LATEST record in-or-before this month.
-  const lastInMonthByProduct = new Map<string, { balance: number; cost: number; date: Date }>();
-  for (const r of inventoryRecordsMonth) {
-    const existing = lastInMonthByProduct.get(r.productId);
-    if (!existing || r.date > existing.date) lastInMonthByProduct.set(r.productId, { balance: r.closingBalance, cost: Number(r.product.cost), date: r.date });
-  }
-  let saldoAkhirQty = 0;
-  let saldoAkhirNominal = 0;
-  for (const productId of productsInvolved) {
-    const latest = lastInMonthByProduct.get(productId) ?? (lastBeforeByProduct.get(productId) ? { ...lastBeforeByProduct.get(productId)!, date: new Date(0) } : undefined);
-    if (latest) {
-      saldoAkhirQty += latest.balance;
-      saldoAkhirNominal += latest.balance * latest.cost;
-    }
-  }
+  const materialsForForms = materials.map((m) => ({ id: m.id, code: m.code, name: m.name, unit: m.unit }));
+  const materialsByCategory = new Map<string, typeof inventory.rows>();
+  for (const r of inventory.rows) materialsByCategory.set(r.category, [...(materialsByCategory.get(r.category) ?? []), r]);
 
   // ── h. Report Sheet — the investor-facing summary ─────────────────────
-  const outletNetResult = totalOmset - totalPurchase - totalExpenses - totalAdjustmentNominal - totalInsentif;
-
-  const years5 = years;
+  const reportLabaBersih = akun.labaBersih - absenInsentive.totalInsentif;
 
   return (
     <div className="space-y-6">
@@ -214,97 +116,147 @@ export default async function OutletDetailReportPage({
       />
 
       <Card className="p-0">
-        <OutletReportSelector outlets={allOutlets} outletId={outletId} year={year} month={month} years={years5} />
+        <OutletReportSelector outlets={allOutlets} outletId={outletId} year={year} month={month} years={years} />
       </Card>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard label="Total Omset" value={currency.format(totalOmset)} tone="brand" icon={<Wallet className="h-4 w-4" />} />
-        <StatCard label="Total Purchase" value={currency.format(totalPurchase)} tone="accent" icon={<ShoppingBag className="h-4 w-4" />} />
-        <StatCard label="Total Adjustment" value={currency.format(totalAdjustmentNominal)} tone={totalAdjustmentNominal > 0 ? "warning" : "success"} icon={<AlertTriangle className="h-4 w-4" />} />
-        <StatCard label="Total Insentif + Royalty" value={currency.format(totalInsentif)} tone="info" icon={<Sparkles className="h-4 w-4" />} />
+        <StatCard label="Total Omset" value={currency.format(omset.totalOmset)} tone="brand" icon={<Wallet className="h-4 w-4" />} />
+        <StatCard label="Total Purchase" value={currency.format(purchase.total)} tone="accent" icon={<ShoppingBag className="h-4 w-4" />} />
+        <StatCard label="Total Adjustment" value={currency.format(adjustment.total)} tone={adjustment.total > 0 ? "warning" : "success"} icon={<AlertTriangle className="h-4 w-4" />} />
+        <StatCard label="Total Insentif" value={currency.format(absenInsentive.totalInsentif)} tone="info" icon={<Sparkles className="h-4 w-4" />} />
       </div>
 
       {/* a. Omset Sheet */}
       <Card>
         <CardHeader>
-          <CardTitle>a. Omset Sheet ({dailyReports.length} laporan harian)</CardTitle>
+          <CardTitle>a. Omset Sheet — Rekap Penjualan per Produk</CardTitle>
+          <p className="text-xs text-slate-400">
+            Produk dengan latar <span className="rounded bg-yellow-200 px-1 font-semibold text-yellow-900">kuning</span> menggunakan daging ketul.
+          </p>
         </CardHeader>
-        <Table>
-          <Thead>
-            <tr>
-              <Th>Tanggal</Th>
-              <Th className="text-right">Omset</Th>
-              <Th className="text-right">Non-Tunai</Th>
-              <Th className="text-right">Potongan</Th>
-              <Th className="text-right">Setoran Fisik</Th>
-              <Th className="text-right">Variance</Th>
-            </tr>
-          </Thead>
-          <tbody>
-            {dailyReports.map((r) => (
-              <Tr key={r.id}>
-                <Td>{r.date.toLocaleDateString("id-ID")}</Td>
-                <Td className="text-right">{currency.format(Number(r.omset))}</Td>
-                <Td className="text-right">{currency.format(Number(r.nonTunai))}</Td>
-                <Td className="text-right">{currency.format(Number(r.potongan))}</Td>
-                <Td className="text-right font-semibold">{currency.format(Number(r.summarySetoran))}</Td>
-                <Td className="text-right">
-                  <Badge tone={Math.abs(Number(r.variance)) < 1 ? "success" : "warning"}>{currency.format(Number(r.variance))}</Badge>
-                </Td>
+        <div className="overflow-x-auto">
+          <Table>
+            <Thead>
+              <tr>
+                <Th className="sticky left-0 z-10 bg-slate-50">Tanggal</Th>
+                {omset.products.map((p) => (
+                  <Th key={p.id} className={`text-right ${p.usesDagingKetul ? "bg-yellow-100" : ""}`}>
+                    {p.name}
+                  </Th>
+                ))}
+                <Th className="text-right">Total Qty</Th>
+                <Th className="text-right">Kg Ketul</Th>
+                <Th className="text-right">Total Omset</Th>
+              </tr>
+            </Thead>
+            <tbody>
+              {omset.days.map((d, i) => (
+                <Tr key={i}>
+                  <Td className="sticky left-0 z-10 bg-white font-medium text-slate-900">{d.date.getUTCDate()}</Td>
+                  {omset.products.map((p) => (
+                    <Td key={p.id} className={`text-right tabular-nums ${p.usesDagingKetul ? "bg-yellow-50" : ""}`}>
+                      {d.qtyByProduct[p.id] ?? 0}
+                    </Td>
+                  ))}
+                  <Td className="text-right font-semibold tabular-nums">{d.qtyAllProducts}</Td>
+                  <Td className="text-right tabular-nums">{number0.format(d.kgDagingKetul)}</Td>
+                  <Td className="text-right font-semibold tabular-nums">{currency.format(d.totalOmset)}</Td>
+                </Tr>
+              ))}
+              {omset.days.every((d) => d.qtyAllProducts === 0) && (
+                <EmptyRow colSpan={omset.products.length + 4}>Belum ada penjualan tercatat bulan ini.</EmptyRow>
+              )}
+              <Tr className="bg-gold-50 font-bold text-brand-900">
+                <Td className="sticky left-0 z-10 bg-gold-50">TOTAL</Td>
+                {omset.products.map((p) => (
+                  <Td key={p.id} className="text-right tabular-nums">
+                    {omset.days.reduce((s, d) => s + (d.qtyByProduct[p.id] ?? 0), 0)}
+                  </Td>
+                ))}
+                <Td className="text-right tabular-nums">{omset.days.reduce((s, d) => s + d.qtyAllProducts, 0)}</Td>
+                <Td className="text-right tabular-nums">{number0.format(omset.days.reduce((s, d) => s + d.kgDagingKetul, 0))}</Td>
+                <Td className="text-right tabular-nums">{currency.format(omset.totalOmset)}</Td>
               </Tr>
-            ))}
-            {dailyReports.length === 0 && <EmptyRow colSpan={6}>Belum ada laporan harian terverifikasi bulan ini.</EmptyRow>}
-            <Tr className="bg-gold-50 font-bold text-brand-900">
-              <Td>TOTAL</Td>
-              <Td className="text-right">{currency.format(totalOmset)}</Td>
-              <Td className="text-right">{currency.format(totalNonTunai)}</Td>
-              <Td className="text-right">{currency.format(dailyReports.reduce((s, r) => s + Number(r.potongan), 0))}</Td>
-              <Td className="text-right">{currency.format(totalSetoran)}</Td>
-              <Td className="text-right">{currency.format(totalVarianceOmset)}</Td>
-            </Tr>
-          </tbody>
-        </Table>
+            </tbody>
+          </Table>
+        </div>
+        {omset.cumulative.length > 0 && (
+          <div className="grid grid-cols-3 gap-4 border-t border-slate-100 p-5 text-sm sm:grid-cols-4">
+            <div>
+              <p className="text-xs text-slate-400">Kumulatif Qty Semua Produk</p>
+              <p className="font-bold text-brand-900">{omset.cumulative.at(-1)?.qtyAllProducts ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Kumulatif Qty Produk Ketul</p>
+              <p className="font-bold text-brand-900">{omset.cumulative.at(-1)?.qtyDagingKetulProducts ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Kumulatif Kg Daging Ketul</p>
+              <p className="font-bold text-brand-900">{number0.format(omset.cumulative.at(-1)?.kgDagingKetul ?? 0)} Kg</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Rata-rata Pcs per 4 Kg</p>
+              <p className="font-bold text-brand-900">{omset.cumulative.at(-1)?.pcsPer4Kg ?? 0} pcs</p>
+            </div>
+          </div>
+        )}
       </Card>
 
       {/* b. Purchase Sheet */}
       <Card>
         <CardHeader>
-          <CardTitle>b. Purchase Sheet ({purchases.length} pembelian)</CardTitle>
+          <CardTitle>b. Purchase Sheet</CardTitle>
+          <p className="text-xs text-slate-400">Barang Masuk = data dari akun Pramuniaga (Inventory Record). Ditambah pembelian lokal manual di bawah.</p>
         </CardHeader>
         <div className="border-b border-slate-100 p-5">
-          <OutletPurchaseForm outletId={outletId} />
+          <OutletPurchaseForm outletId={outletId} materials={materialsForForms} />
         </div>
         <Table>
           <Thead>
             <tr>
               <Th>Tanggal</Th>
               <Th>Deskripsi</Th>
+              <Th>Sumber</Th>
               <Th className="text-right">Qty</Th>
               <Th className="text-right">Nominal</Th>
-              <Th>Dicatat Oleh</Th>
               <Th></Th>
             </tr>
           </Thead>
           <tbody>
-            {purchases.map((p) => (
+            {purchase.receivedRows.map((r, i) => (
+              <Tr key={`recv-${i}`}>
+                <Td>{r.date.toLocaleDateString("id-ID")}</Td>
+                <Td>{r.description}</Td>
+                <Td>
+                  <Badge tone="info">Pramuniaga</Badge>
+                </Td>
+                <Td className="text-right">
+                  {r.qty} {r.unit}
+                </Td>
+                <Td className="text-right font-semibold">{currency.format(r.amount)}</Td>
+                <Td></Td>
+              </Tr>
+            ))}
+            {purchase.manualRows.map((p) => (
               <Tr key={p.id}>
                 <Td>{p.date.toLocaleDateString("id-ID")}</Td>
                 <Td>{p.description}</Td>
-                <Td className="text-right">
-                  {Number(p.qty)} {p.unit}
+                <Td>
+                  <Badge tone="neutral">Manual — {p.category}</Badge>
                 </Td>
-                <Td className="text-right font-semibold">{currency.format(Number(p.amount))}</Td>
-                <Td className="text-xs text-slate-500">{p.createdBy.name}</Td>
+                <Td className="text-right">
+                  {p.qty} {p.unit}
+                </Td>
+                <Td className="text-right font-semibold">{currency.format(p.amount)}</Td>
                 <Td>
                   <OutletPurchaseDeleteButton id={p.id} />
                 </Td>
               </Tr>
             ))}
-            {purchases.length === 0 && <EmptyRow colSpan={6}>Belum ada pembelian lokal bulan ini.</EmptyRow>}
+            {purchase.receivedRows.length === 0 && purchase.manualRows.length === 0 && <EmptyRow colSpan={6}>Belum ada pembelian bulan ini.</EmptyRow>}
             <Tr className="bg-gold-50 font-bold text-brand-900">
-              <Td colSpan={3}>TOTAL PURCHASE</Td>
-              <Td className="text-right">{currency.format(totalPurchase)}</Td>
-              <Td></Td>
+              <Td colSpan={4}>TOTAL PURCHASE</Td>
+              <Td className="text-right">{currency.format(purchase.total)}</Td>
               <Td></Td>
             </Tr>
           </tbody>
@@ -316,34 +268,43 @@ export default async function OutletDetailReportPage({
         <CardHeader>
           <CardTitle>c. Adjustment Sheet</CardTitle>
         </CardHeader>
+        <div className="border-b border-slate-100 p-5">
+          <OutletAdjustmentForm outletId={outletId} materials={materialsForForms} />
+        </div>
         <Table>
           <Thead>
             <tr>
+              <Th>Tanggal</Th>
               <Th>Jenis</Th>
+              <Th>Deskripsi</Th>
               <Th className="text-right">Qty</Th>
               <Th className="text-right">Nominal</Th>
+              <Th></Th>
             </tr>
           </Thead>
           <tbody>
-            <Tr>
-              <Td>Barang Rusak</Td>
-              <Td className="text-right">{rusakQty}</Td>
-              <Td className="text-right">{currency.format(rusakNominal)}</Td>
-            </Tr>
-            <Tr>
-              <Td>Barang Reject</Td>
-              <Td className="text-right">{rejectQty}</Td>
-              <Td className="text-right">{currency.format(rejectNominal)}</Td>
-            </Tr>
-            <Tr>
-              <Td>Barang Selisih</Td>
-              <Td className="text-right">{selisihQty}</Td>
-              <Td className="text-right">{currency.format(selisihNominal)}</Td>
-            </Tr>
+            {adjustment.rows.map((r) => (
+              <Tr key={r.id}>
+                <Td>{r.date.toLocaleDateString("id-ID")}</Td>
+                <Td>
+                  <Badge tone={r.type === "RUSAK" ? "danger" : r.type === "REJECT" ? "warning" : "neutral"}>{ADJUSTMENT_TYPE_LABELS[r.type]}</Badge>
+                </Td>
+                <Td>
+                  {r.description}
+                  {r.material && <span className="ml-1 text-xs text-slate-400">({r.material.name})</span>}
+                </Td>
+                <Td className="text-right">{Number(r.qty)}</Td>
+                <Td className="text-right font-semibold">{currency.format(Number(r.amount))}</Td>
+                <Td>
+                  <OutletAdjustmentDeleteButton id={r.id} />
+                </Td>
+              </Tr>
+            ))}
+            {adjustment.rows.length === 0 && <EmptyRow colSpan={6}>Belum ada adjustment bulan ini.</EmptyRow>}
             <Tr className="bg-gold-50 font-bold text-brand-900">
-              <Td>TOTAL ADJUSTMENT</Td>
-              <Td className="text-right">{rusakQty + rejectQty + Math.abs(selisihQty)}</Td>
-              <Td className="text-right">{currency.format(totalAdjustmentNominal)}</Td>
+              <Td colSpan={4}>TOTAL ADJUSTMENT (Rusak + Reject + Selisih)</Td>
+              <Td className="text-right">{currency.format(adjustment.total)}</Td>
+              <Td></Td>
             </Tr>
           </tbody>
         </Table>
@@ -353,115 +314,137 @@ export default async function OutletDetailReportPage({
       <Card>
         <CardHeader>
           <CardTitle>d. Akun Sheet</CardTitle>
-          <p className="text-xs text-slate-400">Rekap format jurnal untuk laporan outlet — bukan jurnal FA Company (lihat Jurnal 6 Buku Kas untuk itu).</p>
+          <p className="text-xs text-slate-400">A. Penjualan (per channel) — B. Pembelian (HPP) — C. Biaya (Overhead Langsung/Tidak Langsung).</p>
         </CardHeader>
-        <Table>
-          <Thead>
-            <tr>
-              <Th>Akun</Th>
-              <Th className="text-right">Debit</Th>
-              <Th className="text-right">Kredit</Th>
-            </tr>
-          </Thead>
-          <tbody>
-            {akunRows.map((r, i) => (
-              <Tr key={i}>
-                <Td>{r.label}</Td>
-                <Td className="text-right">{r.debit > 0 ? currency.format(r.debit) : ""}</Td>
-                <Td className="text-right">{r.kredit > 0 ? currency.format(r.kredit) : ""}</Td>
+        <div className="p-5 pt-2">
+          <p className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-400">A. Penjualan</p>
+          <Table>
+            <Thead>
+              <tr>
+                <Th>Channel</Th>
+                <Th className="text-right">Penjualan</Th>
+                <Th className="text-right">Potongan</Th>
+              </tr>
+            </Thead>
+            <tbody>
+              {akun.penjualanRows.map((r) => (
+                <Tr key={r.channel}>
+                  <Td>{r.label}</Td>
+                  <Td className="text-right">{currency.format(r.penjualan)}</Td>
+                  <Td className="text-right text-rose-600">{r.potongan > 0 ? `(${currency.format(r.potongan)})` : "-"}</Td>
+                </Tr>
+              ))}
+              {akun.penjualanRows.length === 0 && <EmptyRow colSpan={3}>Belum ada penjualan.</EmptyRow>}
+              <Tr className="bg-gold-50 font-bold text-brand-900">
+                <Td>Total Penjualan (Bersih)</Td>
+                <Td className="text-right" colSpan={2}>
+                  {currency.format(akun.totalPenjualan)}
+                </Td>
               </Tr>
-            ))}
-            <Tr className="bg-gold-50 font-bold text-brand-900">
-              <Td>JUMLAH</Td>
-              <Td className="text-right">{currency.format(akunTotalDebit)}</Td>
-              <Td className="text-right">{currency.format(akunTotalKredit)}</Td>
-            </Tr>
-          </tbody>
-        </Table>
+            </tbody>
+          </Table>
+
+          <p className="mb-1 mt-6 text-xs font-bold uppercase tracking-wide text-slate-400">B. Pembelian (HPP)</p>
+          <Table>
+            <tbody>
+              {akun.pembelianRows.map((r, i) => (
+                <Tr key={i}>
+                  <Td>{r.label}</Td>
+                  <Td className="text-right">{r.amount < 0 ? `(${currency.format(Math.abs(r.amount))})` : currency.format(r.amount)}</Td>
+                </Tr>
+              ))}
+              <Tr className="bg-gold-50 font-bold text-brand-900">
+                <Td>Total HPP</Td>
+                <Td className="text-right">{currency.format(akun.totalHpp)}</Td>
+              </Tr>
+              <Tr className="font-bold text-brand-900">
+                <Td>Laba Kotor (Penjualan − HPP)</Td>
+                <Td className="text-right">{currency.format(akun.labaKotor)}</Td>
+              </Tr>
+            </tbody>
+          </Table>
+
+          <p className="mb-1 mt-6 text-xs font-bold uppercase tracking-wide text-slate-400">C. Biaya</p>
+          <Table>
+            <tbody>
+              <Tr className="bg-slate-50">
+                <Td className="font-semibold" colSpan={2}>
+                  Overhead Langsung
+                </Td>
+              </Tr>
+              {akun.overheadLangsungRows.map((r, i) => (
+                <Tr key={i}>
+                  <Td>{r.label}</Td>
+                  <Td className="text-right">{currency.format(r.amount)}</Td>
+                </Tr>
+              ))}
+              {akun.overheadLangsungRows.length === 0 && <EmptyRow colSpan={2}>Tidak ada.</EmptyRow>}
+              <Tr className="font-semibold">
+                <Td>Sub-total Overhead Langsung</Td>
+                <Td className="text-right">{currency.format(akun.totalOverheadLangsung)}</Td>
+              </Tr>
+              <Tr className="bg-slate-50">
+                <Td className="font-semibold" colSpan={2}>
+                  Overhead Tidak Langsung
+                </Td>
+              </Tr>
+              {akun.overheadTidakLangsungRows.map((r, i) => (
+                <Tr key={i}>
+                  <Td>{r.label}</Td>
+                  <Td className="text-right">{currency.format(r.amount)}</Td>
+                </Tr>
+              ))}
+              {akun.overheadTidakLangsungRows.length === 0 && <EmptyRow colSpan={2}>Tidak ada.</EmptyRow>}
+              <Tr className="font-semibold">
+                <Td>Sub-total Overhead Tidak Langsung</Td>
+                <Td className="text-right">{currency.format(akun.totalOverheadTidakLangsung)}</Td>
+              </Tr>
+              <Tr className="bg-gold-50 font-bold text-brand-900">
+                <Td>Total Biaya</Td>
+                <Td className="text-right">{currency.format(akun.totalBiaya)}</Td>
+              </Tr>
+              <Tr className="bg-brand-50 font-bold text-brand-900">
+                <Td>Laba/Rugi Bersih (sebelum Insentif)</Td>
+                <Td className="text-right">{currency.format(akun.labaBersih)}</Td>
+              </Tr>
+            </tbody>
+          </Table>
+        </div>
       </Card>
 
-      {/* e. Absen Sheet */}
+      {/* e+f. Absen + Insentive Sheet */}
       <Card>
         <CardHeader>
-          <CardTitle>e. Absen Sheet — dasar perhitungan gaji Pramuniaga</CardTitle>
+          <CardTitle>e+f. Absen &amp; Insentive Sheet</CardTitle>
+          <Link href="/admin/incentive-brackets" className="text-xs font-bold text-accent-700 hover:text-accent-800">
+            Kelola Bracket Omset →
+          </Link>
         </CardHeader>
+        {!absenInsentive.bracketsConfigured && (
+          <div className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Belum ada bracket insentif aktif — atur di &quot;Bracket Insentif Outlet&quot; agar sheet ini terisi.
+          </div>
+        )}
         <Table>
           <Thead>
             <tr>
               <Th>Pramuniaga</Th>
-              <Th className="text-right">Hadir</Th>
-              <Th className="text-right">Terlambat</Th>
-              <Th className="text-right">Absen</Th>
-              <Th className="text-right">Libur</Th>
-              <Th className="text-right">Sakit</Th>
-              <Th className="text-right">Total Jam</Th>
+              <Th className="text-right">Hari Hadir</Th>
+              <Th className="text-right">Insentif</Th>
             </tr>
           </Thead>
           <tbody>
-            {[...attendanceByUser.values()].map((u) => (
-              <Tr key={u.name}>
-                <Td className="font-medium text-slate-900">{u.name}</Td>
-                <Td className="text-right">{u.counts.PRESENT ?? 0}</Td>
-                <Td className="text-right">{u.counts.LATE ?? 0}</Td>
-                <Td className="text-right">{u.counts.ABSENT ?? 0}</Td>
-                <Td className="text-right">{u.counts.OFF ?? 0}</Td>
-                <Td className="text-right">{u.counts.SAKIT ?? 0}</Td>
-                <Td className="text-right">{u.hours.toFixed(1)}</Td>
+            {absenInsentive.employees.map((e) => (
+              <Tr key={e.name}>
+                <Td className="font-medium text-slate-900">{e.name}</Td>
+                <Td className="text-right">{e.hadir}</Td>
+                <Td className="text-right font-semibold">{currency.format(e.insentif)}</Td>
               </Tr>
             ))}
-            {attendanceByUser.size === 0 && <EmptyRow colSpan={7}>Belum ada data absensi bulan ini.</EmptyRow>}
-          </tbody>
-        </Table>
-      </Card>
-
-      {/* f. Insentive Sheet */}
-      <Card>
-        <CardHeader>
-          <CardTitle>f. Insentive Sheet</CardTitle>
-          <Link href="/finance/insentif" className="text-xs font-bold text-accent-700 hover:text-accent-800">
-            Kelola di Laporan Insentif →
-          </Link>
-        </CardHeader>
-        <Table>
-          <Thead>
-            <tr>
-              <Th>Jenis</Th>
-              <Th>Catatan</Th>
-              <Th className="text-right">Nominal</Th>
-            </tr>
-          </Thead>
-          <tbody>
-            {directIncentives
-              .filter((c) => c.type !== "ROYALTY")
-              .map((c) => (
-                <Tr key={c.id}>
-                  <Td>{INCENTIVE_TYPE_LABELS[c.type]}</Td>
-                  <Td className="text-xs text-slate-400">Langsung dari outlet ini</Td>
-                  <Td className="text-right">{currency.format(Number(c.amount))}</Td>
-                </Tr>
-              ))}
-            {proratedIncentives.map((c) => (
-              <Tr key={c.type}>
-                <Td>{INCENTIVE_TYPE_LABELS[c.type]}</Td>
-                <Td className="text-xs text-slate-400">Dialokasikan {(outletShare * 100).toFixed(1)}% dari total perusahaan (kontribusi omset)</Td>
-                <Td className="text-right">{currency.format(c.amount)}</Td>
-              </Tr>
-            ))}
-            {royaltyRow && (
-              <Tr>
-                <Td>Royalty Outlet</Td>
-                <Td className="text-xs text-slate-400">Dibayarkan outlet ke perusahaan</Td>
-                <Td className="text-right">({currency.format(Number(royaltyRow.amount))})</Td>
-              </Tr>
-            )}
-            {incentiveCalcs.length === 0 && (
-              <EmptyRow colSpan={3}>
-                Belum dihitung — jalankan &quot;Hitung Ulang Bulan Ini&quot; di Laporan Insentif untuk periode ini.
-              </EmptyRow>
-            )}
+            {absenInsentive.employees.length === 0 && <EmptyRow colSpan={3}>Belum ada data absensi/omset harian bulan ini.</EmptyRow>}
             <Tr className="bg-gold-50 font-bold text-brand-900">
-              <Td colSpan={2}>TOTAL INSENTIF (Pramu + Pengelola + alokasi Officer/Head Sales, di luar Royalty)</Td>
-              <Td className="text-right">{currency.format(totalInsentif)}</Td>
+              <Td colSpan={2}>TOTAL INSENTIF</Td>
+              <Td className="text-right">{currency.format(absenInsentive.totalInsentif)}</Td>
             </Tr>
           </tbody>
         </Table>
@@ -470,39 +453,57 @@ export default async function OutletDetailReportPage({
       {/* g. Inventory Sheet */}
       <Card>
         <CardHeader>
-          <CardTitle>g. Inventory Sheet</CardTitle>
+          <CardTitle>g. Inventory Sheet — Data Stock Available</CardTitle>
+          <p className="text-xs text-slate-400">Kolom &quot;Akhir&quot; diisi manual (hasil stock opname); kolom lain otomatis dari transaksi bulan ini.</p>
         </CardHeader>
-        <Table>
-          <Thead>
-            <tr>
-              <Th></Th>
-              <Th className="text-right">Quantity</Th>
-              <Th className="text-right">Nominal</Th>
-            </tr>
-          </Thead>
-          <tbody>
-            <Tr>
-              <Td className="font-medium text-slate-900">Saldo Awal</Td>
-              <Td className="text-right">{saldoAwalQty}</Td>
-              <Td className="text-right">{currency.format(saldoAwalNominal)}</Td>
-            </Tr>
-            <Tr>
-              <Td>Saldo Masuk (Beli)</Td>
-              <Td className="text-right">{masukQty}</Td>
-              <Td className="text-right">{currency.format(masukNominal)}</Td>
-            </Tr>
-            <Tr>
-              <Td>Saldo Keluar (Dipakai + Rusak + Adjustment)</Td>
-              <Td className="text-right">({keluarQty})</Td>
-              <Td className="text-right">({currency.format(keluarNominal)})</Td>
-            </Tr>
-            <Tr className="bg-gold-50 font-bold text-brand-900">
-              <Td>Saldo Akhir</Td>
-              <Td className="text-right">{saldoAkhirQty}</Td>
-              <Td className="text-right">{currency.format(saldoAkhirNominal)}</Td>
-            </Tr>
-          </tbody>
-        </Table>
+        {[...materialsByCategory.entries()].map(([category, rows]) => (
+          <div key={category} className="border-b border-slate-100">
+            <p className="bg-slate-50 px-5 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">{MATERIAL_CATEGORY_LABELS[category] ?? category}</p>
+            <div className="overflow-x-auto">
+              <Table>
+                <Thead>
+                  <tr>
+                    <Th>Kode</Th>
+                    <Th>Nama</Th>
+                    <Th>Satuan</Th>
+                    <Th className="text-right">Awal</Th>
+                    <Th className="text-right">Masuk</Th>
+                    <Th className="text-right">Rusak</Th>
+                    <Th className="text-right">Reject</Th>
+                    <Th className="text-right">Selisih</Th>
+                    <Th className="text-right">Pakai</Th>
+                    <Th className="text-right">Akhir</Th>
+                    <Th className="text-right">Nilai Akhir</Th>
+                  </tr>
+                </Thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <Tr key={r.id}>
+                      <Td className="font-mono text-xs text-slate-400">{r.code}</Td>
+                      <Td>{r.name}</Td>
+                      <Td>{r.unit}</Td>
+                      <Td className="text-right tabular-nums">{number0.format(r.awalQty)}</Td>
+                      <Td className="text-right tabular-nums">{number0.format(r.masukQty)}</Td>
+                      <Td className="text-right tabular-nums text-rose-600">{r.rusakQty > 0 ? number0.format(r.rusakQty) : "-"}</Td>
+                      <Td className="text-right tabular-nums text-amber-600">{r.rejectQty > 0 ? number0.format(r.rejectQty) : "-"}</Td>
+                      <Td className="text-right tabular-nums">{r.selisihQty !== 0 ? number0.format(r.selisihQty) : "-"}</Td>
+                      <Td className="text-right tabular-nums text-slate-500">{number0.format(r.pakaiQty)}</Td>
+                      <Td className="text-right">
+                        <OutletMaterialAkhirInput outletId={outletId} materialId={r.id} year={year} month={month} defaultValue={r.akhirQty} recorded={r.akhirRecorded} />
+                      </Td>
+                      <Td className="text-right font-semibold tabular-nums">{currency.format(r.akhirQty * r.unitPrice)}</Td>
+                    </Tr>
+                  ))}
+                  {rows.length === 0 && <EmptyRow colSpan={11}>Belum ada material di kategori ini.</EmptyRow>}
+                </tbody>
+              </Table>
+            </div>
+          </div>
+        ))}
+        <div className="flex items-center justify-between rounded-lg bg-gold-50 px-5 py-3 font-bold text-brand-900">
+          <span>TOTAL NILAI STOCK AKHIR</span>
+          <span>{currency.format(inventory.totalAkhirNominal)}</span>
+        </div>
       </Card>
 
       {/* h. Report Sheet */}
@@ -512,32 +513,32 @@ export default async function OutletDetailReportPage({
         </CardHeader>
         <div className="space-y-1 p-5 pt-2 text-sm">
           <div className="flex items-center justify-between border-b border-slate-100 py-2">
-            <span className="text-slate-600">Total Omset</span>
-            <span className="font-semibold text-brand-900">{currency.format(totalOmset)}</span>
+            <span className="text-slate-600">Total Penjualan (Bersih)</span>
+            <span className="font-semibold text-brand-900">{currency.format(akun.totalPenjualan)}</span>
           </div>
           <div className="flex items-center justify-between border-b border-slate-100 py-2">
-            <span className="text-slate-600">(-) Total Purchase</span>
-            <span className="font-semibold text-rose-700">({currency.format(totalPurchase)})</span>
+            <span className="text-slate-600">(-) Total HPP (Pembelian)</span>
+            <span className="font-semibold text-rose-700">({currency.format(akun.totalHpp)})</span>
+          </div>
+          <div className="flex items-center justify-between border-b border-slate-100 py-2 font-semibold">
+            <span className="text-slate-700">Laba Kotor</span>
+            <span className="text-brand-900">{currency.format(akun.labaKotor)}</span>
           </div>
           <div className="flex items-center justify-between border-b border-slate-100 py-2">
-            <span className="text-slate-600">(-) Total Beban Operasional Outlet</span>
-            <span className="font-semibold text-rose-700">({currency.format(totalExpenses)})</span>
+            <span className="text-slate-600">(-) Total Biaya (Overhead)</span>
+            <span className="font-semibold text-rose-700">({currency.format(akun.totalBiaya)})</span>
           </div>
           <div className="flex items-center justify-between border-b border-slate-100 py-2">
-            <span className="text-slate-600">(-) Total Adjustment (Rusak/Reject/Selisih)</span>
-            <span className="font-semibold text-rose-700">({currency.format(totalAdjustmentNominal)})</span>
-          </div>
-          <div className="flex items-center justify-between border-b border-slate-100 py-2">
-            <span className="text-slate-600">(-) Total Insentif + Royalty</span>
-            <span className="font-semibold text-rose-700">({currency.format(totalInsentif)})</span>
+            <span className="text-slate-600">(-) Total Insentif Pramuniaga</span>
+            <span className="font-semibold text-rose-700">({currency.format(absenInsentive.totalInsentif)})</span>
           </div>
           <div className="flex items-center justify-between rounded-lg bg-gold-50 px-3 py-3 font-bold text-brand-900">
-            <span>HASIL BERSIH OUTLET (Report Sheet)</span>
-            <span>{currency.format(outletNetResult)}</span>
+            <span>LABA/RUGI BERSIH OUTLET</span>
+            <span>{currency.format(reportLabaBersih)}</span>
           </div>
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
             <FileBarChart className="h-3.5 w-3.5" />
-            {outlet.name} — {MONTH_NAMES[month - 1]} {year} — {dailyReports.length} hari operasional tercatat.
+            {outlet.name} — {MONTH_NAMES[month - 1]} {year} — Nilai stock akhir: {currency.format(inventory.totalAkhirNominal)}
           </div>
         </div>
       </Card>

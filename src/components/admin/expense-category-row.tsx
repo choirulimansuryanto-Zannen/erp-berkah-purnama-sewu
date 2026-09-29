@@ -8,6 +8,12 @@ import { Input, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
 const STATUSES = ["ACTIVE", "SEASONAL", "INACTIVE"] as const;
+const OVERHEAD_GROUPS = ["DIRECT", "INDIRECT", "NONE"] as const;
+const OVERHEAD_GROUP_LABELS: Record<string, string> = {
+  DIRECT: "Overhead Langsung",
+  INDIRECT: "Overhead Tidak Langsung",
+  NONE: "Bukan Biaya (masuk Pembelian)",
+};
 
 export function ExpenseCategoryRow({
   id,
@@ -15,6 +21,7 @@ export function ExpenseCategoryRow({
   label,
   sortOrder,
   status,
+  overheadGroup,
   hasUsage,
 }: {
   id: string;
@@ -22,12 +29,14 @@ export function ExpenseCategoryRow({
   label: string;
   sortOrder: number;
   status: string;
+  overheadGroup: string;
   hasUsage: boolean;
 }) {
   const router = useRouter();
   const [labelValue, setLabelValue] = useState(label);
   const [sortOrderValue, setSortOrderValue] = useState(String(sortOrder));
   const [statusValue, setStatusValue] = useState(status);
+  const [overheadGroupValue, setOverheadGroupValue] = useState(overheadGroup);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -37,7 +46,7 @@ export function ExpenseCategoryRow({
       const res = await fetch(`/api/admin/expense-categories/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: labelValue, sortOrder: Number(sortOrderValue), status: statusValue }),
+        body: JSON.stringify({ label: labelValue, sortOrder: Number(sortOrderValue), status: statusValue, overheadGroup: overheadGroupValue }),
       });
       if (res.ok) {
         setSaved(true);
@@ -74,6 +83,15 @@ export function ExpenseCategoryRow({
           {STATUSES.map((s) => (
             <option key={s} value={s}>
               {s}
+            </option>
+          ))}
+        </Select>
+      </Td>
+      <Td>
+        <Select value={overheadGroupValue} onChange={(e) => setOverheadGroupValue(e.target.value)} className="w-44">
+          {OVERHEAD_GROUPS.map((g) => (
+            <option key={g} value={g}>
+              {OVERHEAD_GROUP_LABELS[g]}
             </option>
           ))}
         </Select>

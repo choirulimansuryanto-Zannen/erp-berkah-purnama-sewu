@@ -38,6 +38,7 @@ export default async function AdminExpenseCategoriesPage() {
               <Th>Label</Th>
               <Th>Urutan</Th>
               <Th>Status</Th>
+              <Th>Kelompok (Akun Sheet)</Th>
               <Th></Th>
             </tr>
           </Thead>
@@ -50,10 +51,11 @@ export default async function AdminExpenseCategoriesPage() {
                 label={c.label}
                 sortOrder={c.sortOrder}
                 status={c.status}
+                overheadGroup={c.overheadGroup}
                 hasUsage={usedKeys.has(c.key)}
               />
             ))}
-            {categories.length === 0 && <EmptyRow colSpan={5}>Belum ada kategori.</EmptyRow>}
+            {categories.length === 0 && <EmptyRow colSpan={6}>Belum ada kategori.</EmptyRow>}
           </tbody>
         </Table>
       </Card>
