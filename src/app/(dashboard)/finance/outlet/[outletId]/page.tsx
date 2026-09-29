@@ -710,7 +710,6 @@ export default async function OutletDetailReportPage({
                     <Th className="text-right">Rusak</Th>
                     <Th className="text-right">Reject</Th>
                     <Th className="text-right">Selisih</Th>
-                    <Th className="text-right">Keluar</Th>
                     <Th className="text-right">Akhir</Th>
                     <Th className="text-right">Nilai Akhir</Th>
                   </tr>
@@ -727,16 +726,13 @@ export default async function OutletDetailReportPage({
                       <Td className="text-right tabular-nums text-rose-600">{r.rusakQty > 0 ? number0.format(r.rusakQty) : "-"}</Td>
                       <Td className="text-right tabular-nums text-amber-600">{r.rejectQty > 0 ? number0.format(r.rejectQty) : "-"}</Td>
                       <Td className="text-right tabular-nums">{r.selisihQty !== 0 ? number0.format(r.selisihQty) : "-"}</Td>
-                      <Td className="text-right tabular-nums text-sky-600" title="Mutasi keluar ke outlet/gudang lain">
-                        {r.keluarQty > 0 ? number0.format(r.keluarQty) : "-"}
-                      </Td>
                       <Td className="text-right">
                         <OutletMaterialAkhirInput outletId={outletId} materialId={r.id} year={year} month={month} defaultValue={r.akhirQty} recorded={r.akhirRecorded} />
                       </Td>
                       <Td className="text-right font-semibold tabular-nums">{currency.format(r.akhirQty * r.unitPrice)}</Td>
                     </Tr>
                   ))}
-                  {rows.length === 0 && <EmptyRow colSpan={12}>Belum ada material di kategori ini.</EmptyRow>}
+                  {rows.length === 0 && <EmptyRow colSpan={11}>Belum ada material di kategori ini.</EmptyRow>}
                 </tbody>
               </Table>
             </div>
