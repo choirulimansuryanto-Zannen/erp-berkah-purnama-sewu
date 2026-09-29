@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { CHANNEL_LABELS } from "@/components/transactions/channel-badge";
 import { JPD_DAGING_4KG_NAME, JPD_DAGING_2KG_NAME } from "@/lib/jpd";
 
-const HARI_NAMES = ["Ahad", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+export const HARI_NAMES = ["Ahad", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
 
 function monthRange(year: number, month: number) {
   return { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)) };
@@ -540,23 +540,28 @@ export async function getAkunLedgerSheet(outletId: string, year: number, month: 
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// e+f. Absen + Insentive Sheet — per-employee daily attendance, each day's
-// Omset picked into exactly one IncentiveBracket by range, that bracket's
-// rate (single-PIC vs multi-PIC, by how many pramuniaga were present that
-// day) applied to the day's Omset, then split evenly across whoever was
-// present. Bracket thresholds/rates are admin-editable
-// (/admin/incentive-brackets) — verify against the real payroll numbers.
+// Shared day-by-day roster — every day of the month's Omset, who was
+// present, and (if any) which IncentiveBracket matched — computed ONCE
+// and consumed by both the Absen Sheet and the Insentive Sheet below, so
+// splitting them into two displays doesn't mean two separate queries and
+// two chances for the numbers to drift apart.
 // ═══════════════════════════════════════════════════════════════════════
-export async function getAbsenInsentiveSheet(outletId: string, year: number, month: number) {
+export type RosterDay = {
+  date: Date;
+  omset: number;
+  qtyAllProducts: number;
+  present: { userId: string; name: string }[];
+  bracket: { label: string; rangeMin: number; rangeMax: number | null; rateSinglePic: number; rateMultiPic: number } | null;
+  rateUsed: number;
+  totalInsentifHari: number;
+};
+
+async function getDailyRoster(outletId: string, year: number, month: number, omset: Awaited<ReturnType<typeof getOmsetSheet>>) {
   const { start, end } = monthRange(year, month);
-  const [attendance, brackets, dailyReports] = await Promise.all([
+  const [attendance, brackets] = await Promise.all([
     prisma.attendanceRecord.findMany({ where: { outletId, date: { gte: start, lte: end } }, include: { user: { select: { id: true, name: true } } } }),
     prisma.incentiveBracket.findMany({ where: { status: "ACTIVE" }, orderBy: { sortOrder: "asc" } }),
-    prisma.dailyReport.findMany({ where: { outletId, status: "APPROVED", date: { gte: start, lte: end } } }),
   ]);
-
-  const omsetByDay = new Map<string, number>();
-  for (const r of dailyReports) omsetByDay.set(r.date.toISOString().slice(0, 10), Number(r.omset));
 
   const presentByDay = new Map<string, { userId: string; name: string }[]>();
   for (const a of attendance) {
@@ -566,32 +571,171 @@ export async function getAbsenInsentiveSheet(outletId: string, year: number, mon
     if (!list.some((p) => p.userId === a.userId)) list.push({ userId: a.userId, name: a.user.name });
     presentByDay.set(key, list);
   }
-
-  function bracketFor(omset: number) {
-    return brackets.find((b) => omset >= Number(b.rangeMin) && (b.rangeMax === null || omset <= Number(b.rangeMax)));
+  function bracketFor(dayOmset: number) {
+    return brackets.find((b) => dayOmset >= Number(b.rangeMin) && (b.rangeMax === null || dayOmset <= Number(b.rangeMax)));
   }
 
-  const byEmployee = new Map<string, { name: string; hadir: number; insentif: number }>();
-  const nDays = daysInMonth(year, month);
-  for (let d = 1; d <= nDays; d++) {
-    const dateKey = new Date(Date.UTC(year, month - 1, d)).toISOString().slice(0, 10);
-    const omset = omsetByDay.get(dateKey) ?? 0;
+  const days: RosterDay[] = omset.days.map((d) => {
+    const dateKey = d.date.toISOString().slice(0, 10);
     const present = presentByDay.get(dateKey) ?? [];
-    if (present.length === 0 || omset <= 0) continue;
-    const bracket = bracketFor(omset);
-    if (!bracket) continue;
-    const rate = present.length > 1 ? Number(bracket.rateMultiPic) : Number(bracket.rateSinglePic);
-    const dayIncentiveTotal = (omset * rate) / 100;
-    const perPerson = dayIncentiveTotal / present.length;
-    for (const p of present) {
-      const entry = byEmployee.get(p.userId) ?? { name: p.name, hadir: 0, insentif: 0 };
-      entry.hadir += 1;
-      entry.insentif += perPerson;
-      byEmployee.set(p.userId, entry);
+    const bracketRow = d.totalOmset > 0 ? bracketFor(d.totalOmset) : undefined;
+    const rateUsed = bracketRow ? (present.length > 1 ? Number(bracketRow.rateMultiPic) : Number(bracketRow.rateSinglePic)) : 0;
+    const totalInsentifHari = bracketRow && present.length > 0 ? (d.totalOmset * rateUsed) / 100 : 0;
+    return {
+      date: d.date,
+      omset: d.totalOmset,
+      qtyAllProducts: d.qtyAllProducts,
+      present,
+      bracket: bracketRow
+        ? {
+            label: bracketRow.label,
+            rangeMin: Number(bracketRow.rangeMin),
+            rangeMax: bracketRow.rangeMax === null ? null : Number(bracketRow.rangeMax),
+            rateSinglePic: Number(bracketRow.rateSinglePic),
+            rateMultiPic: Number(bracketRow.rateMultiPic),
+          }
+        : null,
+      rateUsed,
+      totalInsentifHari,
+    };
+  });
+
+  return { days, bracketsConfigured: brackets.length > 0, brackets };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// e. Absen Sheet — one row per pramuniaga: a day-by-day attendance
+// calendar (1..N, highlighting Ahad/Sunday), Qty Sales & Insentive Value
+// (each day's total split evenly across whoever was present that day —
+// same split the Insentive Sheet uses), Total Standby (days present),
+// Masa non Insentive (days present but that day earned no incentive —
+// zero Omset or no bracket matched), and Total Absen (days in the
+// month). Labor Cost/Salary/Remarks have no wage-rate data model yet, so
+// they're left blank for manual/HR entry rather than a fabricated number.
+// ═══════════════════════════════════════════════════════════════════════
+export type AbsenSheetRow = {
+  userId: string;
+  name: string;
+  attendance: boolean[]; // length = days in month
+  qtySales: number;
+  insentiveValue: number;
+  totalStandby: number;
+  totalNonInsentif: number;
+};
+
+export async function getAbsenSheet(outletId: string, year: number, month: number, omset: Awaited<ReturnType<typeof getOmsetSheet>>) {
+  const roster = await getDailyRoster(outletId, year, month, omset);
+  const nDays = daysInMonth(year, month);
+
+  const byEmployee = new Map<string, AbsenSheetRow>();
+  for (let i = 0; i < roster.days.length; i++) {
+    const day = roster.days[i];
+    const perPersonQty = day.present.length > 0 ? day.qtyAllProducts / day.present.length : 0;
+    const perPersonInsentif = day.present.length > 0 ? day.totalInsentifHari / day.present.length : 0;
+    for (const p of day.present) {
+      const row = byEmployee.get(p.userId) ?? {
+        userId: p.userId,
+        name: p.name,
+        attendance: new Array(nDays).fill(false),
+        qtySales: 0,
+        insentiveValue: 0,
+        totalStandby: 0,
+        totalNonInsentif: 0,
+      };
+      row.attendance[i] = true;
+      row.qtySales += perPersonQty;
+      row.insentiveValue += perPersonInsentif;
+      row.totalStandby += 1;
+      if (!day.bracket || day.omset <= 0) row.totalNonInsentif += 1;
+      byEmployee.set(p.userId, row);
     }
   }
 
-  const employees = [...byEmployee.values()].sort((a, b) => b.insentif - a.insentif);
-  const totalInsentif = employees.reduce((s, e) => s + e.insentif, 0);
-  return { employees, totalInsentif, bracketsConfigured: brackets.length > 0 };
+  const rows = [...byEmployee.values()].sort((a, b) => b.qtySales - a.qtySales);
+  const totalQtySales = rows.reduce((s, r) => s + r.qtySales, 0);
+  const totalInsentiveValue = rows.reduce((s, r) => s + r.insentiveValue, 0);
+  const totalStandbyAll = rows.reduce((s, r) => s + r.totalStandby, 0);
+  const totalOmsetBulan = roster.days.reduce((s, d) => s + d.omset, 0);
+
+  return {
+    rows,
+    nDays,
+    totalAbsenPerRow: nDays,
+    totalQtySales,
+    totalInsentiveValue,
+    totalStandbyAll,
+    totalOmsetBulan,
+    // AVG Sales/AVG Beef — a productivity KPI: how much moved per staff-day
+    // worked, not per calendar day. Beef needs the JPD Sheet's real usage
+    // figure, so it's filled in by the caller (see getInsentiveSheet).
+    avgSalesPerAbsen: totalStandbyAll > 0 ? totalQtySales / totalStandbyAll : 0,
+    bracketsConfigured: roster.bracketsConfigured,
+    // Exposed so getInsentiveSheet can reuse this same roster computation
+    // instead of re-querying attendance/brackets from scratch.
+    rosterDays: roster.days,
+    brackets: roster.brackets,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// f. Insentive Sheet — the day-by-day bracket calculation table (which
+// range matched, at what rate, the day's Achieve Omset & Insentive), plus
+// the same per-employee Absen+Insentive figures shown side by side, plus
+// the outlet's other incentive lines this month (Royalti, Insentive
+// Officer/Head Sales — reusing the already-computed company-wide
+// IncentiveCalculation rows, prorated by this outlet's Omset share for
+// the two company-scoped ones, same convention the Laporan Insentif page
+// itself uses).
+//
+// NOT built here: the source spreadsheet's separate qty-based "KALKULASI
+// Insentive Controller" bracket table — a different scheme for a
+// "Controller" role this system has no equivalent of yet. Flagged rather
+// than guessed at.
+// ═══════════════════════════════════════════════════════════════════════
+export async function getInsentiveSheet(
+  outletId: string,
+  year: number,
+  month: number,
+  jpd: Awaited<ReturnType<typeof getJpdSheet>>,
+  akun: Awaited<ReturnType<typeof getAkunSheet>>,
+  absen: Awaited<ReturnType<typeof getAbsenSheet>>,
+) {
+  const [incentiveCalcs, outletRow, companyOmset] = await Promise.all([
+    prisma.incentiveCalculation.findMany({ where: { year, month, OR: [{ outletId }, { scope: "COMPANY" }] } }),
+    prisma.outlet.findUnique({ where: { id: outletId }, select: { name: true } }),
+    getOutletMonthlyOmsetForCompanyShare(year, month),
+  ]);
+
+  const royaltyCalc = incentiveCalcs.find((c) => c.outletId === outletId && c.type === "ROYALTY");
+  const officerCalc = incentiveCalcs.find((c) => c.scope === "COMPANY" && c.type === "OFFICER_SALES");
+  const headCalc = incentiveCalcs.find((c) => c.scope === "COMPANY" && c.type === "HEAD_SALES");
+  const outletShare = companyOmset > 0 ? absen.totalOmsetBulan / companyOmset : 0;
+  const insentiveOfficer = officerCalc ? Number(officerCalc.amount) * outletShare : 0;
+  const insentiveHead = headCalc ? Number(headCalc.amount) * outletShare : 0;
+  const royalti = royaltyCalc ? Number(royaltyCalc.amount) : 0;
+
+  const totalKgDaging = jpd.totalDagingKg;
+  const avgBeefPerAbsen = absen.totalStandbyAll > 0 ? totalKgDaging / absen.totalStandbyAll : 0;
+
+  return {
+    outletName: outletRow?.name ?? "",
+    days: absen.rosterDays,
+    brackets: absen.brackets,
+    bracketsConfigured: absen.bracketsConfigured,
+    absenRows: absen.rows,
+    totalInsentifHari: absen.rosterDays.reduce((s, d) => s + d.totalInsentifHari, 0),
+    openingDay: absen.nDays,
+    royalti,
+    insentiveOfficer,
+    insentiveHead,
+    omsetBersih: akun.totalPenjualan,
+    avgSales: absen.avgSalesPerAbsen,
+    avgBeef: avgBeefPerAbsen,
+  };
+}
+
+async function getOutletMonthlyOmsetForCompanyShare(year: number, month: number): Promise<number> {
+  const { start, end } = monthRange(year, month);
+  const agg = await prisma.dailyReport.aggregate({ where: { status: "APPROVED", date: { gte: start, lte: end } }, _sum: { omset: true } });
+  return Number(agg._sum.omset ?? 0);
 }

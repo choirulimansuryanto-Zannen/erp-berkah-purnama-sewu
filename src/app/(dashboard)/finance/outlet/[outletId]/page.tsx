@@ -20,14 +20,22 @@ import {
   getAdjustmentSheet,
   getAkunSheet,
   getAkunLedgerSheet,
-  getAbsenInsentiveSheet,
+  getAbsenSheet,
+  getInsentiveSheet,
   getInventorySheet,
+  HARI_NAMES,
 } from "@/lib/outlet-report";
 import { Wallet, ShoppingBag, AlertTriangle, Sparkles, FileBarChart } from "lucide-react";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 const number0 = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 });
+const number2 = new Intl.NumberFormat("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const MONTH_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+const OUTLET_CODE_RE = /[aiueoAIUEO]/g;
+function outletShortCode(name: string): string {
+  const consonantsOnly = name.replace(OUTLET_CODE_RE, "").replace(/[^A-Za-z]/g, "");
+  return (consonantsOnly || name.replace(/[^A-Za-z]/g, "")).slice(0, 4).toUpperCase();
+}
 
 const MATERIAL_CATEGORY_LABELS: Record<string, string> = {
   BAHAN_UTAMA: "Bahan Utama",
@@ -99,23 +107,26 @@ export default async function OutletDetailReportPage({
   }
 
   const omset = await getOmsetSheet(outletId, year, month);
-  const [jpd, purchase, adjustment, inventory, absenInsentive, ledger] = await Promise.all([
+  const [jpd, purchase, adjustment, inventory, ledger] = await Promise.all([
     getJpdSheet(outletId, year, month, omset),
     getPurchaseSheet(outletId, year, month),
     getAdjustmentSheet(outletId, year, month),
     getInventorySheet(outletId, year, month),
-    getAbsenInsentiveSheet(outletId, year, month),
     getAkunLedgerSheet(outletId, year, month),
   ]);
   const akun = await getAkunSheet(outletId, year, month, purchase);
+  const absen = await getAbsenSheet(outletId, year, month, omset);
+  const insentive = await getInsentiveSheet(outletId, year, month, jpd, akun, absen);
 
   const materialsForForms = materials.map((m) => ({ id: m.id, code: m.code, name: m.name, unit: m.unit }));
   const materialsByCategory = new Map<string, typeof inventory.rows>();
   for (const r of inventory.rows) materialsByCategory.set(r.category, [...(materialsByCategory.get(r.category) ?? []), r]);
   const ledgerAccountOptions = ledgerAccounts.map((a) => ({ id: a.id, number: a.number, label: a.label, defaultSide: a.defaultSide }));
+  const outletCode = outletShortCode(outlet.name);
 
   // ── h. Report Sheet — the investor-facing summary ─────────────────────
-  const reportLabaBersih = akun.labaBersih - absenInsentive.totalInsentif;
+  const totalInsentifSemua = absen.totalInsentiveValue + insentive.royalti + insentive.insentiveOfficer + insentive.insentiveHead;
+  const reportLabaBersih = akun.labaBersih - totalInsentifSemua;
 
   return (
     <div className="space-y-6">
@@ -137,7 +148,7 @@ export default async function OutletDetailReportPage({
         <StatCard label="Total Omset" value={currency.format(omset.totalOmset)} tone="brand" icon={<Wallet className="h-4 w-4" />} />
         <StatCard label="Total Purchase" value={currency.format(purchase.total)} tone="accent" icon={<ShoppingBag className="h-4 w-4" />} />
         <StatCard label="Total Adjustment" value={currency.format(adjustment.total)} tone={adjustment.total > 0 ? "warning" : "success"} icon={<AlertTriangle className="h-4 w-4" />} />
-        <StatCard label="Total Insentif" value={currency.format(absenInsentive.totalInsentif)} tone="info" icon={<Sparkles className="h-4 w-4" />} />
+        <StatCard label="Total Insentif" value={currency.format(totalInsentifSemua)} tone="info" icon={<Sparkles className="h-4 w-4" />} />
       </div>
 
       {/* a. Omset Sheet */}
@@ -439,42 +450,212 @@ export default async function OutletDetailReportPage({
         </div>
       </Card>
 
-      {/* e+f. Absen + Insentive Sheet */}
+      {/* e. Absen Sheet */}
       <Card>
         <CardHeader>
-          <CardTitle>e+f. Absen &amp; Insentive Sheet</CardTitle>
+          <CardTitle>e. Absen Sheet</CardTitle>
+          <p className="text-xs text-slate-400">
+            {outletCode} {outlet.name} — {MONTH_NAMES[month - 1]} {year}
+          </p>
+        </CardHeader>
+        <div className="grid grid-cols-3 gap-4 border-b border-slate-100 p-5 text-sm sm:grid-cols-3">
+          <div>
+            <p className="text-xs text-slate-400">Omset (Bulan Ini)</p>
+            <p className="font-bold text-brand-900">{currency.format(absen.totalOmsetBulan)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">AVG Sales (Qty / Hari Hadir)</p>
+            <p className="font-bold text-brand-900">{Math.round(absen.avgSalesPerAbsen)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">AVG Beef Used (Kg / Hari Hadir)</p>
+            <p className="font-bold text-brand-900">{Math.round(insentive.avgBeef)}</p>
+          </div>
+        </div>
+        {!absen.bracketsConfigured && (
+          <div className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Belum ada bracket insentif aktif — atur di &quot;Bracket Insentif Outlet&quot; agar Insentive Value terisi.
+          </div>
+        )}
+        <div className="overflow-x-auto">
+          <Table>
+            <Thead>
+              <tr>
+                <Th>No.</Th>
+                <Th>Nama</Th>
+                <Th>Outlet</Th>
+                <Th className="text-right">Qty Sales</Th>
+                <Th className="text-right">Insentive Value</Th>
+                <Th className="text-right">Labor Cost</Th>
+                {Array.from({ length: absen.nDays }, (_, i) => {
+                  const date = new Date(Date.UTC(year, month - 1, i + 1));
+                  const isSunday = date.getUTCDay() === 0;
+                  return (
+                    <Th key={i} className={`text-center ${isSunday ? "text-rose-600" : ""}`}>
+                      <div>{String(i + 1).padStart(2, "0")}</div>
+                      <div className="font-normal normal-case">{HARI_NAMES[date.getUTCDay()]}</div>
+                    </Th>
+                  );
+                })}
+                <Th className="text-right">Total Standby</Th>
+                <Th className="text-right">Masa non Insentive</Th>
+                <Th className="text-right">Total Absen</Th>
+                <Th className="text-right">Salary</Th>
+                <Th>Remarks</Th>
+              </tr>
+            </Thead>
+            <tbody>
+              {absen.rows.map((r, idx) => (
+                <Tr key={r.userId}>
+                  <Td>{idx + 1}</Td>
+                  <Td className="font-medium text-slate-900">{r.name}</Td>
+                  <Td>{outlet.name}</Td>
+                  <Td className="text-right tabular-nums">{Math.round(r.qtySales)}</Td>
+                  <Td className="text-right tabular-nums">{currency.format(r.insentiveValue)}</Td>
+                  <Td className="text-right tabular-nums text-slate-400" title="Belum terhubung ke data gaji pokok/HR">
+                    —
+                  </Td>
+                  {r.attendance.map((present, i) => (
+                    <Td key={i} className="text-center text-xs text-slate-500">
+                      {present ? outletCode : ""}
+                    </Td>
+                  ))}
+                  <Td className="text-right font-semibold tabular-nums">{r.totalStandby}</Td>
+                  <Td className="text-right tabular-nums">{r.totalNonInsentif}</Td>
+                  <Td className="text-right tabular-nums">{absen.nDays}</Td>
+                  <Td className="text-right tabular-nums text-slate-400" title="Belum terhubung ke data gaji pokok/HR">
+                    —
+                  </Td>
+                  <Td></Td>
+                </Tr>
+              ))}
+              {absen.rows.length === 0 && <EmptyRow colSpan={absen.nDays + 11}>Belum ada data absensi/omset harian bulan ini.</EmptyRow>}
+              <Tr className="bg-gold-50 font-bold text-brand-900">
+                <Td colSpan={3}>TOTAL</Td>
+                <Td className="text-right tabular-nums">{Math.round(absen.totalQtySales)}</Td>
+                <Td className="text-right tabular-nums">{currency.format(absen.totalInsentiveValue)}</Td>
+                <Td></Td>
+                <Td colSpan={absen.nDays}></Td>
+                <Td className="text-right tabular-nums">{absen.totalStandbyAll}</Td>
+                <Td colSpan={3}></Td>
+              </Tr>
+            </tbody>
+          </Table>
+        </div>
+        <p className="px-5 py-3 text-xs text-slate-400">
+          Labor Cost &amp; Salary belum terhubung ke data gaji pokok (HR) — kolom ini menunggu sumber data tersebut, tidak dihitung otomatis agar tidak
+          menampilkan angka yang keliru.
+        </p>
+      </Card>
+
+      {/* f. Insentive Sheet */}
+      <Card>
+        <CardHeader>
+          <CardTitle>f. Insentive Sheet</CardTitle>
           <Link href="/admin/incentive-brackets" className="text-xs font-bold text-accent-700 hover:text-accent-800">
             Kelola Bracket Omset →
           </Link>
         </CardHeader>
-        {!absenInsentive.bracketsConfigured && (
-          <div className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Belum ada bracket insentif aktif — atur di &quot;Bracket Insentif Outlet&quot; agar sheet ini terisi.
-          </div>
-        )}
+        <div className="overflow-x-auto">
+          <Table>
+            <Thead>
+              <tr>
+                <Th>Hari</Th>
+                <Th>Tanggal</Th>
+                <Th className="text-right">Total Omset (Rp.)</Th>
+                {insentive.brackets.map((b) => (
+                  <Th key={b.id} colSpan={2} className="text-center">
+                    Range Omset {b.label}
+                  </Th>
+                ))}
+                <Th className="text-right">Achieve Omset</Th>
+                <Th className="text-right">Insentive</Th>
+              </tr>
+            </Thead>
+            <tbody>
+              {insentive.days.map((d, i) => (
+                <Tr key={i}>
+                  <Td>{HARI_NAMES[d.date.getUTCDay()]}</Td>
+                  <Td>{d.date.toLocaleDateString("id-ID")}</Td>
+                  <Td className="text-right tabular-nums">{currency.format(d.omset)}</Td>
+                  {insentive.brackets.map((b) => {
+                    const matched = d.bracket && d.bracket.label === b.label;
+                    return (
+                      <Td key={b.id} colSpan={2} className={`text-right tabular-nums ${matched ? "font-semibold text-brand-900" : "text-slate-300"}`}>
+                        {matched ? currency.format(d.totalInsentifHari) : "0"}
+                      </Td>
+                    );
+                  })}
+                  <Td className="text-right tabular-nums">{currency.format(d.omset)}</Td>
+                  <Td className="text-right font-semibold tabular-nums">{currency.format(d.totalInsentifHari)}</Td>
+                </Tr>
+              ))}
+              {insentive.days.length === 0 && <EmptyRow colSpan={5 + insentive.brackets.length * 2}>Belum ada data.</EmptyRow>}
+              <Tr className="bg-gold-50 font-bold text-brand-900">
+                <Td colSpan={3}>TOTAL</Td>
+                <Td colSpan={insentive.brackets.length * 2}></Td>
+                <Td className="text-right tabular-nums">{currency.format(insentive.omsetBersih)}</Td>
+                <Td className="text-right tabular-nums">{currency.format(insentive.totalInsentifHari)}</Td>
+              </Tr>
+            </tbody>
+          </Table>
+        </div>
+
+        <p className="mt-4 px-5 text-xs font-bold uppercase tracking-wide text-slate-400">Rekap Insentif per Pramuniaga</p>
         <Table>
           <Thead>
             <tr>
-              <Th>Pramuniaga</Th>
-              <Th className="text-right">Hari Hadir</Th>
+              <Th>Nama</Th>
+              <Th className="text-right">Total Hadir</Th>
               <Th className="text-right">Insentif</Th>
             </tr>
           </Thead>
           <tbody>
-            {absenInsentive.employees.map((e) => (
-              <Tr key={e.name}>
-                <Td className="font-medium text-slate-900">{e.name}</Td>
-                <Td className="text-right">{e.hadir}</Td>
-                <Td className="text-right font-semibold">{currency.format(e.insentif)}</Td>
+            {insentive.absenRows.map((r) => (
+              <Tr key={r.userId}>
+                <Td className="font-medium text-slate-900">{r.name}</Td>
+                <Td className="text-right tabular-nums">{r.totalStandby}</Td>
+                <Td className="text-right font-semibold tabular-nums">{currency.format(r.insentiveValue)}</Td>
               </Tr>
             ))}
-            {absenInsentive.employees.length === 0 && <EmptyRow colSpan={3}>Belum ada data absensi/omset harian bulan ini.</EmptyRow>}
-            <Tr className="bg-gold-50 font-bold text-brand-900">
-              <Td colSpan={2}>TOTAL INSENTIF</Td>
-              <Td className="text-right">{currency.format(absenInsentive.totalInsentif)}</Td>
-            </Tr>
+            {insentive.absenRows.length === 0 && <EmptyRow colSpan={3}>Belum ada data.</EmptyRow>}
           </tbody>
         </Table>
+
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2 border-t border-slate-100 p-5 text-sm sm:grid-cols-4">
+          <div>
+            <p className="text-xs text-slate-400">Opening Day</p>
+            <p className="font-bold text-brand-900">{insentive.openingDay}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">Royalti</p>
+            <p className="font-bold text-brand-900">{currency.format(insentive.royalti)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">Insentive Officer</p>
+            <p className="font-bold text-brand-900">{currency.format(insentive.insentiveOfficer)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">Insentive Head</p>
+            <p className="font-bold text-brand-900">{currency.format(insentive.insentiveHead)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">Omset Bersih</p>
+            <p className="font-bold text-brand-900">{currency.format(insentive.omsetBersih)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">AVG Sales</p>
+            <p className="font-bold text-brand-900">{number2.format(insentive.avgSales)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">AVG Beef</p>
+            <p className="font-bold text-brand-900">{number2.format(insentive.avgBeef)}</p>
+          </div>
+        </div>
+        <p className="px-5 pb-4 text-xs text-slate-400">
+          Belum termasuk: tabel &quot;KALKULASI Insentive Controller&quot; (skema insentif berbasis Qty untuk role Controller) dari spreadsheet asli — belum
+          ada peran/skema itu di sistem ini. Beri tahu kami detailnya agar bisa ditambahkan.
+        </p>
       </Card>
 
       {/* g. Inventory Sheet */}
@@ -556,8 +737,8 @@ export default async function OutletDetailReportPage({
             <span className="font-semibold text-rose-700">({currency.format(akun.totalBiaya)})</span>
           </div>
           <div className="flex items-center justify-between border-b border-slate-100 py-2">
-            <span className="text-slate-600">(-) Total Insentif Pramuniaga</span>
-            <span className="font-semibold text-rose-700">({currency.format(absenInsentive.totalInsentif)})</span>
+            <span className="text-slate-600">(-) Total Insentif (Pramuniaga + Royalti + Officer/Head)</span>
+            <span className="font-semibold text-rose-700">({currency.format(totalInsentifSemua)})</span>
           </div>
           <div className="flex items-center justify-between rounded-lg bg-gold-50 px-3 py-3 font-bold text-brand-900">
             <span>LABA/RUGI BERSIH OUTLET</span>
