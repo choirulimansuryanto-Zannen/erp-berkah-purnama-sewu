@@ -131,7 +131,8 @@ export default async function OutletDetailReportPage({
         <CardHeader>
           <CardTitle>a. Omset Sheet — Rekap Penjualan per Produk</CardTitle>
           <p className="text-xs text-slate-400">
-            Produk dengan latar <span className="rounded bg-yellow-200 px-1 font-semibold text-yellow-900">kuning</span> menggunakan daging ketul.
+            Produk dengan latar <span className="rounded bg-yellow-200 px-1 font-semibold text-yellow-900">kuning</span> menggunakan daging ketul. Paket
+            (MBG/Kopdes/Trio/dll) diterjemahkan ke produk &amp; topping penyusunnya — paket itu sendiri tidak muncul sebagai kolom.
           </p>
         </CardHeader>
         <div className="overflow-x-auto">
@@ -139,43 +140,44 @@ export default async function OutletDetailReportPage({
             <Thead>
               <tr>
                 <Th className="sticky left-0 z-10 bg-slate-50">Tanggal</Th>
-                {omset.products.map((p) => (
-                  <Th key={p.id} className={`text-right ${p.usesDagingKetul ? "bg-yellow-100" : ""}`}>
-                    {p.name}
+                <Th className="text-right">Total Omset</Th>
+                {omset.items.map((it) => (
+                  <Th key={it.key} className={`text-right ${it.usesDagingKetul ? "bg-yellow-100" : ""}`}>
+                    {it.name}
+                    {it.kind === "topping" && <span className="ml-1 text-[10px] font-normal text-slate-400">(Topping)</span>}
                   </Th>
                 ))}
                 <Th className="text-right">Total Qty</Th>
                 <Th className="text-right">Kg Ketul</Th>
-                <Th className="text-right">Total Omset</Th>
               </tr>
             </Thead>
             <tbody>
               {omset.days.map((d, i) => (
                 <Tr key={i}>
                   <Td className="sticky left-0 z-10 bg-white font-medium text-slate-900">{d.date.getUTCDate()}</Td>
-                  {omset.products.map((p) => (
-                    <Td key={p.id} className={`text-right tabular-nums ${p.usesDagingKetul ? "bg-yellow-50" : ""}`}>
-                      {d.qtyByProduct[p.id] ?? 0}
+                  <Td className="text-right font-semibold tabular-nums">{currency.format(d.totalOmset)}</Td>
+                  {omset.items.map((it) => (
+                    <Td key={it.key} className={`text-right tabular-nums ${it.usesDagingKetul ? "bg-yellow-50" : ""}`}>
+                      {d.qtyByKey[it.key] ?? 0}
                     </Td>
                   ))}
                   <Td className="text-right font-semibold tabular-nums">{d.qtyAllProducts}</Td>
                   <Td className="text-right tabular-nums">{number0.format(d.kgDagingKetul)}</Td>
-                  <Td className="text-right font-semibold tabular-nums">{currency.format(d.totalOmset)}</Td>
                 </Tr>
               ))}
               {omset.days.every((d) => d.qtyAllProducts === 0) && (
-                <EmptyRow colSpan={omset.products.length + 4}>Belum ada penjualan tercatat bulan ini.</EmptyRow>
+                <EmptyRow colSpan={omset.items.length + 4}>Belum ada penjualan tercatat bulan ini.</EmptyRow>
               )}
               <Tr className="bg-gold-50 font-bold text-brand-900">
                 <Td className="sticky left-0 z-10 bg-gold-50">TOTAL</Td>
-                {omset.products.map((p) => (
-                  <Td key={p.id} className="text-right tabular-nums">
-                    {omset.days.reduce((s, d) => s + (d.qtyByProduct[p.id] ?? 0), 0)}
+                <Td className="text-right tabular-nums">{currency.format(omset.totalOmset)}</Td>
+                {omset.items.map((it) => (
+                  <Td key={it.key} className="text-right tabular-nums">
+                    {omset.days.reduce((s, d) => s + (d.qtyByKey[it.key] ?? 0), 0)}
                   </Td>
                 ))}
                 <Td className="text-right tabular-nums">{omset.days.reduce((s, d) => s + d.qtyAllProducts, 0)}</Td>
                 <Td className="text-right tabular-nums">{number0.format(omset.days.reduce((s, d) => s + d.kgDagingKetul, 0))}</Td>
-                <Td className="text-right tabular-nums">{currency.format(omset.totalOmset)}</Td>
               </Tr>
             </tbody>
           </Table>

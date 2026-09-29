@@ -13,12 +13,21 @@ function daysInMonth(year: number, month: number): number {
 // a. Omset Sheet — per-product daily quantity, Jan(day)-N grid, plus daging
 // ketul usage tracking (Qty sold of tagged products -> Kg via each
 // product's own gramsPerUnit).
+//
+// A paket Product (MBG/Kopdes/Trio/...) never gets its own column — a
+// transaction line that sold one is translated into the products AND
+// toppings it's actually made of (PackageComponent), the same
+// decomposition src/lib/daily-report-stock.ts already uses for the
+// kitchen's stock reconciliation, so e.g. "MBG 5" shows up here as Kebab
+// Jumbo x2 + Kebab Cheesy Black x1 + Extra Chilimeat x2, never as "MBG 5".
+// Toppings manually added to any cart line (package or not) count the same
+// way, as their own columns after the products.
 // ═══════════════════════════════════════════════════════════════════════
-export type OmsetSheetProduct = { id: string; name: string; price: number; usesDagingKetul: boolean };
+export type OmsetSheetItem = { key: string; id: string; name: string; kind: "product" | "topping"; usesDagingKetul: boolean };
 export type OmsetSheetDay = {
   date: Date;
   totalOmset: number;
-  qtyByProduct: Record<string, number>;
+  qtyByKey: Record<string, number>;
   qtyAllProducts: number;
   qtyDagingKetulProducts: number;
   kgDagingKetul: number;
@@ -26,63 +35,102 @@ export type OmsetSheetDay = {
 
 export async function getOmsetSheet(outletId: string, year: number, month: number) {
   const { start, end } = monthRange(year, month);
-  const [items, products] = await Promise.all([
+  const [txItems, products, toppings, packageComponents] = await Promise.all([
     prisma.transactionItem.findMany({
       where: { transaction: { outletId, status: "COMPLETED", createdAt: { gte: start, lte: end } } },
       select: {
         qty: true,
         productId: true,
-        product: { select: { name: true, price: true, usesDagingKetul: true, dagingKetulGramsPerUnit: true, sortOrder: true } },
+        toppings: { select: { toppingId: true, qty: true } },
         transaction: { select: { createdAt: true, total: true } },
       },
     }),
-    prisma.product.findMany({ where: { status: "ACTIVE" }, orderBy: { sortOrder: "asc" } }),
+    prisma.product.findMany({ orderBy: { sortOrder: "asc" } }),
+    prisma.topping.findMany({ orderBy: { name: "asc" } }),
+    prisma.packageComponent.findMany({ select: { packageProductId: true, componentProductId: true, componentToppingId: true, qty: true } }),
   ]);
 
-  const productList: OmsetSheetProduct[] = products
-    .filter((p) => items.some((i) => i.productId === p.id))
-    .map((p) => ({ id: p.id, name: p.name, price: Number(p.price), usesDagingKetul: p.usesDagingKetul }));
+  const productById = new Map(products.map((p) => [p.id, p]));
+  const componentsByPackageId = new Map<string, typeof packageComponents>();
+  for (const c of packageComponents) {
+    const list = componentsByPackageId.get(c.packageProductId) ?? [];
+    list.push(c);
+    componentsByPackageId.set(c.packageProductId, list);
+  }
 
   const nDays = daysInMonth(year, month);
   const days: OmsetSheetDay[] = Array.from({ length: nDays }, (_, i) => ({
     date: new Date(Date.UTC(year, month - 1, i + 1)),
     totalOmset: 0,
-    qtyByProduct: {},
+    qtyByKey: {},
     qtyAllProducts: 0,
     qtyDagingKetulProducts: 0,
     kgDagingKetul: 0,
   }));
 
+  function addProductQty(day: OmsetSheetDay, productId: string, qty: number) {
+    const p = productById.get(productId);
+    if (!p) return;
+    const key = `product:${productId}`;
+    day.qtyByKey[key] = (day.qtyByKey[key] ?? 0) + qty;
+    day.qtyAllProducts += qty;
+    if (p.usesDagingKetul) {
+      day.qtyDagingKetulProducts += qty;
+      day.kgDagingKetul += (qty * Number(p.dagingKetulGramsPerUnit)) / 1000;
+    }
+  }
+  function addToppingQty(day: OmsetSheetDay, toppingId: string, qty: number) {
+    const key = `topping:${toppingId}`;
+    day.qtyByKey[key] = (day.qtyByKey[key] ?? 0) + qty;
+  }
+
   // Transaction total is shared across its items — attribute it once per
-  // transaction (via a running per-day set) rather than per item-row, so a
-  // multi-item order doesn't inflate the day's Total Omset.
-  const seenTransactionsByDay = new Map<number, Set<string>>();
-  for (const item of items) {
+  // transaction (via a running per-day map keyed by its own timestamp)
+  // rather than per item-row, so a multi-item order doesn't inflate the
+  // day's Total Omset.
+  const txByDay = new Map<number, Map<string, number>>();
+  for (const item of txItems) {
     const dayIdx = item.transaction.createdAt.getUTCDate() - 1;
     const day = days[dayIdx];
     if (!day) continue;
-    day.qtyByProduct[item.productId] = (day.qtyByProduct[item.productId] ?? 0) + item.qty;
-    day.qtyAllProducts += item.qty;
-    if (item.product.usesDagingKetul) {
-      day.qtyDagingKetulProducts += item.qty;
-      day.kgDagingKetul += (item.qty * Number(item.product.dagingKetulGramsPerUnit)) / 1000;
+
+    const product = productById.get(item.productId);
+    if (product && product.category !== "ALACARTE") {
+      // Paket — translate into its components instead of its own column.
+      const components = componentsByPackageId.get(item.productId) ?? [];
+      for (const c of components) {
+        const consumed = item.qty * c.qty;
+        if (c.componentProductId) addProductQty(day, c.componentProductId, consumed);
+        else if (c.componentToppingId) addToppingQty(day, c.componentToppingId, consumed);
+      }
+    } else {
+      addProductQty(day, item.productId, item.qty);
     }
-  }
-  // Sum Total Omset per day from distinct transactions (avoids double
-  // counting a multi-line order across its several TransactionItem rows).
-  const txByDay = new Map<number, Map<string, number>>();
-  for (const item of items) {
-    const dayIdx = item.transaction.createdAt.getUTCDate() - 1;
-    const key = `${item.transaction.createdAt.toISOString()}`;
-    void seenTransactionsByDay;
+    // Toppings manually added on top of the product/package itself.
+    for (const t of item.toppings) addToppingQty(day, t.toppingId, t.qty);
+
+    const txKey = item.transaction.createdAt.toISOString();
     const map = txByDay.get(dayIdx) ?? new Map<string, number>();
-    map.set(key, Number(item.transaction.total));
+    map.set(txKey, Number(item.transaction.total));
     txByDay.set(dayIdx, map);
   }
   for (let i = 0; i < nDays; i++) {
     const map = txByDay.get(i);
     days[i].totalOmset = map ? [...map.values()].reduce((s, v) => s + v, 0) : 0;
   }
+
+  // Column list: every product/topping that actually moved this month —
+  // products first (menu order), then toppings (alphabetical).
+  const soldKeys = new Set<string>();
+  for (const day of days) for (const key of Object.keys(day.qtyByKey)) soldKeys.add(key);
+  const items: OmsetSheetItem[] = [
+    ...products
+      .filter((p) => soldKeys.has(`product:${p.id}`))
+      .map((p) => ({ key: `product:${p.id}`, id: p.id, name: p.name, kind: "product" as const, usesDagingKetul: p.usesDagingKetul })),
+    ...toppings
+      .filter((t) => soldKeys.has(`topping:${t.id}`))
+      .map((t) => ({ key: `topping:${t.id}`, id: t.id, name: t.name, kind: "topping" as const, usesDagingKetul: false })),
+  ];
 
   let cumulativeAll = 0;
   let cumulativeKetul = 0;
@@ -100,7 +148,7 @@ export async function getOmsetSheet(outletId: string, year: number, month: numbe
   });
 
   const totalOmset = days.reduce((s, d) => s + d.totalOmset, 0);
-  return { products: productList, days, cumulative, totalOmset };
+  return { items, days, cumulative, totalOmset };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
