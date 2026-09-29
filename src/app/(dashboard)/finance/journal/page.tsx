@@ -23,10 +23,43 @@ export default async function FinanceJournalPage({
   if (!can(user.role, "finance:view_ledger")) redirect("/dashboard");
 
   const { from, to } = await searchParams;
-  const defaultFrom = new Date();
-  defaultFrom.setDate(defaultFrom.getDate() - 29);
-  const rangeFrom = from ? new Date(`${from}T00:00:00`) : defaultFrom;
-  const rangeTo = to ? new Date(`${to}T00:00:00`) : new Date();
+  let rangeFrom: Date;
+  let rangeTo: Date;
+  if (from || to) {
+    const fallback30 = new Date();
+    fallback30.setDate(fallback30.getDate() - 29);
+    rangeFrom = from ? new Date(`${from}T00:00:00`) : fallback30;
+    rangeTo = to ? new Date(`${to}T00:00:00`) : new Date();
+  } else {
+    // No range picked — default to the last 30 days, but if that has no
+    // entries yet (a demo/staging environment's fixed sample data will
+    // eventually fall behind "today" no matter what fixed offset is
+    // chosen), fall back to the last 30 days ENDING at the most recent
+    // posted entry instead of showing a confusing all-zero page.
+    const now = new Date();
+    const last30Start = new Date();
+    last30Start.setDate(last30Start.getDate() - 29);
+    const recentCount = await prisma.journalEntry.count({
+      where: { date: { gte: last30Start, lte: now }, entryType: { not: "JURNAL_PENYESUAIAN" } },
+    });
+    if (recentCount > 0) {
+      rangeFrom = last30Start;
+      rangeTo = now;
+    } else {
+      const latest = await prisma.journalEntry.findFirst({
+        where: { entryType: { not: "JURNAL_PENYESUAIAN" } },
+        orderBy: { date: "desc" },
+      });
+      if (latest) {
+        rangeTo = latest.date;
+        rangeFrom = new Date(latest.date);
+        rangeFrom.setDate(rangeFrom.getDate() - 29);
+      } else {
+        rangeFrom = last30Start;
+        rangeTo = now;
+      }
+    }
+  }
 
   const [accounts, outlets, entries] = await Promise.all([
     prisma.chartOfAccount.findMany({ where: { status: "ACTIVE" }, orderBy: { code: "asc" } }),

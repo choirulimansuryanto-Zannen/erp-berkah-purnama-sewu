@@ -27,10 +27,40 @@ export default async function AdjustingEntriesPage({
   if (!can(user.role, "finance:view_ledger")) redirect("/dashboard");
 
   const { from, to } = await searchParams;
-  const defaultFrom = new Date();
-  defaultFrom.setDate(defaultFrom.getDate() - 89);
-  const rangeFrom = from ? new Date(`${from}T00:00:00`) : defaultFrom;
-  const rangeTo = to ? new Date(`${to}T00:00:00`) : new Date();
+  let rangeFrom: Date;
+  let rangeTo: Date;
+  if (from || to) {
+    const fallback90 = new Date();
+    fallback90.setDate(fallback90.getDate() - 89);
+    rangeFrom = from ? new Date(`${from}T00:00:00`) : fallback90;
+    rangeTo = to ? new Date(`${to}T00:00:00`) : new Date();
+  } else {
+    // No range picked — default to the last 90 days, but if that has no
+    // entries yet (a demo/staging environment's fixed sample data will
+    // eventually fall behind "today" no matter what fixed offset is
+    // chosen), fall back to the 90 days ENDING at the most recent posted
+    // adjusting entry instead of showing a confusing all-zero page.
+    const now = new Date();
+    const last90Start = new Date();
+    last90Start.setDate(last90Start.getDate() - 89);
+    const recentCount = await prisma.journalEntry.count({
+      where: { entryType: "JURNAL_PENYESUAIAN", date: { gte: last90Start, lte: now } },
+    });
+    if (recentCount > 0) {
+      rangeFrom = last90Start;
+      rangeTo = now;
+    } else {
+      const latest = await prisma.journalEntry.findFirst({ where: { entryType: "JURNAL_PENYESUAIAN" }, orderBy: { date: "desc" } });
+      if (latest) {
+        rangeTo = latest.date;
+        rangeFrom = new Date(latest.date);
+        rangeFrom.setDate(rangeFrom.getDate() - 89);
+      } else {
+        rangeFrom = last90Start;
+        rangeTo = now;
+      }
+    }
+  }
 
   const [accounts, entries] = await Promise.all([
     prisma.chartOfAccount.findMany({ where: { status: "ACTIVE" }, orderBy: { code: "asc" } }),

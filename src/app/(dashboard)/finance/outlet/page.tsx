@@ -32,9 +32,35 @@ export default async function FinanceOutletPage({
 
   const { from, to } = await searchParams;
   const now = new Date();
-  const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
-  const rangeFrom = from ? new Date(`${from}T00:00:00`) : defaultFrom;
-  const rangeTo = to ? new Date(`${to}T23:59:59.999`) : now;
+  let rangeFrom: Date;
+  let rangeTo: Date;
+  if (from || to) {
+    rangeFrom = from ? new Date(`${from}T00:00:00`) : new Date(now.getFullYear(), now.getMonth(), 1);
+    rangeTo = to ? new Date(`${to}T23:59:59.999`) : now;
+  } else {
+    // No range picked — default to the current month, but if it has no
+    // verified reports yet (a demo/staging environment's fixed sample data
+    // will eventually fall behind "today" no matter what fixed offset is
+    // chosen), fall back to the month of the most recent verified report
+    // instead of showing a confusing all-zero page.
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const currentMonthHasData = await prisma.dailyReport.count({
+      where: { status: "APPROVED", date: { gte: currentMonthStart, lte: now } },
+    });
+    if (currentMonthHasData > 0) {
+      rangeFrom = currentMonthStart;
+      rangeTo = now;
+    } else {
+      const latestReport = await prisma.dailyReport.findFirst({ where: { status: "APPROVED" }, orderBy: { date: "desc" } });
+      if (latestReport) {
+        rangeFrom = new Date(latestReport.date.getFullYear(), latestReport.date.getMonth(), 1);
+        rangeTo = new Date(latestReport.date.getFullYear(), latestReport.date.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else {
+        rangeFrom = currentMonthStart;
+        rangeTo = now;
+      }
+    }
+  }
 
   const reports = await prisma.dailyReport.findMany({
     where: { status: "APPROVED", date: { gte: rangeFrom, lte: rangeTo } },

@@ -41,8 +41,6 @@ export default async function OutletDetailReportPage({
   const { outletId } = await params;
   const now = new Date();
   const { year: yearParam, month: monthParam } = await searchParams;
-  const year = yearParam ? Number(yearParam) : now.getFullYear();
-  const month = monthParam ? Number(monthParam) : now.getMonth() + 1;
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i);
 
   const [outlet, allOutlets] = await Promise.all([
@@ -50,6 +48,37 @@ export default async function OutletDetailReportPage({
     prisma.outlet.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
   if (!outlet) notFound();
+
+  let year: number;
+  let month: number;
+  if (yearParam || monthParam) {
+    year = yearParam ? Number(yearParam) : now.getFullYear();
+    month = monthParam ? Number(monthParam) : now.getMonth() + 1;
+  } else {
+    // No period picked — default to the current month, but if this outlet
+    // has no verified report for it yet (a demo/staging environment's
+    // fixed sample data will eventually fall behind "today" no matter
+    // what fixed offset is chosen), fall back to the month of this
+    // outlet's own most recent verified report instead of opening on 8
+    // empty sheets.
+    const currentMonthStart = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+    const hasCurrentMonthData = await prisma.dailyReport.count({
+      where: { outletId, status: "APPROVED", date: { gte: currentMonthStart, lte: now } },
+    });
+    if (hasCurrentMonthData > 0) {
+      year = now.getFullYear();
+      month = now.getMonth() + 1;
+    } else {
+      const latestReport = await prisma.dailyReport.findFirst({ where: { outletId, status: "APPROVED" }, orderBy: { date: "desc" } });
+      if (latestReport) {
+        year = latestReport.date.getUTCFullYear();
+        month = latestReport.date.getUTCMonth() + 1;
+      } else {
+        year = now.getFullYear();
+        month = now.getMonth() + 1;
+      }
+    }
+  }
 
   const { start, end } = monthRange(year, month);
   const yearStart = new Date(Date.UTC(year, 0, 1));
