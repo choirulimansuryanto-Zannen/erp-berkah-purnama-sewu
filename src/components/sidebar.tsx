@@ -47,6 +47,9 @@ import {
   Scale,
   Boxes,
   GitCompareArrows,
+  HandCoins,
+  Columns3,
+  Percent,
 } from "lucide-react";
 import { can, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/cn";
@@ -131,7 +134,18 @@ const NAV_SECTIONS: NavSection[] = [
           { href: "/finance/insights", label: "Analisis & Insight", icon: Sparkles, permission: "finance:view_ledger" },
         ],
       },
-      { href: "/finance/outlet", label: "FA Outlet", icon: Store, permission: "finance:view_ledger" },
+      {
+        href: "/finance/outlet",
+        label: "FA Outlet",
+        icon: Store,
+        permission: "finance:view_ledger",
+        children: [
+          { href: "/finance/outlet", label: "Laporan Outlet", icon: FileText, permission: "finance:view_ledger" },
+          { href: "/finance/insentif", label: "Laporan Insentif", icon: Percent, permission: "finance:view_ledger" },
+          { href: "/finance/sharing-profit", label: "Laporan Sharing Profit", icon: HandCoins, permission: "finance:view_ledger" },
+          { href: "/finance/pembanding-outlet", label: "Laporan Pembanding Outlet", icon: Columns3, permission: "finance:view_ledger" },
+        ],
+      },
     ],
   },
   {
@@ -146,6 +160,8 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/admin/package-composition", label: "Isi Paket", icon: Package, permission: "admin:system_config" },
       { href: "/admin/expense-categories", label: "Kategori Pengeluaran", icon: Receipt, permission: "admin:system_config" },
       { href: "/admin/chart-of-accounts", label: "Chart of Accounts", icon: Calculator, permission: "admin:system_config" },
+      { href: "/admin/incentive-rules", label: "Rate Insentif", icon: Percent, permission: "finance:manage_incentive_rules" },
+      { href: "/admin/investors", label: "Investor & Sharing Profit", icon: HandCoins, permission: "finance:manage_incentive_rules" },
       { href: "/admin/pramuniaga-roster", label: "Roster Pramuniaga", icon: UserCheck, permission: "admin:system_config" },
       { href: "/admin/freezer-materials", label: "Bahan Baku Freezer", icon: Snowflake, permission: "admin:system_config" },
       { href: "/admin/settings", label: "System Settings", icon: Settings, permission: "admin:system_config" },

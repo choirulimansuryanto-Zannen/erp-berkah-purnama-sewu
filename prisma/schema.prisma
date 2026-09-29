@@ -128,6 +128,8 @@ model Region {
   outlets   Outlet[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  incentiveCalculations IncentiveCalculation[]
 }
 
 model Outlet {
@@ -170,6 +172,8 @@ model Outlet {
   materialDrafts       DailyReportMaterialDraft[]
   freezerStockRecords  FreezerStockRecord[]
   journalEntries       JournalEntry[]
+  incentiveCalculations IncentiveCalculation[]
+  purchases            OutletPurchase[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -257,6 +261,12 @@ model User {
   journalEntriesVoided     JournalEntry[]                   @relation("JournalEntryVoider")
   chartOfAccountUpdates    ChartOfAccount[]
   inventoryClosingBalancesRecorded InventoryClosingBalance[]
+  incentiveRuleUpdates     IncentiveRule[]
+  incentiveCalculationsRun IncentiveCalculation[]
+  investorUpdates          Investor[]
+  sharingProfitRuleUpdates SharingProfitRule[]
+  sharingProfitCalculationsRun SharingProfitDistribution[]
+  outletPurchasesRecorded  OutletPurchase[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1355,4 +1365,166 @@ model StockDistribution {
 
   @@index([outletId])
   @@index([status])
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// FA Outlet: incentives (10 role types), investor sharing profit, and
+// direct/local outlet purchases — the pieces "Laporan Outlet", "Laporan
+// Insentive", "Laporan Sharing Profit" and "Laporan Pembanding Outlet"
+// need that no existing model already covers (Omset/Setoran, Absen,
+// Inventory qty movement, and stock-adjustment write-offs already exist —
+// see DailyReport, AttendanceRecord, InventoryRecord, StockAdjustment).
+// ═══════════════════════════════════════════════════════════════════════
+
+enum IncentiveRuleType {
+  PRAMU
+  SPV
+  PENGELOLA
+  OFFICER_SALES
+  HEAD_SALES
+  OFFICER_MARKETING
+  HEAD_MARKETING
+  HEAD_FA
+  HEAD_OPERASIONAL
+  MANAGEMENT
+}
+
+// PRAMU/PENGELOLA are computed per outlet, SPV per region, everything else
+// (division heads, management) is company-wide.
+enum IncentiveScope {
+  OUTLET
+  REGION
+  COMPANY
+}
+
+enum IncentiveBasis {
+  PERSEN_OMSET
+  PERSEN_LABA_KOTOR
+  PERSEN_LABA_BERSIH
+  NOMINAL_TETAP
+}
+
+// One editable rate per incentive type. `rate` is a percentage (e.g.
+// 2.5000 = 2.5%) when basis is one of the PERSEN_* kinds, or a flat IDR
+// amount per period when NOMINAL_TETAP. Seeded with placeholder rates —
+// tune to the business's real numbers via /admin/incentive-rules.
+model IncentiveRule {
+  id     String            @id @default(uuid())
+  type   IncentiveRuleType @unique
+  scope  IncentiveScope
+  basis  IncentiveBasis
+  rate   Decimal           @default(0) @db.Decimal(14, 4)
+  status AccountStatus     @default(ACTIVE)
+
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  calculations IncentiveCalculation[]
+}
+
+// A computed-and-locked incentive result for one (type, target, month).
+// Snapshots the rule's rate and the base figure used at calculation time,
+// so a later rate change never silently rewrites a past month's already-
+// paid incentive — re-running the calculation for the same period
+// replaces the row (there is no formal period-close concept in this
+// system yet, same as JournalEntry).
+model IncentiveCalculation {
+  id       String            @id @default(uuid())
+  year     Int
+  month    Int
+  type     IncentiveRuleType
+  scope    IncentiveScope
+  outletId String?
+  outlet   Outlet?           @relation(fields: [outletId], references: [id])
+  regionId String?
+  region   Region?           @relation(fields: [regionId], references: [id])
+
+  ruleId       String
+  rule         IncentiveRule  @relation(fields: [ruleId], references: [id])
+  basis        IncentiveBasis
+  rateSnapshot Decimal        @db.Decimal(14, 4)
+  baseAmount   Decimal        @db.Decimal(16, 2)
+  amount       Decimal        @db.Decimal(16, 2)
+
+  calculatedById String
+  calculatedBy   User     @relation(fields: [calculatedById], references: [id])
+  calculatedAt   DateTime @default(now())
+
+  @@unique([year, month, type, outletId, regionId])
+  @@index([year, month])
+}
+
+model Investor {
+  id           String        @id @default(uuid())
+  name         String
+  ownershipPct Decimal       @db.Decimal(6, 3)
+  status       AccountStatus @default(ACTIVE)
+  note         String?
+
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  distributions SharingProfitDistribution[]
+}
+
+// Single company-wide rule: what % of net profit (Laba Bersih) each month
+// is set aside as the investor pool, before being split across Investor
+// rows by their own ownershipPct. Only one row is ever active at a time
+// (the API always upserts the same singleton).
+model SharingProfitRule {
+  id   String  @id @default(uuid())
+  rate Decimal @default(0) @db.Decimal(6, 3)
+
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SharingProfitDistribution {
+  id         String  @id @default(uuid())
+  year       Int
+  month      Int
+  labaBersih Decimal @db.Decimal(16, 2)
+  poolRate   Decimal @db.Decimal(6, 3)
+  poolAmount Decimal @db.Decimal(16, 2)
+
+  investorId        String
+  investor          Investor @relation(fields: [investorId], references: [id])
+  ownershipSnapshot Decimal  @db.Decimal(6, 3)
+  amount            Decimal  @db.Decimal(16, 2)
+
+  calculatedById String
+  calculatedBy   User     @relation(fields: [calculatedById], references: [id])
+  calculatedAt   DateTime @default(now())
+
+  @@unique([year, month, investorId])
+  @@index([year, month])
+}
+
+// Direct/local outlet purchases (fresh produce from a nearby market, a
+// local mitra vendor, ...) — distinct from StockDistribution (warehouse ->
+// outlet transfers, already tracked separately): this is what the outlet
+// itself buys on its own, the "Purchase Sheet" of the monthly outlet
+// report.
+model OutletPurchase {
+  id          String   @id @default(uuid())
+  outletId    String
+  outlet      Outlet   @relation(fields: [outletId], references: [id])
+  date        DateTime @db.Date
+  description String
+  qty         Decimal  @default(1) @db.Decimal(10, 2)
+  unit        String   @default("pcs")
+  amount      Decimal  @db.Decimal(14, 2)
+  note        String?
+
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([outletId, date])
 }

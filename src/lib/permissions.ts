@@ -44,6 +44,12 @@ export const PERMISSIONS = {
   "expense:approve": ["SPV", "OFFICE", "FA_ADMIN", "MASTER_ADMIN"],
   "finance:view_ledger": ["FA_ADMIN", "MASTER_ADMIN"],
   "finance:manage_journal": ["FA_ADMIN", "MASTER_ADMIN"],
+  // Incentive/Sharing Profit reports themselves are covered by
+  // finance:view_ledger (viewing) and finance:manage_journal (triggering a
+  // recalculation, recording an Outlet Purchase) — same split as the rest
+  // of FA Company. Only the underlying RATE tables get their own
+  // permission, restricted to Master Admin like every other settings list.
+  "finance:manage_incentive_rules": ["MASTER_ADMIN"],
 
   "member:register": ["PRAMUNIAGA", "MARKETING_ADMIN", "MASTER_ADMIN"],
   "member:view": ["PRAMUNIAGA", "SPV", "OFFICE", "MARKETING_ADMIN", "MASTER_ADMIN"],
