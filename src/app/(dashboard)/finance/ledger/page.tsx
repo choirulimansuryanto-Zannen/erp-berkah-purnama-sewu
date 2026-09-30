@@ -32,7 +32,22 @@ export default async function FinanceLedgerPage({
   const rangeTo = to ? new Date(`${to}T23:59:59.999`) : now;
 
   const accounts = await prisma.chartOfAccount.findMany({ where: { status: "ACTIVE" }, orderBy: { code: "asc" } });
-  const selectedAccount = accountId ? (accounts.find((a) => a.id === accountId) ?? accounts[0]) : accounts[0];
+  // Don't default to accounts[0] blindly — the chart is code-sorted, so the
+  // very first row is almost always a pure rollup/header account (e.g.
+  // "10000 ASSET") that can never have a direct posting and would always
+  // show "Tidak ada mutasi", making the page look empty/broken on first
+  // load. Default instead to the first account (by code) that has ever
+  // actually been posted to.
+  let defaultAccount = accounts[0];
+  if (!accountId) {
+    const posted = await prisma.journalEntryLine.findFirst({
+      where: { account: { status: "ACTIVE" }, journalEntry: { status: "POSTED" } },
+      orderBy: { account: { code: "asc" } },
+      select: { account: true },
+    });
+    if (posted) defaultAccount = posted.account;
+  }
+  const selectedAccount = accountId ? (accounts.find((a) => a.id === accountId) ?? defaultAccount) : defaultAccount;
 
   const [openingLines, periodLines] = await Promise.all([
     selectedAccount
