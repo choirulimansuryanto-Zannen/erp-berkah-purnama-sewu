@@ -56,8 +56,8 @@ function VoidButton({ id }: { id: string }) {
 
 export function JournalEntryList({ entries }: { entries: JournalEntryRow[] }) {
   return (
-    <Table>
-      <Thead>
+    <Table wrapperClassName="max-h-[70vh] overflow-y-auto">
+      <Thead className="sticky top-0 z-20 bg-slate-50">
         <tr>
           <Th>No. Voucher</Th>
           <Th>Tanggal</Th>

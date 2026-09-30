@@ -153,8 +153,8 @@ export default async function FinanceJournalPage({
         outlets={outlets}
       />
 
-      <Card>
-        <CardHeader>
+      <Card className="p-0">
+        <CardHeader className="sticky top-16 z-30 h-14 bg-white">
           <CardTitle>
             Riwayat Jurnal ({filteredRows.length}){activeBook ? ` — ${CASH_BOOK_LABELS[activeBook]}` : ""}
           </CardTitle>

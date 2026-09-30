@@ -109,8 +109,8 @@ export default async function AdjustingEntriesPage({
 
       <AdjustingEntryForm accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, type: a.type, cashBook: a.cashBook }))} />
 
-      <Card>
-        <CardHeader>
+      <Card className="p-0">
+        <CardHeader className="sticky top-16 z-30 h-14 bg-white">
           <CardTitle>Riwayat Jurnal Penyesuaian ({rows.length})</CardTitle>
         </CardHeader>
         <JournalEntryList entries={rows} />
