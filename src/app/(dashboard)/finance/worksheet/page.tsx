@@ -182,20 +182,20 @@ export default async function WorksheetPage({
         </form>
       </Card>
 
-      <Card className="overflow-hidden p-0">
-        <div className="rounded-t-xl bg-brand-950 px-5 py-3">
+      <Card className="p-0">
+        <div className="sticky top-16 z-30 flex h-11 items-center rounded-t-xl bg-brand-950 px-5">
           <p className="text-sm font-bold uppercase tracking-wide text-white">
             Worksheet — {MONTH_NAMES[month - 1]} {year}
           </p>
         </div>
-        <div className="overflow-x-auto">
+        <div className="max-h-[70vh] overflow-auto">
           <table className="w-full min-w-max border-collapse text-xs">
             <thead>
               <tr>
-                <th rowSpan={2} className="sticky left-0 z-10 min-w-[70px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Kode</th>
-                <th rowSpan={2} className="sticky left-[70px] z-10 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Nama Akun</th>
+                <th rowSpan={2} className="sticky left-0 top-0 z-20 min-w-[70px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Kode</th>
+                <th rowSpan={2} className="sticky left-[70px] top-0 z-20 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Nama Akun</th>
                 {COLUMN_GROUPS.map((g) => (
-                  <th key={g.label} colSpan={2} className={`border-b border-l-2 border-slate-300 ${g.bg} px-2 py-1.5 text-center text-[11px] font-bold uppercase ${g.text}`}>
+                  <th key={g.label} colSpan={2} className={`sticky top-0 z-20 h-9 border-b border-l-2 border-slate-300 ${g.bg} px-2 py-1.5 text-center text-[11px] font-bold uppercase ${g.text}`}>
                     {g.label}
                   </th>
                 ))}
@@ -203,8 +203,8 @@ export default async function WorksheetPage({
               <tr>
                 {COLUMN_GROUPS.map((g) => (
                   <Fragment key={g.label}>
-                    <th className="min-w-[110px] border-b border-l-2 border-slate-300 px-2 py-1.5 text-right text-[10px] font-semibold uppercase text-slate-500">Debit</th>
-                    <th className="min-w-[110px] border-b border-slate-200 px-2 py-1.5 text-right text-[10px] font-semibold uppercase text-slate-500">Kredit</th>
+                    <th className={`sticky top-9 z-20 h-8 min-w-[110px] border-b border-l-2 border-slate-300 ${g.bg} px-2 py-1.5 text-right text-[10px] font-semibold uppercase text-slate-500`}>Debit</th>
+                    <th className={`sticky top-9 z-20 h-8 min-w-[110px] border-b border-slate-200 ${g.bg} px-2 py-1.5 text-right text-[10px] font-semibold uppercase text-slate-500`}>Kredit</th>
                   </Fragment>
                 ))}
               </tr>

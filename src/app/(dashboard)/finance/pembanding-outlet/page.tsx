@@ -154,8 +154,8 @@ export default async function PembandingOutletPage({ searchParams }: { searchPar
 
   function section(title: string, rows: MonthlyReportRow[], totalLabel: string) {
     return (
-      <Card className="overflow-hidden p-0">
-        <div className="rounded-t-xl bg-brand-950 px-5 py-3">
+      <Card className="p-0">
+        <div className="sticky top-16 z-30 flex h-11 items-center rounded-t-xl bg-brand-950 px-5">
           <p className="text-sm font-bold uppercase tracking-wide text-white">{title}</p>
         </div>
         <MonthlyReportTable rows={rows} year={year} upToMonth={upToMonth} totalLabel={totalLabel} />

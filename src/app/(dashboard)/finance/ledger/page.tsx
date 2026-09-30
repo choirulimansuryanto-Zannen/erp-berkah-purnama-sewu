@@ -103,14 +103,14 @@ export default async function FinanceLedgerPage({
       </Card>
 
       {selectedAccount && (
-        <Card className="overflow-hidden p-0">
-          <CardHeader>
-            <CardTitle>
+        <Card className="p-0">
+          <CardHeader className="sticky top-16 z-30 h-14 bg-white">
+            <CardTitle className="truncate">
               {selectedAccount.code} — {selectedAccount.name}
             </CardTitle>
           </CardHeader>
-          <Table>
-            <Thead>
+          <Table wrapperClassName="max-h-[70vh] overflow-y-auto">
+            <Thead className="sticky top-0 z-20 bg-slate-50">
               <tr>
                 <Th>Tanggal</Th>
                 <Th>No. Voucher</Th>

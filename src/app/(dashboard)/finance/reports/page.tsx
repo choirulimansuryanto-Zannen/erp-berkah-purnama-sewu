@@ -141,8 +141,8 @@ export default async function FinanceReportsPage({ searchParams }: { searchParam
         </form>
       </Card>
 
-      <Card className="overflow-hidden p-0">
-        <div className="rounded-t-xl bg-brand-950 px-5 py-3">
+      <Card className="p-0">
+        <div className="sticky top-16 z-30 flex h-11 items-center rounded-t-xl bg-brand-950 px-5">
           <p className="text-sm font-bold uppercase tracking-wide text-white">Laba Rugi — {year} (per bulan)</p>
         </div>
         <MonthlyReportTable rows={laraRugiRows} year={year} upToMonth={upToMonth} totalLabel={`Total ${year}`} />

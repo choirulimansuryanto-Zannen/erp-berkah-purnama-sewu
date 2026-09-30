@@ -60,25 +60,30 @@ export function MonthlyReportTable({
   totalMode?: "sum" | "average" | "latest";
 }) {
   return (
-    <div className="overflow-x-auto">
+    // Bounded height + overflow-y-auto turns this into a real scrolling grid
+    // (like each report was in the original spreadsheet), which is what lets
+    // the <thead> below use a plain `sticky top-0` to freeze — see the note
+    // on Table's `wrapperClassName` for why an unbounded overflow-x-auto div
+    // can't support a viewport-relative sticky header on its own.
+    <div className="max-h-[70vh] overflow-x-auto overflow-y-auto">
       <table className="w-full min-w-max border-collapse text-xs">
         <thead>
           <tr>
-            <th className="sticky left-0 z-10 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <th className="sticky left-0 top-0 z-20 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
               Akun
             </th>
             {MONTH_LABELS.map((m, i) => (
               <th
                 key={m}
                 className={cn(
-                  "min-w-[76px] border-b border-slate-200 px-2 py-2 text-right text-[11px] font-bold uppercase tracking-wide",
+                  "sticky top-0 z-20 min-w-[76px] border-b border-slate-200 bg-slate-50 px-2 py-2 text-right text-[11px] font-bold uppercase tracking-wide",
                   i > upToMonth ? "text-slate-300" : "text-slate-500",
                 )}
               >
                 {m} {String(year).slice(2)}
               </th>
             ))}
-            <th className="min-w-[92px] border-b border-l-2 border-slate-300 bg-slate-100 px-2 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-brand-900">
+            <th className="sticky top-0 z-20 min-w-[92px] border-b border-l-2 border-slate-300 bg-slate-100 px-2 py-2 text-right text-[11px] font-bold uppercase tracking-wide text-brand-900">
               {totalLabel}
             </th>
           </tr>

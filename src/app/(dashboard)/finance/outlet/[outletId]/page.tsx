@@ -164,19 +164,18 @@ export default async function OutletDetailReportPage({
 
       {/* a. Omset Sheet */}
       <Card id="omset-sheet-section">
-        <CardHeader className="sticky top-16 z-30 bg-white">
-          <div>
+        <CardHeader className="sticky top-16 z-30 h-[76px] bg-white">
+          <div className="min-w-0">
             <CardTitle>OMSET SHEET</CardTitle>
-            <p className="text-xs text-slate-400">
+            <p className="truncate text-xs text-slate-400">
               Produk dengan latar <span className="rounded bg-yellow-200 px-1 font-semibold text-yellow-900">kuning</span> menggunakan daging ketul. Paket
               (MBG/Kopdes/Trio/dll) diterjemahkan ke produk &amp; topping penyusunnya — paket itu sendiri tidak muncul sebagai kolom.
             </p>
           </div>
           <ExportExcelButton containerId="omset-sheet-section" filename={`Omset_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
         </CardHeader>
-        <div className="overflow-x-auto">
-          <Table data-sheet-name="Omset">
-            <Thead>
+          <Table data-sheet-name="Omset" wrapperClassName="max-h-[70vh] overflow-auto">
+            <Thead className="sticky top-0 z-20 bg-slate-50">
               <tr>
                 <Th className="sticky left-0 z-10 bg-slate-50">Tanggal</Th>
                 <Th className="text-right">Total Omset</Th>
@@ -214,15 +213,14 @@ export default async function OutletDetailReportPage({
               </Tr>
             </tbody>
           </Table>
-        </div>
       </Card>
 
       {/* JPD Sheet — yield KPI (Jumlah Produk per Daging), daily rollup */}
       <Card id="jpd-sheet-section">
-        <CardHeader className="sticky top-16 z-30 bg-white">
-          <div>
+        <CardHeader className="sticky top-16 z-30 h-[76px] bg-white">
+          <div className="min-w-0">
             <CardTitle>JPD SHEET</CardTitle>
-            <p className="text-xs text-slate-400">
+            <p className="truncate text-xs text-slate-400">
               Rata-rata Penggunaan Daging/Ketul (Pcs/4Kg) = produk daging ketul terjual ÷ pemakaian daging (dari data Freezer Material Daging @4kg + @2kg) —
               KPI yield yang sama dengan kartu JPD di menu Inventory.
             </p>
@@ -234,9 +232,8 @@ export default async function OutletDetailReportPage({
             Material freezer &quot;Daging @4kg&quot; / &quot;daging @2kg&quot; belum ditemukan — kolom pemakaian daging tidak dapat dihitung.
           </div>
         )}
-        <div className="overflow-x-auto">
-          <Table data-sheet-name="JPD">
-            <Thead>
+          <Table data-sheet-name="JPD" wrapperClassName="max-h-[70vh] overflow-auto">
+            <Thead className="sticky top-0 z-20 bg-slate-50">
               <tr>
                 <Th rowSpan={2}>Hari</Th>
                 <Th rowSpan={2}>Tanggal</Th>
@@ -289,23 +286,22 @@ export default async function OutletDetailReportPage({
               </Tr>
             </tbody>
           </Table>
-        </div>
       </Card>
 
       {/* b. Purchase Sheet */}
       <Card id="purchase-sheet-section">
-        <CardHeader className="sticky top-16 z-30 bg-white">
-          <div>
+        <CardHeader className="sticky top-16 z-30 h-[76px] bg-white">
+          <div className="min-w-0">
             <CardTitle>PURCHASE SHEET</CardTitle>
-            <p className="text-xs text-slate-400">Barang Masuk = data dari akun Pramuniaga (Inventory Record). Ditambah pembelian lokal manual di bawah.</p>
+            <p className="truncate text-xs text-slate-400">Barang Masuk = data dari akun Pramuniaga (Inventory Record). Ditambah pembelian lokal manual di bawah.</p>
           </div>
           <ExportExcelButton containerId="purchase-sheet-section" filename={`Purchase_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
         </CardHeader>
         <div className="border-b border-slate-100 p-5">
           <OutletPurchaseForm outletId={outletId} materials={materialsForForms} />
         </div>
-        <Table data-sheet-name="Purchase">
-          <Thead>
+        <Table data-sheet-name="Purchase" wrapperClassName="max-h-[70vh] overflow-auto">
+          <Thead className="sticky top-0 z-20 bg-slate-50">
             <tr>
               <Th>Tanggal</Th>
               <Th>Deskripsi</Th>
@@ -358,15 +354,15 @@ export default async function OutletDetailReportPage({
 
       {/* c. Adjustment Sheet */}
       <Card id="adjustment-sheet-section">
-        <CardHeader className="sticky top-16 z-30 bg-white">
+        <CardHeader className="sticky top-16 z-30 h-14 bg-white">
           <CardTitle>ADJUSTMENT SHEET</CardTitle>
           <ExportExcelButton containerId="adjustment-sheet-section" filename={`Adjustment_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
         </CardHeader>
         <div className="border-b border-slate-100 p-5">
           <OutletAdjustmentForm outletId={outletId} materials={materialsForForms} />
         </div>
-        <Table data-sheet-name="Adjustment">
-          <Thead>
+        <Table data-sheet-name="Adjustment" wrapperClassName="max-h-[70vh] overflow-auto">
+          <Thead className="sticky top-0 z-20 bg-slate-50">
             <tr>
               <Th>Tanggal</Th>
               <Th>Jenis</Th>
@@ -413,11 +409,11 @@ export default async function OutletDetailReportPage({
 
       {/* d. Jurnal Sheet — Ledger (input manual, format spreadsheet asli) */}
       <Card id="jurnal-sheet-section">
-        <CardHeader className="sticky top-16 z-30 bg-white">
+        <CardHeader className="sticky top-16 z-30 h-[76px] flex-wrap items-center gap-1 bg-white">
           <CardTitle>JURNAL SHEET</CardTitle>
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xs text-slate-400">Tanggal / No. Akun / Keterangan / D-C / Nilai — dicatat manual, sama seperti kebiasaan pembukuan harian.</p>
-            <Link href="/admin/outlet-ledger-accounts" className="text-xs font-bold text-accent-700 hover:text-accent-800">
+          <div className="flex flex-nowrap items-center gap-2 overflow-hidden">
+            <p className="truncate text-xs text-slate-400">Tanggal / No. Akun / Keterangan / D-C / Nilai — dicatat manual, sama seperti kebiasaan pembukuan harian.</p>
+            <Link href="/admin/outlet-ledger-accounts" className="shrink-0 text-xs font-bold text-accent-700 hover:text-accent-800">
               Kelola Chart of Accounts →
             </Link>
             <ExportExcelButton containerId="jurnal-sheet-section" filename={`Jurnal_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
@@ -426,9 +422,8 @@ export default async function OutletDetailReportPage({
         <div className="border-b border-slate-100 p-5">
           <OutletLedgerEntryForm outletId={outletId} accounts={ledgerAccountOptions} />
         </div>
-        <div className="overflow-x-auto">
-          <Table data-sheet-name="Jurnal">
-            <Thead>
+          <Table data-sheet-name="Jurnal" wrapperClassName="max-h-[70vh] overflow-auto">
+            <Thead className="sticky top-0 z-20 bg-slate-50">
               <tr>
                 <Th>Tanggal</Th>
                 <Th>No. Akun</Th>
@@ -476,15 +471,14 @@ export default async function OutletDetailReportPage({
               </Tr>
             </tbody>
           </Table>
-        </div>
       </Card>
 
       {/* e. Absen Sheet */}
       <Card id="absen-sheet-section">
-        <CardHeader className="sticky top-16 z-30 bg-white">
-          <div>
+        <CardHeader className="sticky top-16 z-30 h-[76px] bg-white">
+          <div className="min-w-0">
             <CardTitle>ABSEN SHEET</CardTitle>
-            <p className="text-xs text-slate-400">
+            <p className="truncate text-xs text-slate-400">
               {outletCode} {outlet.name} — {MONTH_NAMES[month - 1]} {year}
             </p>
           </div>
@@ -509,9 +503,8 @@ export default async function OutletDetailReportPage({
             Belum ada bracket insentif aktif — atur di &quot;Bracket Insentif Outlet&quot; agar Insentive Value terisi.
           </div>
         )}
-        <div className="overflow-x-auto">
-          <Table data-sheet-name="Absen">
-            <Thead>
+          <Table data-sheet-name="Absen" wrapperClassName="max-h-[70vh] overflow-auto">
+            <Thead className="sticky top-0 z-20 bg-slate-50">
               <tr>
                 <Th>No.</Th>
                 <Th>Nama</Th>
@@ -586,7 +579,6 @@ export default async function OutletDetailReportPage({
               </Tr>
             </tbody>
           </Table>
-        </div>
         <p className="px-5 py-3 text-xs text-slate-400">
           Labor Cost &amp; Gaji Pokok diisi manual per pramuniaga (belum ada data gaji pokok/HR untuk dihitung otomatis) — kolom berlatar kuning berarti
           belum pernah diisi bulan ini. Total Salary dihitung otomatis: (Hari Kerja ÷ 27) × Gaji Pokok.
@@ -595,7 +587,7 @@ export default async function OutletDetailReportPage({
 
       {/* f. Insentive Sheet */}
       <Card id="insentive-sheet-section">
-        <CardHeader className="sticky top-16 z-30 bg-white">
+        <CardHeader className="sticky top-16 z-30 h-14 bg-white">
           <CardTitle>INSENTIVE SHEET</CardTitle>
           <div className="flex items-center gap-2">
             <Link href="/admin/incentive-brackets" className="text-xs font-bold text-accent-700 hover:text-accent-800">
@@ -604,9 +596,8 @@ export default async function OutletDetailReportPage({
             <ExportExcelButton containerId="insentive-sheet-section" filename={`Insentive_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
           </div>
         </CardHeader>
-        <div className="overflow-x-auto">
-          <Table data-sheet-name="Insentif_Harian">
-            <Thead>
+          <Table data-sheet-name="Insentif_Harian" wrapperClassName="max-h-[70vh] overflow-auto">
+            <Thead className="sticky top-0 z-20 bg-slate-50">
               <tr>
                 <Th>Hari</Th>
                 <Th>Tanggal</Th>
@@ -647,11 +638,10 @@ export default async function OutletDetailReportPage({
               </Tr>
             </tbody>
           </Table>
-        </div>
 
         <p className="mt-4 px-5 text-xs font-bold uppercase tracking-wide text-slate-400">Rekap Insentif per Pramuniaga</p>
-        <Table data-sheet-name="Rekap_Pramuniaga">
-          <Thead>
+        <Table data-sheet-name="Rekap_Pramuniaga" wrapperClassName="max-h-[70vh] overflow-auto">
+          <Thead className="sticky top-0 z-20 bg-slate-50">
             <tr>
               <Th>Nama</Th>
               <Th className="text-right">Total Hadir</Th>
@@ -708,19 +698,21 @@ export default async function OutletDetailReportPage({
 
       {/* g. Inventory Sheet */}
       <Card id="inventory-sheet-section">
-        <CardHeader className="sticky top-16 z-30 bg-white">
-          <div>
+        <CardHeader className="sticky top-16 z-30 h-[76px] bg-white">
+          <div className="min-w-0">
             <CardTitle>INVENTORY SHEET</CardTitle>
-            <p className="text-xs text-slate-400">Kolom &quot;Akhir&quot; diisi manual (hasil stock opname); kolom lain otomatis dari transaksi bulan ini.</p>
+            <p className="truncate text-xs text-slate-400">Kolom &quot;Akhir&quot; diisi manual (hasil stock opname); kolom lain otomatis dari transaksi bulan ini.</p>
           </div>
           <ExportExcelButton containerId="inventory-sheet-section" filename={`Inventory_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
         </CardHeader>
         {[...materialsByCategory.entries()].map(([category, rows]) => (
           <div key={category} className="border-b border-slate-100">
-            <p className="bg-slate-50 px-5 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">{MATERIAL_CATEGORY_LABELS[category] ?? category}</p>
-            <div className="overflow-x-auto">
-              <Table data-sheet-name={(MATERIAL_CATEGORY_LABELS[category] ?? category).replace(/[^A-Za-z0-9]+/g, "_")}>
-                <Thead>
+            <p className="sticky top-[140px] z-20 bg-slate-50 px-5 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">{MATERIAL_CATEGORY_LABELS[category] ?? category}</p>
+              <Table
+                data-sheet-name={(MATERIAL_CATEGORY_LABELS[category] ?? category).replace(/[^A-Za-z0-9]+/g, "_")}
+                wrapperClassName="max-h-[70vh] overflow-auto"
+              >
+                <Thead className="sticky top-0 z-20 bg-slate-50">
                   <tr>
                     <Th>Kode</Th>
                     <Th>Nama</Th>
@@ -756,7 +748,6 @@ export default async function OutletDetailReportPage({
                   {rows.length === 0 && <EmptyRow colSpan={11}>Belum ada material di kategori ini.</EmptyRow>}
                 </tbody>
               </Table>
-            </div>
           </div>
         ))}
         <div className="flex items-center justify-between rounded-lg bg-gold-50 px-5 py-3 font-bold text-brand-900">
