@@ -293,46 +293,104 @@ export default async function OutletDetailReportPage({
         <CardHeader className="sticky top-16 z-30 h-[76px] bg-white">
           <div className="min-w-0">
             <CardTitle>PURCHASE SHEET</CardTitle>
-            <p className="truncate text-xs text-slate-400">Barang Masuk = data dari akun Pramuniaga (Inventory Record). Ditambah pembelian lokal manual di bawah.</p>
+            <p className="truncate text-xs text-slate-400">Qty pembelian per bahan per hari — kolom &quot;CTRL PRICE&quot; = qty × harga satuan, cross-check total Rp.</p>
           </div>
           <ExportExcelButton containerId="purchase-sheet-section" filename={`Purchase_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
         </CardHeader>
         <div className="border-b border-slate-100 p-5">
           <OutletPurchaseForm outletId={outletId} materials={materialsForForms} />
         </div>
-        <Table data-sheet-name="Purchase" wrapperClassName="max-h-[70vh] overflow-auto">
+        <div className="max-h-[70vh] overflow-auto">
+          <table className="w-full min-w-max border-collapse text-xs" data-sheet-name="Purchase">
+            <thead>
+              <tr>
+                <th rowSpan={4} className="sticky left-0 top-0 z-30 min-w-[64px] border-b border-r border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-[11px] font-bold uppercase text-slate-500">Hari</th>
+                <th rowSpan={4} className="sticky left-[64px] top-0 z-30 min-w-[80px] border-b border-r border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-[11px] font-bold uppercase text-slate-500">Tanggal</th>
+                <th rowSpan={4} className="sticky left-[144px] top-0 z-30 min-w-[130px] border-b border-r-2 border-slate-300 bg-slate-50 px-2 py-1.5 text-right text-[11px] font-bold uppercase text-slate-500">Total Pembelian (Rp.)</th>
+                {purchase.materials.map((m, i) => (
+                  <th key={m.id} className="sticky top-0 z-20 h-8 min-w-[92px] border-b border-l border-slate-200 bg-slate-50 px-1.5 py-1 text-center text-[10px] font-bold text-slate-400">
+                    {i + 1}
+                  </th>
+                ))}
+              </tr>
+              <tr>
+                {purchase.materials.map((m) => (
+                  <th key={m.id} className="sticky top-8 z-20 h-8 min-w-[92px] border-b border-l border-slate-200 bg-slate-50 px-1.5 py-1 text-center text-[10px] font-bold uppercase leading-tight text-slate-600">
+                    {m.name}
+                  </th>
+                ))}
+              </tr>
+              <tr>
+                {purchase.materials.map((m) => (
+                  <th key={m.id} className="sticky top-16 z-20 h-8 min-w-[92px] border-b border-l border-slate-200 bg-slate-50 px-1.5 py-1 text-center text-[10px] font-semibold uppercase text-slate-400">
+                    {m.unit}
+                  </th>
+                ))}
+              </tr>
+              <tr>
+                {purchase.materials.map((m) => (
+                  <th key={m.id} className="sticky top-24 z-20 h-8 min-w-[92px] border-b border-l border-slate-200 bg-slate-100 px-1.5 py-1 text-center text-[10px] font-semibold tabular-nums text-slate-500">
+                    {number0.format(m.unitPrice)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {purchase.days.map((d, i) => {
+                const isMonday = d.date.getUTCDay() === 1;
+                return (
+                  <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/60">
+                    <td className={`sticky left-0 z-10 px-2 py-1.5 font-medium text-slate-900 ${isMonday ? "bg-rose-50" : "bg-white"}`}>{HARI_NAMES[d.date.getUTCDay()]}</td>
+                    <td className={`sticky left-[64px] z-10 border-r border-slate-200 px-2 py-1.5 text-slate-700 ${isMonday ? "bg-rose-50" : "bg-white"}`}>{d.date.getUTCDate().toString().padStart(2, "0")}-{MONTH_NAMES[month - 1].slice(0, 3)}-{String(year).slice(2)}</td>
+                    <td className={`sticky left-[144px] z-10 border-r-2 border-slate-300 px-2 py-1.5 text-right font-bold tabular-nums text-rose-700 ${isMonday ? "bg-rose-50" : "bg-white"}`}>
+                      {d.totalPembelian > 0 ? currency.format(d.totalPembelian) : "-"}
+                    </td>
+                    {purchase.materials.map((m) => (
+                      <td key={m.id} className="border-l border-slate-100 px-1.5 py-1.5 text-center tabular-nums">
+                        {d.qtyByMaterialId[m.id] ? number0.format(d.qtyByMaterialId[m.id]) : ""}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+              <tr className="border-t-2 border-slate-300 bg-gold-50 font-bold text-brand-900">
+                <td colSpan={2} className="sticky left-0 z-10 bg-gold-50 px-2 py-1.5">TOTAL ------&gt;&gt;&gt;</td>
+                <td className="sticky left-[144px] z-10 border-r-2 border-slate-300 bg-gold-50 px-2 py-1.5 text-right tabular-nums">{currency.format(purchase.total)}</td>
+                {purchase.materials.map((m) => (
+                  <td key={m.id} className="border-l border-slate-200 px-1.5 py-1.5 text-center tabular-nums">
+                    {purchase.totalQtyByMaterialId[m.id] ? number0.format(purchase.totalQtyByMaterialId[m.id]) : "-"}
+                  </td>
+                ))}
+              </tr>
+              <tr className="bg-slate-100 font-semibold text-slate-600">
+                <td colSpan={2} className="sticky left-0 z-10 bg-slate-100 px-2 py-1.5">CTRL PRICE</td>
+                <td className="sticky left-[144px] z-10 border-r-2 border-slate-300 bg-slate-100 px-2 py-1.5 text-right tabular-nums">{currency.format(purchase.totalCtrlPrice)}</td>
+                {purchase.materials.map((m) => (
+                  <td key={m.id} className="border-l border-slate-200 px-1.5 py-1.5 text-center text-[10px] tabular-nums">
+                    {purchase.ctrlPriceByMaterialId[m.id] ? number0.format(purchase.ctrlPriceByMaterialId[m.id]) : "-"}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p className="mt-4 px-5 text-xs font-bold uppercase tracking-wide text-slate-400">Log Pembelian Bulan Ini</p>
+        <Table data-sheet-name="Purchase_Log" wrapperClassName="max-h-[50vh] overflow-auto">
           <Thead className="sticky top-0 z-20 bg-slate-50">
             <tr>
               <Th>Tanggal</Th>
               <Th>Deskripsi</Th>
-              <Th>Sumber</Th>
               <Th className="text-right">Qty</Th>
               <Th className="text-right">Nominal</Th>
               <Th></Th>
             </tr>
           </Thead>
           <tbody>
-            {purchase.receivedRows.map((r, i) => (
-              <Tr key={`recv-${i}`}>
-                <Td>{r.date.toLocaleDateString("id-ID")}</Td>
-                <Td>{r.description}</Td>
-                <Td>
-                  <Badge tone="info">Pramuniaga</Badge>
-                </Td>
-                <Td className="text-right">
-                  {r.qty} {r.unit}
-                </Td>
-                <Td className="text-right font-semibold">{currency.format(r.amount)}</Td>
-                <Td></Td>
-              </Tr>
-            ))}
-            {purchase.manualRows.map((p) => (
+            {purchase.entries.map((p) => (
               <Tr key={p.id}>
                 <Td>{p.date.toLocaleDateString("id-ID")}</Td>
                 <Td>{p.description}</Td>
-                <Td>
-                  <Badge tone="neutral">Manual — {p.category}</Badge>
-                </Td>
                 <Td className="text-right">
                   {p.qty} {p.unit}
                 </Td>
@@ -342,12 +400,7 @@ export default async function OutletDetailReportPage({
                 </Td>
               </Tr>
             ))}
-            {purchase.receivedRows.length === 0 && purchase.manualRows.length === 0 && <EmptyRow colSpan={6}>Belum ada pembelian bulan ini.</EmptyRow>}
-            <Tr className="bg-gold-50 font-bold text-brand-900">
-              <Td colSpan={4}>TOTAL PURCHASE</Td>
-              <Td className="text-right">{currency.format(purchase.total)}</Td>
-              <Td></Td>
-            </Tr>
+            {purchase.entries.length === 0 && <EmptyRow colSpan={5}>Belum ada pembelian bulan ini.</EmptyRow>}
           </tbody>
         </Table>
       </Card>

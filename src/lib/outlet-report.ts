@@ -231,35 +231,62 @@ export async function getJpdSheet(outletId: string, year: number, month: number,
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// b. Purchase Sheet — OutletPurchase entries PLUS "barang masuk" already
-// recorded on the pramuniaga side (InventoryRecord.received), since the
-// business explicitly wants Purchase Sheet driven by that existing data,
-// not a second manual entry for the same physical event.
+// b. Purchase Sheet — day × material matrix, exactly like the real
+// spreadsheet: one row per day (Hari/Tanggal/Total Pembelian), one column
+// per active OutletMaterial (36 items — Daging, Labanise, Roti, saos,
+// packaging, alat pendukung — in the same category+sortOrder as the
+// material master), each cell the day's purchased qty for that material.
+// A bottom TOTAL row sums qty per column; CTRL PRICE cross-checks it
+// (qty × unitPrice) against the same day-rows' own Total Pembelian sum —
+// the same "two ways to the same number" integrity-check pattern used
+// elsewhere in this file (Neraca Saldo Seimbang, etc).
+//
+// Driven purely by OutletPurchase rows tagged to a material — the old
+// "Barang Masuk via Pramuniaga Inventory Record" (finished-Product
+// receiving, not raw-material buying) doesn't map to any of these
+// material columns, so it's no longer folded in here; getInventorySheet
+// still reads OutletPurchase the same way for its own Masuk column.
 // ═══════════════════════════════════════════════════════════════════════
+export type PurchaseSheetMaterial = { id: string; code: string; name: string; unit: string; unitPrice: number };
+export type PurchaseSheetDay = { date: Date; totalPembelian: number; qtyByMaterialId: Record<string, number> };
+
 export async function getPurchaseSheet(outletId: string, year: number, month: number) {
   const { start, end } = monthRange(year, month);
-  const [manualPurchases, receivedRecords] = await Promise.all([
+  const [materials, purchases] = await Promise.all([
+    prisma.outletMaterial.findMany({ where: { status: "ACTIVE" }, orderBy: [{ category: "asc" }, { sortOrder: "asc" } ] }),
     prisma.outletPurchase.findMany({
       where: { outletId, date: { gte: start, lte: end } },
       include: { createdBy: { select: { name: true } }, material: { select: { name: true } } },
       orderBy: { date: "asc" },
     }),
-    prisma.inventoryRecord.findMany({
-      where: { outletId, date: { gte: start, lte: end }, received: { gt: 0 } },
-      include: { product: { select: { name: true, cost: true } } },
-      orderBy: { date: "asc" },
-    }),
   ]);
 
-  const receivedRows = receivedRecords.map((r) => ({
-    date: r.date,
-    description: `Barang Masuk — ${r.product.name}`,
-    qty: r.received,
-    unit: "pcs",
-    amount: r.received * Number(r.product.cost),
-    source: "pramuniaga" as const,
+  const nDays = daysInMonth(year, month);
+  const days: PurchaseSheetDay[] = Array.from({ length: nDays }, (_, i) => ({
+    date: new Date(Date.UTC(year, month - 1, i + 1)),
+    totalPembelian: 0,
+    qtyByMaterialId: {},
   }));
-  const manualRows = manualPurchases.map((p) => ({
+
+  for (const p of purchases) {
+    const dayIdx = p.date.getUTCDate() - 1;
+    const day = days[dayIdx];
+    if (!day) continue;
+    day.totalPembelian += Number(p.amount);
+    if (p.materialId) day.qtyByMaterialId[p.materialId] = (day.qtyByMaterialId[p.materialId] ?? 0) + Number(p.qty);
+  }
+
+  const materialList: PurchaseSheetMaterial[] = materials.map((m) => ({ id: m.id, code: m.code, name: m.name, unit: m.unit, unitPrice: Number(m.unitPrice) }));
+  const totalQtyByMaterialId: Record<string, number> = {};
+  for (const m of materialList) totalQtyByMaterialId[m.id] = days.reduce((s, d) => s + (d.qtyByMaterialId[m.id] ?? 0), 0);
+  const ctrlPriceByMaterialId: Record<string, number> = {};
+  for (const m of materialList) ctrlPriceByMaterialId[m.id] = totalQtyByMaterialId[m.id] * m.unitPrice;
+
+  const total = days.reduce((s, d) => s + d.totalPembelian, 0);
+  const totalCtrlPrice = materialList.reduce((s, m) => s + ctrlPriceByMaterialId[m.id], 0);
+
+  // Kept for the entry log below the matrix (edit/delete individual rows).
+  const entries = purchases.map((p) => ({
     id: p.id,
     date: p.date,
     description: p.material ? `${p.description} (${p.material.name})` : p.description,
@@ -268,12 +295,9 @@ export async function getPurchaseSheet(outletId: string, year: number, month: nu
     unit: p.unit,
     amount: Number(p.amount),
     createdBy: p.createdBy.name,
-    source: "manual" as const,
   }));
 
-  const totalReceived = receivedRows.reduce((s, r) => s + r.amount, 0);
-  const totalManual = manualRows.reduce((s, r) => s + r.amount, 0);
-  return { receivedRows, manualRows, totalReceived, totalManual, total: totalReceived + totalManual };
+  return { materials: materialList, days, totalQtyByMaterialId, ctrlPriceByMaterialId, total, totalCtrlPrice, entries };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
