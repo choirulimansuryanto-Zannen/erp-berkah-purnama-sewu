@@ -480,7 +480,15 @@ export async function getWorksheetSnapshot(year: number, month: number): Promise
  * BEBAN OVERHEAD PABRIK") into one total across its whole subtree. Each
  * account's `monthly`/`cumulative` already reflects only ITS OWN postings
  * (postings never auto-roll-up), so summing every row in this list is safe
- * and never double-counts. */
+ * and never double-counts.
+ *
+ * Sorted by code ascending before returning — the traversal itself is a
+ * stack-based (LIFO) walk, so without this a subtree with several sibling
+ * groups (e.g. 11000/12000/.../17000 under "10000") comes out with those
+ * groups in REVERSE order (17000's descendants first, 11000's last), even
+ * though each group is internally ascending. Every consumer (Neraca, Laba
+ * Rugi, HPP, ...) wants the conventional smallest-to-largest account-number
+ * order, never this traversal artifact. */
 export function accountSubtree(matrix: MonthlyAccountRow[], rootCode: string): MonthlyAccountRow[] {
   const root = matrix.find((a) => a.code === rootCode);
   if (!root) return [];
@@ -493,7 +501,7 @@ export function accountSubtree(matrix: MonthlyAccountRow[], rootCode: string): M
       stack.push(a.accountId);
     }
   }
-  return out;
+  return out.sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
 }
 
 export type CashFlowActivity = "OPERASI" | "INVESTASI" | "PENDANAAN";
