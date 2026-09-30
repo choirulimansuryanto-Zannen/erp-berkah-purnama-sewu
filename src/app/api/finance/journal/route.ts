@@ -3,6 +3,7 @@ import { requirePermission } from "@/lib/api-guard";
 import { prisma } from "@/lib/prisma";
 import { journalVoucherSchema } from "@/lib/validations/accounting";
 import { postCashVoucher } from "@/lib/accounting";
+import { CASH_BOOK_LABELS, CASH_BOOK_TRANSFER_DESTINATIONS } from "@/lib/accounting-labels";
 
 export async function GET(request: Request) {
   const { user, response } = await requirePermission("finance:view_ledger");
@@ -49,6 +50,15 @@ export async function POST(request: Request) {
     }
     if (destAccount.cashBook === data.cashBook) {
       return NextResponse.json({ error: "Buku kas asal dan tujuan tidak boleh sama." }, { status: 400 });
+    }
+    const allowedDestinations = CASH_BOOK_TRANSFER_DESTINATIONS[data.cashBook];
+    if (!allowedDestinations.includes(destAccount.cashBook)) {
+      return NextResponse.json(
+        {
+          error: `${CASH_BOOK_LABELS[data.cashBook]} hanya boleh transfer ke ${allowedDestinations.map((b) => CASH_BOOK_LABELS[b]).join(", ")}.`,
+        },
+        { status: 400 },
+      );
     }
   }
 

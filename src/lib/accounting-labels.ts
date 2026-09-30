@@ -13,6 +13,22 @@ export const CASH_BOOK_LABELS: Record<CashBook, string> = {
   BANK_MANDIRI: "Bank Mandiri",
 };
 
+/** Which cash books each book is allowed to Transfer Antar Buku INTO —
+ * the business's own fund-flow rule: Kasir only ever forwards to Brankas;
+ * Kas Outlet deposits to Brankas or a bank; Brankas is the hub (receives
+ * from Bank/Outlet/Kasir, pays out to anyone); Petty Cash only ever
+ * receives from Brankas and only ever pays into a bank; a bank can move
+ * money to/from anywhere. Enforced both server-side (postCashVoucher) and
+ * client-side (the voucher form only offers allowed destinations). */
+export const CASH_BOOK_TRANSFER_DESTINATIONS: Record<CashBook, CashBook[]> = {
+  KASIR: ["BRANKAS"],
+  OUTLET: ["BRANKAS", "BANK_BCA", "BANK_MANDIRI"],
+  BRANKAS: ["KASIR", "OUTLET", "PETTY_CASH", "BANK_BCA", "BANK_MANDIRI"],
+  PETTY_CASH: ["BANK_BCA", "BANK_MANDIRI"],
+  BANK_BCA: ["KASIR", "OUTLET", "BRANKAS", "PETTY_CASH", "BANK_MANDIRI"],
+  BANK_MANDIRI: ["KASIR", "OUTLET", "BRANKAS", "PETTY_CASH", "BANK_BCA"],
+};
+
 export const JOURNAL_ENTRY_TYPE_LABELS: Record<JournalEntryType, string> = {
   KAS_MASUK: "Kas Masuk",
   KAS_KELUAR: "Kas Keluar",

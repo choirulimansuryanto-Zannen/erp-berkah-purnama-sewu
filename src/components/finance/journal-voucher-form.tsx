@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Label, Input, Select, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { CASH_BOOK_LABELS, JOURNAL_ENTRY_TYPE_LABELS } from "@/lib/accounting-labels";
+import { CASH_BOOK_LABELS, JOURNAL_ENTRY_TYPE_LABELS, CASH_BOOK_TRANSFER_DESTINATIONS } from "@/lib/accounting-labels";
 
 type Account = { id: string; code: string; name: string; type: string; cashBook: string | null };
 
@@ -37,11 +37,14 @@ export function JournalVoucherForm({
   const [pending, startTransition] = useTransition();
 
   // Kas Masuk/Keluar: any non-cash-book account is a valid "lawan akun".
-  // Transfer Antar Buku: the contra MUST be one of the other five cash
-  // books — you can't "transfer" into a P&L account.
+  // Transfer Antar Buku: the contra must be one of THIS book's allowed
+  // destinations per the business's own fund-flow rule (e.g. Kasir only
+  // ever forwards to Brankas; Petty Cash only ever receives from Brankas
+  // and only ever pays into a bank) — not just "any other cash book".
   const contraOptions = useMemo(() => {
     if (entryType === "TRANSFER_ANTAR_BUKU") {
-      return accounts.filter((a) => a.cashBook && a.cashBook !== cashBook);
+      const allowed = CASH_BOOK_TRANSFER_DESTINATIONS[cashBook as keyof typeof CASH_BOOK_TRANSFER_DESTINATIONS] ?? [];
+      return accounts.filter((a) => a.cashBook && allowed.includes(a.cashBook as never));
     }
     return accounts.filter((a) => !a.cashBook);
   }, [accounts, entryType, cashBook]);
@@ -120,6 +123,15 @@ export function JournalVoucherForm({
                 </option>
               ))}
             </Select>
+            {entryType === "TRANSFER_ANTAR_BUKU" && (
+              <p className="mt-1 text-[11px] text-slate-400">
+                {CASH_BOOK_LABELS[cashBook as keyof typeof CASH_BOOK_LABELS]} hanya boleh transfer ke:{" "}
+                {(CASH_BOOK_TRANSFER_DESTINATIONS[cashBook as keyof typeof CASH_BOOK_TRANSFER_DESTINATIONS] ?? [])
+                  .map((b) => CASH_BOOK_LABELS[b])
+                  .join(", ")}
+                .
+              </p>
+            )}
           </div>
           <div>
             <Label>Nominal (Rp)</Label>
