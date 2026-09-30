@@ -16,7 +16,9 @@ import {
   type MonthlyAccountRow,
 } from "@/lib/accounting";
 import { MonthlyReportTable, type MonthlyReportRow } from "@/components/finance/monthly-report-table";
+import { FaTrendChart } from "@/components/finance/fa-trend-chart";
 
+const MONTH_LABELS_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 const ZERO_12 = () => Array.from({ length: 12 }, () => 0);
 function negate(values: number[]): number[] {
   return values.map((v) => -v);
@@ -116,6 +118,13 @@ export default async function FinanceReportsPage({ searchParams }: { searchParam
 
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i);
 
+  const trendData = MONTH_LABELS_ID.map((label, i) => ({
+    label: `${label} ${String(year).slice(2)}`,
+    penjualan: totalPenjualan[i],
+    hpp: totalHpp[i],
+    labaBersih: labaBersih[i],
+  })).slice(0, upToMonth + 1);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -139,6 +148,15 @@ export default async function FinanceReportsPage({ searchParams }: { searchParam
             Tampilkan
           </Button>
         </form>
+      </Card>
+
+      <Card>
+        <div className="border-b border-slate-100 px-5 py-4">
+          <p className="text-sm font-semibold text-brand-900">Tren Penjualan, HPP & Laba Bersih — {year}</p>
+        </div>
+        <div className="p-5 pt-2">
+          <FaTrendChart data={trendData} />
+        </div>
       </Card>
 
       <Card className="p-0">

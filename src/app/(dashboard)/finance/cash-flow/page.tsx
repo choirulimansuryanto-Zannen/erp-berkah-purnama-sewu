@@ -7,11 +7,13 @@ import { Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { getMonthlyCashFlow, getMonthlyAccountMatrix } from "@/lib/accounting";
 import { MonthlyReportTable, type MonthlyReportRow } from "@/components/finance/monthly-report-table";
+import { FormattedBarChart } from "@/components/ui/formatted-charts";
 import { StatCard } from "@/components/ui/stat-card";
 import { Wallet, TrendingUp, TrendingDown } from "lucide-react";
 import type { CashFlowActivity } from "@/lib/accounting";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
+const MONTH_LABELS_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
 const ZERO_12 = () => Array.from({ length: 12 }, () => 0);
 function addSeries(...series: number[][]): number[] {
@@ -72,6 +74,12 @@ export default async function CashFlowPage({ searchParams }: { searchParams: Pro
 
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i);
 
+  const ytdByActivity = [
+    { name: "Aktivitas Operasi", value: activityTotals.OPERASI.slice(0, upToMonth + 1).reduce((s, v) => s + v, 0), color: "#0f9d58" },
+    { name: "Aktivitas Investasi", value: activityTotals.INVESTASI.slice(0, upToMonth + 1).reduce((s, v) => s + v, 0), color: "#2f56c4" },
+    { name: "Aktivitas Pendanaan", value: activityTotals.PENDANAAN.slice(0, upToMonth + 1).reduce((s, v) => s + v, 0), color: "#7c3aed" },
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -118,6 +126,15 @@ export default async function CashFlowPage({ searchParams }: { searchParams: Pro
           icon={<TrendingDown className="h-4 w-4" />}
         />
       </div>
+
+      <Card>
+        <div className="border-b border-slate-100 px-5 py-4">
+          <p className="text-sm font-semibold text-brand-900">Arus Kas per Aktivitas (YTD s/d {MONTH_LABELS_ID[upToMonth]} {year})</p>
+        </div>
+        <div className="p-5">
+          <FormattedBarChart data={ytdByActivity} format="currency" />
+        </div>
+      </Card>
 
       <Card className="p-0">
         <div className="sticky top-16 z-30 flex h-11 items-center rounded-t-xl bg-brand-950 px-5">

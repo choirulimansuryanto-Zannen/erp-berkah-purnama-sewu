@@ -122,8 +122,27 @@ export function AppShell({ role, userName, outletName, shiftLabel, notificationB
           <Sidebar role={role} onNavigate={() => setSidebarOpen(false)} />
         </div>
 
-        <main className="flex-1 bg-[var(--background)] p-4 sm:p-6">
-          <div key={pathname} className="mx-auto max-w-6xl animate-fade-in-up">
+        <main className="relative flex-1 bg-[var(--background)] p-4 sm:p-6">
+          {/* Same decorative language as the login page's dark hero panel
+              (soft blurred color orbs + faint dot-grid), re-tuned way down
+              in opacity for a light, content-dense surface — texture behind
+              the cards, never competing with the data sitting on top.
+              `fixed` (not `absolute`) so it reads as one ambient backdrop
+              anchored to the viewport, not something tied to (and buried
+              inside) whichever report page happens to be very tall. */}
+          <div
+            className="pointer-events-none fixed inset-0 z-0 opacity-[0.035]"
+            style={{
+              backgroundImage: "radial-gradient(circle at 1px 1px, #101f3a 1px, transparent 0)",
+              backgroundSize: "28px 28px",
+            }}
+            aria-hidden
+          />
+          <div className="pointer-events-none fixed -right-32 top-16 z-0 h-[26rem] w-[26rem] rounded-full bg-accent-400/[0.10] blur-3xl" aria-hidden />
+          <div className="pointer-events-none fixed left-1/4 top-1/2 z-0 h-96 w-96 rounded-full bg-gold-400/[0.08] blur-3xl" aria-hidden />
+          <div className="pointer-events-none fixed -bottom-24 -left-24 z-0 h-[28rem] w-[28rem] rounded-full bg-brand-400/[0.08] blur-3xl" aria-hidden />
+
+          <div key={pathname} className="relative z-10 mx-auto max-w-6xl animate-fade-in-up">
             {children}
           </div>
         </main>

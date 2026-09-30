@@ -7,7 +7,9 @@ import { Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { getMonthlyAccountMatrix, getMonthlyHppReport, computeLabaBersihSeries, accountSubtree, typeNaturalValue, type MonthlyAccountRow } from "@/lib/accounting";
 import { MonthlyReportTable, type MonthlyReportRow } from "@/components/finance/monthly-report-table";
+import { FormattedDonutChart } from "@/components/ui/formatted-charts";
 
+const MONTH_LABELS_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 const ZERO_12 = () => Array.from({ length: 12 }, () => 0);
 function addSeries(...series: number[][]): number[] {
   return ZERO_12().map((_, i) => series.reduce((s, arr) => s + arr[i], 0));
@@ -98,6 +100,19 @@ export default async function NeracaPage({ searchParams }: { searchParams: Promi
   const isBalancedAtMonth = Math.abs(totalAktiva[upToMonth] - totalPasiva[upToMonth]) < 1;
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i);
 
+  // Composition snapshot at the current month — the one chart a balance
+  // sheet actually wants (a trend line of a point-in-time position reads
+  // oddly; a "what is the money made of, right now" donut doesn't).
+  const asetComposition = [
+    { name: "Aset Lancar", value: totalAsset[upToMonth], color: "#2f56c4" },
+    { name: "Aset Tetap (Bersih)", value: totalAsetTetap[upToMonth] + totalAkumulasiPenyusutan[upToMonth], color: "#0f9d58" },
+    { name: "Aset Tak Berwujud", value: totalAsetTakBerwujud[upToMonth], color: "#f2b000" },
+  ].filter((c) => c.value > 0);
+  const pasivaComposition = [
+    { name: "Kewajiban", value: totalKewajiban[upToMonth], color: "#e2725b" },
+    { name: "Ekuitas", value: totalEkuitas[upToMonth], color: "#7c3aed" },
+  ].filter((c) => c.value > 0);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -127,6 +142,25 @@ export default async function NeracaPage({ searchParams }: { searchParams: Promi
           </div>
         </form>
       </Card>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <div className="border-b border-slate-100 px-5 py-4">
+            <p className="text-sm font-semibold text-brand-900">Komposisi Aktiva — per {MONTH_LABELS_ID[upToMonth]} {year}</p>
+          </div>
+          <div className="p-5">
+            <FormattedDonutChart data={asetComposition} format="currency" centerLabel="Total Aktiva" />
+          </div>
+        </Card>
+        <Card>
+          <div className="border-b border-slate-100 px-5 py-4">
+            <p className="text-sm font-semibold text-brand-900">Komposisi Pasiva — per {MONTH_LABELS_ID[upToMonth]} {year}</p>
+          </div>
+          <div className="p-5">
+            <FormattedDonutChart data={pasivaComposition} format="currency" centerLabel="Total Pasiva" />
+          </div>
+        </Card>
+      </div>
 
       <Card className="p-0">
         <div className="sticky top-16 z-30 flex h-11 items-center rounded-t-xl bg-brand-950 px-5">
