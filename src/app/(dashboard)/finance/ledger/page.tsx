@@ -37,14 +37,28 @@ export default async function FinanceLedgerPage({
   const rangeTo = to ? new Date(`${to}T23:59:59.999`) : now;
 
   const [accounts, openingLines, periodLines] = await Promise.all([
-    prisma.chartOfAccount.findMany({ where: { status: "ACTIVE" }, orderBy: { code: "asc" } }),
+    prisma.chartOfAccount.findMany({
+      where: { status: "ACTIVE" },
+      select: { id: true, code: true, name: true, normalBalance: true },
+      orderBy: { code: "asc" },
+    }),
     prisma.journalEntryLine.findMany({
       where: { account: { status: "ACTIVE" }, journalEntry: { status: "POSTED", date: { lt: rangeFrom } } },
       select: { accountId: true, debit: true, credit: true },
     }),
     prisma.journalEntryLine.findMany({
       where: { account: { status: "ACTIVE" }, journalEntry: { status: "POSTED", date: { gte: rangeFrom, lte: rangeTo } } },
-      include: { journalEntry: true },
+      // select (not include) — this can be a couple thousand rows across
+      // 260 accounts, so only pulling the handful of journalEntry fields
+      // this page actually renders (not the whole row) noticeably cuts
+      // transfer size and mapping cost.
+      select: {
+        id: true,
+        accountId: true,
+        debit: true,
+        credit: true,
+        journalEntry: { select: { date: true, entryNumber: true, description: true } },
+      },
       orderBy: [{ journalEntry: { date: "asc" } }],
     }),
   ]);
