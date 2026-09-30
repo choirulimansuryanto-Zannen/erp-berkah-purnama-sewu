@@ -147,6 +147,13 @@
 :root {
   --background: #f7f8fa;
   --foreground: #101f3a;
+  /* The app interior's canvas, one step up from a flat fill — a wide, slow
+     three-point gradient (cool blue top-left, warm gold lower-right, a
+     neutral pass through the middle) that reads as soft studio lighting
+     rather than a visible "gradient", sitting under the decorative blur
+     orbs (AppShell) and every white Card on top of it. */
+  --background-mesh: radial-gradient(120% 140% at 8% -10%, #eef3ff 0%, transparent 55%),
+    radial-gradient(120% 140% at 95% 105%, #fff8e6 0%, transparent 55%), #f7f8fa;
 }
 
 body {

@@ -122,25 +122,44 @@ export function AppShell({ role, userName, outletName, shiftLabel, notificationB
           <Sidebar role={role} onNavigate={() => setSidebarOpen(false)} />
         </div>
 
-        <main className="relative flex-1 bg-[var(--background)] p-4 sm:p-6">
-          {/* Same decorative language as the login page's dark hero panel
-              (soft blurred color orbs + faint dot-grid), re-tuned way down
-              in opacity for a light, content-dense surface — texture behind
-              the cards, never competing with the data sitting on top.
-              `fixed` (not `absolute`) so it reads as one ambient backdrop
-              anchored to the viewport, not something tied to (and buried
-              inside) whichever report page happens to be very tall. */}
+        <main className="relative flex-1 p-4 sm:p-6" style={{ background: "var(--background-mesh)" }}>
+          {/* Same decorative language as the login page's dark hero panel —
+              soft blurred color orbs (now full brand-strength, not a
+              barely-there hint) drifting gently over a warm/cool gradient
+              mesh, plus a faint dot-grid for texture — carried in front of
+              a flat fill so the interior finally reads as one piece with
+              the outside login screen instead of a plain grey box behind
+              it. `fixed` (not `absolute`) so it's one ambient backdrop
+              anchored to the viewport, not tied to (and buried inside)
+              whichever report page happens to be very tall; every Card
+              stays opaque white on top, so legibility is untouched. */}
           <div
-            className="pointer-events-none fixed inset-0 z-0 opacity-[0.035]"
+            className="pointer-events-none fixed inset-0 z-0 opacity-[0.05]"
             style={{
               backgroundImage: "radial-gradient(circle at 1px 1px, #101f3a 1px, transparent 0)",
               backgroundSize: "28px 28px",
             }}
             aria-hidden
           />
-          <div className="pointer-events-none fixed -right-32 top-16 z-0 h-[26rem] w-[26rem] rounded-full bg-accent-400/[0.10] blur-3xl" aria-hidden />
-          <div className="pointer-events-none fixed left-1/4 top-1/2 z-0 h-96 w-96 rounded-full bg-gold-400/[0.08] blur-3xl" aria-hidden />
-          <div className="pointer-events-none fixed -bottom-24 -left-24 z-0 h-[28rem] w-[28rem] rounded-full bg-brand-400/[0.08] blur-3xl" aria-hidden />
+          <div
+            className="animate-float pointer-events-none fixed -right-40 -top-40 z-0 h-[34rem] w-[34rem] rounded-full bg-accent-400/25 blur-3xl"
+            aria-hidden
+          />
+          <div
+            className="animate-float pointer-events-none fixed -left-32 top-1/3 z-0 h-[30rem] w-[30rem] rounded-full bg-gold-400/20 blur-3xl"
+            style={{ animationDelay: "-2s" }}
+            aria-hidden
+          />
+          <div
+            className="animate-float pointer-events-none fixed bottom-[-10rem] right-1/4 z-0 h-[32rem] w-[32rem] rounded-full bg-brand-400/20 blur-3xl"
+            style={{ animationDelay: "-4s" }}
+            aria-hidden
+          />
+          <div
+            className="animate-float pointer-events-none fixed left-1/2 top-10 z-0 h-72 w-72 rounded-full bg-emerald-400/15 blur-3xl"
+            style={{ animationDelay: "-1s" }}
+            aria-hidden
+          />
 
           <div key={pathname} className="relative z-10 mx-auto max-w-6xl animate-fade-in-up">
             {children}
