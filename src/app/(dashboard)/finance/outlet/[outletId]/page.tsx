@@ -651,6 +651,21 @@ export default async function OutletDetailReportPage({
             <ExportExcelButton containerId="insentive-sheet-section" filename={`Insentive_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
           </div>
         </CardHeader>
+          {insentive.monthlyTarget > 0 && (
+            <div
+              className={`mx-5 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs ${
+                insentive.gatePassed ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800"
+              }`}
+            >
+              <span className="font-bold">
+                {insentive.gatePassed ? "✓ Plafon Insentif Tercapai" : "⚠ Plafon Insentif Belum Tercapai — Insentif Bulan Ini Tidak Dikeluarkan"}
+              </span>
+              <span>
+                Achieve {currency.format(insentive.monthlyAchieved)} / Plafon {currency.format(insentive.monthlyTarget)}
+                {insentive.achievementPct !== null && ` (${insentive.achievementPct.toFixed(1)}%)`} — syarat minimal 80% dari target omset bulanan.
+              </span>
+            </div>
+          )}
           <div className="border-b border-slate-100 px-5 pt-3">
             <p className="text-xs italic text-slate-400">Parameter &amp; Perhitungan Insentive</p>
           </div>

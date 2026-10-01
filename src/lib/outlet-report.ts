@@ -585,12 +585,13 @@ export type RosterDay = {
 
 export async function getDailyRoster(outletId: string, year: number, month: number, omset: Awaited<ReturnType<typeof getOmsetSheet>>) {
   const { start, end } = monthRange(year, month);
-  const [attendance, brackets] = await Promise.all([
+  const [attendance, brackets, monthlyTargetRow] = await Promise.all([
     prisma.attendanceRecord.findMany({
       where: { outletId, date: { gte: start, lte: end } },
       include: { user: { select: { id: true, name: true } }, pramuniagaRoster: { select: { name: true } } },
     }),
     prisma.incentiveBracket.findMany({ where: { status: "ACTIVE" }, orderBy: { sortOrder: "asc" } }),
+    prisma.outletMonthlyTarget.findUnique({ where: { outletId_year_month: { outletId, year, month } } }),
   ]);
 
   const presentByDay = new Map<string, { userId: string; name: string; shift: string; rosterKey?: string }[]>();
@@ -641,7 +642,24 @@ export async function getDailyRoster(outletId: string, year: number, month: numb
     };
   });
 
-  return { days, bracketsConfigured: brackets.length > 0, brackets };
+  // Plafond gate: insentif is only actually paid out once the outlet clears
+  // 80% of its monthly target — insentifMonthlyTarget already IS that 80%
+  // threshold (see OutletMonthlyTarget: it's derived as monthlyTarget × 0.8
+  // when targets are set), so this is a direct comparison, not a second
+  // 0.8 multiply here. Bracket/rate matching stays visible on each day (so
+  // a report can still show "this day would have matched Tier 2 at 4%")
+  // but the actual payout is zeroed out whenever the gate isn't cleared —
+  // no target configured for the outlet/month defaults to "gate passed" so
+  // outlets without a target set (yet) aren't silently zeroed.
+  const monthlyAchieved = days.reduce((s, d) => s + d.omset, 0);
+  const monthlyTarget = monthlyTargetRow ? Number(monthlyTargetRow.insentifMonthlyTarget) : 0;
+  const gatePassed = monthlyTarget > 0 ? monthlyAchieved >= monthlyTarget : true;
+  const achievementPct = monthlyTarget > 0 ? (monthlyAchieved / monthlyTarget) * 100 : null;
+  if (!gatePassed) {
+    for (const day of days) day.totalInsentifHari = 0;
+  }
+
+  return { days, bracketsConfigured: brackets.length > 0, brackets, monthlyTarget, monthlyAchieved, gatePassed, achievementPct };
 }
 
 // A day's insentif pot isn't split evenly per head — it's split per "slot",
@@ -756,6 +774,10 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
     // instead of re-querying attendance/brackets from scratch.
     rosterDays: roster.days,
     brackets: roster.brackets,
+    monthlyTarget: roster.monthlyTarget,
+    monthlyAchieved: roster.monthlyAchieved,
+    gatePassed: roster.gatePassed,
+    achievementPct: roster.achievementPct,
   };
 }
 
@@ -813,6 +835,10 @@ export async function getInsentiveSheet(
     omsetBersih: report.totalPenjualan,
     avgSales: absen.avgSalesPerAbsen,
     avgBeef: avgBeefPerAbsen,
+    monthlyTarget: absen.monthlyTarget,
+    monthlyAchieved: absen.monthlyAchieved,
+    gatePassed: absen.gatePassed,
+    achievementPct: absen.achievementPct,
   };
 }
 
