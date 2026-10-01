@@ -93,12 +93,70 @@ export default async function FinanceOutletPage({
     entry.count += 1;
     byOutlet.set(r.outletId, entry);
   }
-  const rows = [...byOutlet.entries()].map(([id, v]) => ({ id, ...v })).sort((a, b) => b.omset - a.omset);
+  const outletIds = [...byOutlet.keys()];
+
+  // Kasbon — an append-only log (Kasbon model), not folded into
+  // DailyReport.expenses, so it needs its own aggregation to show as a
+  // column alongside Beban Operasional (both are deductions from Omset).
+  const kasbonByOutlet = new Map<string, number>();
+  if (outletIds.length > 0) {
+    const kasbonRows = await prisma.kasbon.groupBy({
+      by: ["outletId"],
+      where: { outletId: { in: outletIds }, date: { gte: rangeFrom, lte: rangeTo } },
+      _sum: { amount: true },
+    });
+    for (const k of kasbonRows) kasbonByOutlet.set(k.outletId, Number(k._sum.amount ?? 0));
+  }
+
+  // Setoran Via — which of the three cash-book destinations an outlet's
+  // physical deposit actually went to. This doesn't live on DailyReport at
+  // all; it's read from the FA Company journal's own "Kas Outlet" TRANSFER_
+  // ANTAR_BUKU entries (OUTLET -> BRANKAS is a cash drop, OUTLET -> a bank
+  // is a transfer), which already carry outletId per the routing rules set
+  // up on /finance/journal.
+  const setoranViaByOutlet = new Map<string, { brankas: number; bca: number; mandiri: number }>();
+  if (outletIds.length > 0) {
+    const transfers = await prisma.journalEntry.findMany({
+      where: {
+        cashBook: "OUTLET",
+        entryType: "TRANSFER_ANTAR_BUKU",
+        status: "POSTED",
+        outletId: { in: outletIds },
+        date: { gte: rangeFrom, lte: rangeTo },
+      },
+      include: { lines: { include: { account: true } } },
+    });
+    for (const t of transfers) {
+      if (!t.outletId) continue;
+      const destLine = t.lines.find((l) => l.account.cashBook && l.account.cashBook !== "OUTLET");
+      if (!destLine) continue;
+      const entry = setoranViaByOutlet.get(t.outletId) ?? { brankas: 0, bca: 0, mandiri: 0 };
+      const amount = Number(destLine.debit);
+      if (destLine.account.cashBook === "BRANKAS") entry.brankas += amount;
+      else if (destLine.account.cashBook === "BANK_BCA") entry.bca += amount;
+      else if (destLine.account.cashBook === "BANK_MANDIRI") entry.mandiri += amount;
+      setoranViaByOutlet.set(t.outletId, entry);
+    }
+  }
+
+  const rows = [...byOutlet.entries()]
+    .map(([id, v]) => ({
+      id,
+      ...v,
+      kasbon: kasbonByOutlet.get(id) ?? 0,
+      setoranVia: setoranViaByOutlet.get(id) ?? { brankas: 0, bca: 0, mandiri: 0 },
+    }))
+    .sort((a, b) => b.omset - a.omset);
 
   const totalOmset = rows.reduce((s, r) => s + r.omset, 0);
   const totalSetoran = rows.reduce((s, r) => s + r.setoran, 0);
   const totalVariance = rows.reduce((s, r) => s + r.variance, 0);
   const totalExpenses = rows.reduce((s, r) => s + r.expenses, 0);
+  const totalKasbon = rows.reduce((s, r) => s + r.kasbon, 0);
+  const totalSetoranVia = rows.reduce(
+    (s, r) => ({ brankas: s.brankas + r.setoranVia.brankas, bca: s.bca + r.setoranVia.bca, mandiri: s.mandiri + r.setoranVia.mandiri }),
+    { brankas: 0, bca: 0, mandiri: 0 },
+  );
 
   return (
     <div className="space-y-6">
@@ -115,79 +173,96 @@ export default async function FinanceOutletPage({
         <StatCard label="Jumlah Outlet" value={String(rows.length)} tone="info" icon={<Store className="h-4 w-4" />} />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Rekap per Outlet ({rows.length})</CardTitle>
+      <Card className="p-0">
+        <CardHeader className="sticky top-16 z-30 h-14 bg-white">
+          <CardTitle>Summary Setoran Bersih ({rows.length})</CardTitle>
         </CardHeader>
-        <Table>
-          <Thead>
-            <tr>
-              <Th>Outlet</Th>
-              <Th>Jml Laporan</Th>
-              <Th>Omset</Th>
-              <Th>Non-Tunai</Th>
-              <Th>Potongan</Th>
-              <Th>Beban Operasional</Th>
-              <Th>Setoran Fisik</Th>
-              <Th>Actual Cash</Th>
-              <Th>Variance</Th>
-              <Th></Th>
-            </tr>
-          </Thead>
-          <tbody>
-            {rows.map((r) => (
-              <Tr key={r.id}>
-                <Td className="sticky left-0 z-10 bg-white">
-                  <Link
-                    href={`/finance/outlet/${r.id}`}
-                    className="inline-flex items-center gap-1 font-semibold text-accent-700 hover:text-accent-800 hover:underline"
-                    title="Buka laporan lengkap 8 sheet outlet ini"
-                  >
-                    {r.name} <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                  </Link>
-                </Td>
-                <Td>{r.count}</Td>
-                <Td>{currency.format(r.omset)}</Td>
-                <Td>{currency.format(r.nonTunai)}</Td>
-                <Td>{currency.format(r.potongan)}</Td>
-                <Td>{currency.format(r.expenses)}</Td>
-                <Td className="font-semibold">{currency.format(r.setoran)}</Td>
-                <Td>{currency.format(r.actual)}</Td>
-                <Td>
-                  <Badge tone={Math.abs(r.variance) < 1 ? "success" : r.variance < 0 ? "danger" : "warning"}>
-                    {currency.format(r.variance)}
-                  </Badge>
-                </Td>
-                <Td>
-                  <Link
-                    href={`/finance/outlet/${r.id}`}
-                    className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-accent-50 px-2.5 py-1.5 text-xs font-bold text-accent-700 hover:bg-accent-100"
-                  >
-                    Detail 8 Sheet <ChevronRight className="h-3.5 w-3.5" />
-                  </Link>
-                </Td>
-              </Tr>
-            ))}
-            {rows.length === 0 && <EmptyRow colSpan={10}>Belum ada laporan terverifikasi pada periode ini.</EmptyRow>}
-          </tbody>
-          {rows.length > 0 && (
-            <tfoot>
-              <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold text-brand-900">
-                <td className="px-5 py-2.5" colSpan={2}>
-                  Total
-                </td>
-                <td className="px-5 py-2.5">{currency.format(totalOmset)}</td>
-                <td className="px-5 py-2.5">{currency.format(rows.reduce((s, r) => s + r.nonTunai, 0))}</td>
-                <td className="px-5 py-2.5">{currency.format(rows.reduce((s, r) => s + r.potongan, 0))}</td>
-                <td className="px-5 py-2.5">{currency.format(totalExpenses)}</td>
-                <td className="px-5 py-2.5">{currency.format(totalSetoran)}</td>
-                <td className="px-5 py-2.5">{currency.format(rows.reduce((s, r) => s + r.actual, 0))}</td>
-                <td className="px-5 py-2.5">{currency.format(totalVariance)}</td>
-                <td className="px-5 py-2.5"></td>
+        <div className="max-h-[70vh] overflow-auto">
+          <table className="w-full min-w-max border-collapse text-sm">
+            <thead>
+              <tr>
+                <th rowSpan={2} className="sticky left-0 top-0 z-30 border-b border-r border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Outlet</th>
+                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Jml Laporan</th>
+                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Omset</th>
+                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Non-Tunai</th>
+                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Potongan</th>
+                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Beban Operasional</th>
+                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Kasbon</th>
+                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Setoran Fisik</th>
+                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Actual Cash</th>
+                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Variance</th>
+                <th colSpan={3} className="sticky top-0 z-20 h-9 border-b border-l-2 border-slate-300 bg-slate-100 px-5 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">Setoran Via</th>
+                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5"></th>
               </tr>
-            </tfoot>
-          )}
-        </Table>
+              <tr>
+                <th className="sticky top-9 z-20 h-8 border-b border-l-2 border-slate-300 bg-slate-100 px-4 py-1.5 text-right text-[11px] font-semibold uppercase text-slate-500">1. Cash - Brankas</th>
+                <th className="sticky top-9 z-20 h-8 border-b border-slate-200 bg-slate-100 px-4 py-1.5 text-right text-[11px] font-semibold uppercase text-slate-500">2. Transfer - BCA</th>
+                <th className="sticky top-9 z-20 h-8 border-b border-slate-200 bg-slate-100 px-4 py-1.5 text-right text-[11px] font-semibold uppercase text-slate-500">3. Transfer - Mandiri</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <Tr key={r.id}>
+                  <Td className="sticky left-0 z-10 bg-white">
+                    <Link
+                      href={`/finance/outlet/${r.id}`}
+                      className="inline-flex items-center gap-1 font-semibold text-accent-700 hover:text-accent-800 hover:underline"
+                      title="Buka laporan lengkap 8 sheet outlet ini"
+                    >
+                      {r.name} <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                    </Link>
+                  </Td>
+                  <Td>{r.count}</Td>
+                  <Td>{currency.format(r.omset)}</Td>
+                  <Td>{currency.format(r.nonTunai)}</Td>
+                  <Td>{currency.format(r.potongan)}</Td>
+                  <Td>{currency.format(r.expenses)}</Td>
+                  <Td className="text-amber-700">{currency.format(r.kasbon)}</Td>
+                  <Td className="font-semibold">{currency.format(r.setoran)}</Td>
+                  <Td>{currency.format(r.actual)}</Td>
+                  <Td>
+                    <Badge tone={Math.abs(r.variance) < 1 ? "success" : r.variance < 0 ? "danger" : "warning"}>
+                      {currency.format(r.variance)}
+                    </Badge>
+                  </Td>
+                  <Td className="border-l-2 border-slate-200 text-right tabular-nums">{r.setoranVia.brankas > 0 ? currency.format(r.setoranVia.brankas) : "-"}</Td>
+                  <Td className="text-right tabular-nums">{r.setoranVia.bca > 0 ? currency.format(r.setoranVia.bca) : "-"}</Td>
+                  <Td className="text-right tabular-nums">{r.setoranVia.mandiri > 0 ? currency.format(r.setoranVia.mandiri) : "-"}</Td>
+                  <Td>
+                    <Link
+                      href={`/finance/outlet/${r.id}`}
+                      className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-accent-50 px-2.5 py-1.5 text-xs font-bold text-accent-700 hover:bg-accent-100"
+                    >
+                      Detail 8 Sheet <ChevronRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </Td>
+                </Tr>
+              ))}
+              {rows.length === 0 && <EmptyRow colSpan={13}>Belum ada laporan terverifikasi pada periode ini.</EmptyRow>}
+            </tbody>
+            {rows.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold text-brand-900">
+                  <td className="sticky left-0 z-10 bg-slate-50 px-5 py-2.5" colSpan={2}>
+                    Total
+                  </td>
+                  <td className="px-5 py-2.5">{currency.format(totalOmset)}</td>
+                  <td className="px-5 py-2.5">{currency.format(rows.reduce((s, r) => s + r.nonTunai, 0))}</td>
+                  <td className="px-5 py-2.5">{currency.format(rows.reduce((s, r) => s + r.potongan, 0))}</td>
+                  <td className="px-5 py-2.5">{currency.format(totalExpenses)}</td>
+                  <td className="px-5 py-2.5 text-amber-700">{currency.format(totalKasbon)}</td>
+                  <td className="px-5 py-2.5">{currency.format(totalSetoran)}</td>
+                  <td className="px-5 py-2.5">{currency.format(rows.reduce((s, r) => s + r.actual, 0))}</td>
+                  <td className="px-5 py-2.5">{currency.format(totalVariance)}</td>
+                  <td className="border-l-2 border-slate-300 px-5 py-2.5 text-right tabular-nums">{currency.format(totalSetoranVia.brankas)}</td>
+                  <td className="px-5 py-2.5 text-right tabular-nums">{currency.format(totalSetoranVia.bca)}</td>
+                  <td className="px-5 py-2.5 text-right tabular-nums">{currency.format(totalSetoranVia.mandiri)}</td>
+                  <td className="px-5 py-2.5"></td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
       </Card>
     </div>
   );
