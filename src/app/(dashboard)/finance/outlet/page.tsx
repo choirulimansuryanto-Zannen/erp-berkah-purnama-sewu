@@ -1,15 +1,13 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
-import { Table, Thead, Th, Tr, Td, EmptyRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { DateRangeFilter } from "@/components/ui/date-range-filter";
-import { Wallet, TrendingDown, TrendingUp, Store, ChevronRight } from "lucide-react";
+import { Wallet, TrendingDown, TrendingUp, Store } from "lucide-react";
+import { SummarySetoranTable, type DailyReportRow } from "@/components/finance/summary-setoran-table";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 
@@ -35,8 +33,15 @@ export default async function FinanceOutletPage({
   let rangeFrom: Date;
   let rangeTo: Date;
   if (from || to) {
-    rangeFrom = from ? new Date(`${from}T00:00:00`) : new Date(now.getFullYear(), now.getMonth(), 1);
-    rangeTo = to ? new Date(`${to}T23:59:59.999`) : now;
+    // Appending "Z" forces UTC parsing — DailyReport.date is a @db.Date
+    // column (a plain calendar date, no timezone), and without it a
+    // date-time string with no offset parses as LOCAL time. On a server
+    // whose system timezone is ahead of UTC (this one included), that
+    // local midnight falls on the PREVIOUS day in UTC, so the gte bound
+    // silently shifts a day earlier and the query pulls in one extra day's
+    // report from before the range the user actually picked.
+    rangeFrom = from ? new Date(`${from}T00:00:00Z`) : new Date(now.getFullYear(), now.getMonth(), 1);
+    rangeTo = to ? new Date(`${to}T23:59:59.999Z`) : now;
   } else {
     // No range picked — default to the current month, but if it has no
     // verified reports yet (a demo/staging environment's fixed sample data
@@ -64,7 +69,8 @@ export default async function FinanceOutletPage({
 
   const reports = await prisma.dailyReport.findMany({
     where: { status: "APPROVED", date: { gte: rangeFrom, lte: rangeTo } },
-    include: { outlet: true },
+    include: { outlet: true, pramuniaga: true },
+    orderBy: { date: "asc" },
   });
 
   const byOutlet = new Map<
@@ -98,14 +104,21 @@ export default async function FinanceOutletPage({
   // Kasbon — an append-only log (Kasbon model), not folded into
   // DailyReport.expenses, so it needs its own aggregation to show as a
   // column alongside Beban Operasional (both are deductions from Omset).
+  // Fetched as raw rows (not pre-grouped) so the same data can build both
+  // the outlet-level total AND the per-day breakdown behind it.
   const kasbonByOutlet = new Map<string, number>();
+  const kasbonByOutletDate = new Map<string, number>(); // key: `${outletId}|${yyyy-mm-dd}`
   if (outletIds.length > 0) {
-    const kasbonRows = await prisma.kasbon.groupBy({
-      by: ["outletId"],
+    const kasbonRows = await prisma.kasbon.findMany({
       where: { outletId: { in: outletIds }, date: { gte: rangeFrom, lte: rangeTo } },
-      _sum: { amount: true },
+      select: { outletId: true, date: true, amount: true },
     });
-    for (const k of kasbonRows) kasbonByOutlet.set(k.outletId, Number(k._sum.amount ?? 0));
+    for (const k of kasbonRows) {
+      const amount = Number(k.amount);
+      kasbonByOutlet.set(k.outletId, (kasbonByOutlet.get(k.outletId) ?? 0) + amount);
+      const dayKey = `${k.outletId}|${localDateStr(k.date)}`;
+      kasbonByOutletDate.set(dayKey, (kasbonByOutletDate.get(dayKey) ?? 0) + amount);
+    }
   }
 
   // Setoran Via — which of the three cash-book destinations an outlet's
@@ -148,6 +161,32 @@ export default async function FinanceOutletPage({
     }))
     .sort((a, b) => b.omset - a.omset);
 
+  const dailyByOutlet: Record<string, DailyReportRow[]> = {};
+  for (const r of reports) {
+    const dayKey = `${r.outletId}|${localDateStr(r.date)}`;
+    const list = dailyByOutlet[r.outletId] ?? [];
+    list.push({
+      id: r.id,
+      // A plain "YYYY-MM-DD" string, not an ISO timestamp — @db.Date columns
+      // come back from pg as a Date built from LOCAL calendar components, so
+      // round-tripping through .toISOString() + UTC accessors on the client
+      // (a different machine/timezone) can silently shift it a day. A bare
+      // date string sidesteps the ambiguity entirely: nobody has to parse it
+      // through a Date object at all.
+      date: localDateStr(r.date),
+      pramuniagaName: r.pramuniaga.name,
+      omset: Number(r.omset),
+      nonTunai: Number(r.nonTunai),
+      potongan: Number(r.potongan),
+      expenses: Number(r.expenses),
+      kasbon: kasbonByOutletDate.get(dayKey) ?? 0,
+      setoran: Number(r.summarySetoran),
+      actual: Number(r.actualCashCounted),
+      variance: Number(r.variance),
+    });
+    dailyByOutlet[r.outletId] = list;
+  }
+
   const totalOmset = rows.reduce((s, r) => s + r.omset, 0);
   const totalSetoran = rows.reduce((s, r) => s + r.setoran, 0);
   const totalVariance = rows.reduce((s, r) => s + r.variance, 0);
@@ -176,93 +215,23 @@ export default async function FinanceOutletPage({
       <Card className="p-0">
         <CardHeader className="sticky top-16 z-30 h-14 bg-white">
           <CardTitle>Summary Setoran Bersih ({rows.length})</CardTitle>
+          <p className="text-xs text-slate-400">Klik panah di samping nama outlet untuk melihat rincian laporan per tanggal.</p>
         </CardHeader>
-        <div className="max-h-[70vh] overflow-auto">
-          <table className="w-full min-w-max border-collapse text-sm">
-            <thead>
-              <tr>
-                <th rowSpan={2} className="sticky left-0 top-0 z-30 border-b border-r border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Outlet</th>
-                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Jml Laporan</th>
-                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Omset</th>
-                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Non-Tunai</th>
-                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Potongan</th>
-                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Beban Operasional</th>
-                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Kasbon</th>
-                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Setoran Fisik</th>
-                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Actual Cash</th>
-                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Variance</th>
-                <th colSpan={3} className="sticky top-0 z-20 h-9 border-b border-l-2 border-slate-300 bg-slate-100 px-5 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">Setoran Via</th>
-                <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5"></th>
-              </tr>
-              <tr>
-                <th className="sticky top-9 z-20 h-8 border-b border-l-2 border-slate-300 bg-slate-100 px-4 py-1.5 text-right text-[11px] font-semibold uppercase text-slate-500">1. Cash - Brankas</th>
-                <th className="sticky top-9 z-20 h-8 border-b border-slate-200 bg-slate-100 px-4 py-1.5 text-right text-[11px] font-semibold uppercase text-slate-500">2. Transfer - BCA</th>
-                <th className="sticky top-9 z-20 h-8 border-b border-slate-200 bg-slate-100 px-4 py-1.5 text-right text-[11px] font-semibold uppercase text-slate-500">3. Transfer - Mandiri</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <Tr key={r.id}>
-                  <Td className="sticky left-0 z-10 bg-white">
-                    <Link
-                      href={`/finance/outlet/${r.id}`}
-                      className="inline-flex items-center gap-1 font-semibold text-accent-700 hover:text-accent-800 hover:underline"
-                      title="Buka laporan lengkap 8 sheet outlet ini"
-                    >
-                      {r.name} <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                    </Link>
-                  </Td>
-                  <Td>{r.count}</Td>
-                  <Td>{currency.format(r.omset)}</Td>
-                  <Td>{currency.format(r.nonTunai)}</Td>
-                  <Td>{currency.format(r.potongan)}</Td>
-                  <Td>{currency.format(r.expenses)}</Td>
-                  <Td className="text-amber-700">{currency.format(r.kasbon)}</Td>
-                  <Td className="font-semibold">{currency.format(r.setoran)}</Td>
-                  <Td>{currency.format(r.actual)}</Td>
-                  <Td>
-                    <Badge tone={Math.abs(r.variance) < 1 ? "success" : r.variance < 0 ? "danger" : "warning"}>
-                      {currency.format(r.variance)}
-                    </Badge>
-                  </Td>
-                  <Td className="border-l-2 border-slate-200 text-right tabular-nums">{r.setoranVia.brankas > 0 ? currency.format(r.setoranVia.brankas) : "-"}</Td>
-                  <Td className="text-right tabular-nums">{r.setoranVia.bca > 0 ? currency.format(r.setoranVia.bca) : "-"}</Td>
-                  <Td className="text-right tabular-nums">{r.setoranVia.mandiri > 0 ? currency.format(r.setoranVia.mandiri) : "-"}</Td>
-                  <Td>
-                    <Link
-                      href={`/finance/outlet/${r.id}`}
-                      className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-accent-50 px-2.5 py-1.5 text-xs font-bold text-accent-700 hover:bg-accent-100"
-                    >
-                      Detail 8 Sheet <ChevronRight className="h-3.5 w-3.5" />
-                    </Link>
-                  </Td>
-                </Tr>
-              ))}
-              {rows.length === 0 && <EmptyRow colSpan={13}>Belum ada laporan terverifikasi pada periode ini.</EmptyRow>}
-            </tbody>
-            {rows.length > 0 && (
-              <tfoot>
-                <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold text-brand-900">
-                  <td className="sticky left-0 z-10 bg-slate-50 px-5 py-2.5" colSpan={2}>
-                    Total
-                  </td>
-                  <td className="px-5 py-2.5">{currency.format(totalOmset)}</td>
-                  <td className="px-5 py-2.5">{currency.format(rows.reduce((s, r) => s + r.nonTunai, 0))}</td>
-                  <td className="px-5 py-2.5">{currency.format(rows.reduce((s, r) => s + r.potongan, 0))}</td>
-                  <td className="px-5 py-2.5">{currency.format(totalExpenses)}</td>
-                  <td className="px-5 py-2.5 text-amber-700">{currency.format(totalKasbon)}</td>
-                  <td className="px-5 py-2.5">{currency.format(totalSetoran)}</td>
-                  <td className="px-5 py-2.5">{currency.format(rows.reduce((s, r) => s + r.actual, 0))}</td>
-                  <td className="px-5 py-2.5">{currency.format(totalVariance)}</td>
-                  <td className="border-l-2 border-slate-300 px-5 py-2.5 text-right tabular-nums">{currency.format(totalSetoranVia.brankas)}</td>
-                  <td className="px-5 py-2.5 text-right tabular-nums">{currency.format(totalSetoranVia.bca)}</td>
-                  <td className="px-5 py-2.5 text-right tabular-nums">{currency.format(totalSetoranVia.mandiri)}</td>
-                  <td className="px-5 py-2.5"></td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
+        <SummarySetoranTable
+          rows={rows}
+          dailyByOutlet={dailyByOutlet}
+          totals={{
+            omset: totalOmset,
+            nonTunai: rows.reduce((s, r) => s + r.nonTunai, 0),
+            potongan: rows.reduce((s, r) => s + r.potongan, 0),
+            expenses: totalExpenses,
+            kasbon: totalKasbon,
+            setoran: totalSetoran,
+            actual: rows.reduce((s, r) => s + r.actual, 0),
+            variance: totalVariance,
+            setoranVia: totalSetoranVia,
+          }}
+        />
       </Card>
     </div>
   );

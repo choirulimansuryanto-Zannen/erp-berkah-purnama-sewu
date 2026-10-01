@@ -141,6 +141,7 @@ const NAV_SECTIONS: NavSection[] = [
         icon: Store,
         permission: "finance:view_ledger",
         children: [
+          { href: "/finance/kasbon", label: "Kasbon Pramuniaga", icon: HandCoins, permission: "finance:view_ledger" },
           { href: "/finance/outlet", label: "Laporan Outlet", icon: FileText, permission: "finance:view_ledger" },
           { href: "/finance/insentif", label: "Laporan Insentif", icon: Percent, permission: "finance:view_ledger" },
           { href: "/finance/sharing-profit", label: "Laporan Sharing Profit", icon: HandCoins, permission: "finance:view_ledger" },

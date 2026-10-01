@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
@@ -31,6 +32,7 @@ import { Wallet, ShoppingBag, AlertTriangle, Sparkles, FileBarChart } from "luci
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 const number0 = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 });
+const ratePercent = new Intl.NumberFormat("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const number2 = new Intl.NumberFormat("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const MONTH_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 const OUTLET_CODE_RE = /[aiueoAIUEO]/g;
@@ -649,48 +651,76 @@ export default async function OutletDetailReportPage({
             <ExportExcelButton containerId="insentive-sheet-section" filename={`Insentive_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
           </div>
         </CardHeader>
-          <Table data-sheet-name="Insentif_Harian" wrapperClassName="max-h-[70vh] overflow-auto">
-            <Thead className="sticky top-0 z-20 bg-slate-50">
-              <tr>
-                <Th>Hari</Th>
-                <Th>Tanggal</Th>
-                <Th className="text-right">Total Omset (Rp.)</Th>
-                {insentive.brackets.map((b) => (
-                  <Th key={b.id} colSpan={2} className="text-center">
-                    Range Omset {b.label}
-                  </Th>
-                ))}
-                <Th className="text-right">Achieve Omset</Th>
-                <Th className="text-right">Insentive</Th>
-              </tr>
-            </Thead>
-            <tbody>
-              {insentive.days.map((d, i) => (
-                <Tr key={i}>
-                  <Td>{HARI_NAMES[d.date.getUTCDay()]}</Td>
-                  <Td>{d.date.toLocaleDateString("id-ID")}</Td>
-                  <Td className="text-right tabular-nums">{currency.format(d.omset)}</Td>
-                  {insentive.brackets.map((b) => {
-                    const matched = d.bracket && d.bracket.label === b.label;
-                    return (
-                      <Td key={b.id} colSpan={2} className={`text-right tabular-nums ${matched ? "font-semibold text-brand-900" : "text-slate-300"}`}>
-                        {matched ? currency.format(d.totalInsentifHari) : "0"}
-                      </Td>
-                    );
-                  })}
-                  <Td className="text-right tabular-nums">{currency.format(d.omset)}</Td>
-                  <Td className="text-right font-semibold tabular-nums">{currency.format(d.totalInsentifHari)}</Td>
-                </Tr>
-              ))}
-              {insentive.days.length === 0 && <EmptyRow colSpan={5 + insentive.brackets.length * 2}>Belum ada data.</EmptyRow>}
-              <Tr className="bg-gold-50 font-bold text-brand-900">
-                <Td colSpan={3}>TOTAL</Td>
-                <Td colSpan={insentive.brackets.length * 2}></Td>
-                <Td className="text-right tabular-nums">{currency.format(insentive.omsetBersih)}</Td>
-                <Td className="text-right tabular-nums">{currency.format(insentive.totalInsentifHari)}</Td>
-              </Tr>
-            </tbody>
-          </Table>
+          <div className="border-b border-slate-100 px-5 pt-3">
+            <p className="text-xs italic text-slate-400">Parameter &amp; Perhitungan Insentive</p>
+          </div>
+          <div className="max-h-[70vh] overflow-auto" data-sheet-name="Insentif_Harian">
+            <table className="w-full min-w-max border-collapse text-xs">
+              <thead>
+                <tr>
+                  <th rowSpan={2} className="sticky left-0 top-0 z-30 min-w-[70px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Hari</th>
+                  <th rowSpan={2} className="sticky left-[70px] top-0 z-30 min-w-[90px] border-b border-r-2 border-slate-300 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Tanggal</th>
+                  <th rowSpan={2} className="sticky top-0 z-20 min-w-[110px] border-b border-r-2 border-slate-300 bg-yellow-50 px-3 py-2 text-right text-[11px] font-bold uppercase text-slate-500">TOTAL OMSET (Rp.)</th>
+                  {insentive.brackets.map((b) => (
+                    <th key={b.id} colSpan={4} className="sticky top-0 z-20 h-9 border-b border-l-2 border-slate-300 bg-rose-50 px-2 py-1.5 text-center text-[11px] font-bold uppercase text-rose-900">
+                      Range Omset {b.label}
+                    </th>
+                  ))}
+                  <th colSpan={2} className="sticky top-0 z-20 h-9 border-b border-l-2 border-slate-300 bg-gold-50 px-2 py-1.5 text-center text-[11px] font-bold uppercase text-brand-900">
+                    TOTAL
+                  </th>
+                </tr>
+                <tr>
+                  {insentive.brackets.map((b) => (
+                    <Fragment key={b.id}>
+                      <th colSpan={2} className="sticky top-9 z-20 h-8 border-b border-l-2 border-slate-300 bg-rose-50/60 px-2 py-1 text-right text-[10px] font-semibold uppercase text-slate-500">
+                        1 PRAMUNIAGA <span className="text-slate-400">{ratePercent.format(Number(b.rateSinglePic))}%</span>
+                      </th>
+                      <th colSpan={2} className="sticky top-9 z-20 h-8 border-b border-slate-200 bg-rose-50/60 px-2 py-1 text-right text-[10px] font-semibold uppercase text-slate-500">
+                        &gt;1 PRAMUNIAGA <span className="text-slate-400">{ratePercent.format(Number(b.rateMultiPic))}%</span>
+                      </th>
+                    </Fragment>
+                  ))}
+                  <th className="sticky top-9 z-20 h-8 border-b border-l-2 border-slate-300 bg-gold-50 px-2 py-1 text-right text-[10px] font-semibold uppercase text-brand-900">Achieve Omset</th>
+                  <th className="sticky top-9 z-20 h-8 border-b border-slate-200 bg-gold-50 px-2 py-1 text-right text-[10px] font-semibold uppercase text-brand-900">Insentive</th>
+                </tr>
+              </thead>
+              <tbody>
+                {insentive.days.map((d, i) => {
+                  const crewSize = d.present.length;
+                  return (
+                    <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/60">
+                      <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-medium text-slate-900">{HARI_NAMES[d.date.getUTCDay()]}</td>
+                      <td className="sticky left-[70px] z-10 border-r-2 border-slate-300 bg-white px-3 py-1.5">{d.date.toLocaleDateString("id-ID")}</td>
+                      <td className="border-r-2 border-slate-300 bg-yellow-50 px-3 py-1.5 text-right font-bold tabular-nums text-rose-700">{number0.format(d.omset)}</td>
+                      {insentive.brackets.map((b) => {
+                        const inThisBracket = d.bracket?.label === b.label;
+                        const singleMatch = inThisBracket && crewSize > 0 && crewSize <= 1;
+                        const multiMatch = inThisBracket && crewSize > 1;
+                        return (
+                          <Fragment key={b.id}>
+                            <td className="border-l-2 border-slate-200 px-2 py-1.5 text-right tabular-nums">{singleMatch ? number0.format(d.omset) : 0}</td>
+                            <td className="px-2 py-1.5 text-right tabular-nums">{singleMatch ? number0.format(d.totalInsentifHari) : 0}</td>
+                            <td className="border-l border-slate-100 px-2 py-1.5 text-right tabular-nums">{multiMatch ? number0.format(d.omset) : 0}</td>
+                            <td className="px-2 py-1.5 text-right tabular-nums">{multiMatch ? number0.format(d.totalInsentifHari) : 0}</td>
+                          </Fragment>
+                        );
+                      })}
+                      <td className="border-l-2 border-slate-200 bg-gold-50/40 px-2 py-1.5 text-right font-semibold tabular-nums">{number0.format(d.omset)}</td>
+                      <td className="bg-gold-50/40 px-2 py-1.5 text-right font-bold tabular-nums text-brand-900">{number0.format(d.totalInsentifHari)}</td>
+                    </tr>
+                  );
+                })}
+                {insentive.days.length === 0 && <EmptyRow colSpan={5 + insentive.brackets.length * 4}>Belum ada data.</EmptyRow>}
+                <tr className="border-t-2 border-slate-300 bg-gold-50 font-bold text-brand-900">
+                  <td colSpan={3} className="sticky left-0 z-10 bg-gold-50 px-3 py-2">TOTAL</td>
+                  <td colSpan={insentive.brackets.length * 4} className="border-l-2 border-slate-300"></td>
+                  <td className="border-l-2 border-slate-300 px-2 py-2 text-right tabular-nums">{number0.format(insentive.omsetBersih)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{number0.format(insentive.totalInsentifHari)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
         <p className="mt-4 px-5 text-xs font-bold uppercase tracking-wide text-slate-400">Rekap Insentif per Pramuniaga</p>
         <Table data-sheet-name="Rekap_Pramuniaga" wrapperClassName="max-h-[70vh] overflow-auto">
@@ -773,10 +803,10 @@ export default async function OutletDetailReportPage({
                     <Th className="text-right">Awal</Th>
                     <Th className="text-right">Masuk</Th>
                     <Th className="text-right">Pakai</Th>
-                    <Th className="text-right">Rusak</Th>
                     <Th className="text-right">Reject</Th>
                     <Th className="text-right">Selisih</Th>
                     <Th className="text-right">Akhir</Th>
+                    <Th className="text-right">Harga Satuan</Th>
                     <Th className="text-right">Nilai Akhir</Th>
                   </tr>
                 </Thead>
@@ -789,12 +819,12 @@ export default async function OutletDetailReportPage({
                       <Td className="text-right tabular-nums">{number0.format(r.awalQty)}</Td>
                       <Td className="text-right tabular-nums">{number0.format(r.masukQty)}</Td>
                       <Td className="text-right tabular-nums text-slate-500">{number0.format(r.pakaiQty)}</Td>
-                      <Td className="text-right tabular-nums text-rose-600">{r.rusakQty > 0 ? number0.format(r.rusakQty) : "-"}</Td>
                       <Td className="text-right tabular-nums text-amber-600">{r.rejectQty > 0 ? number0.format(r.rejectQty) : "-"}</Td>
                       <Td className="text-right tabular-nums">{r.selisihQty !== 0 ? number0.format(r.selisihQty) : "-"}</Td>
                       <Td className="text-right">
                         <OutletMaterialAkhirInput outletId={outletId} materialId={r.id} year={year} month={month} defaultValue={r.akhirQty} recorded={r.akhirRecorded} />
                       </Td>
+                      <Td className="text-right tabular-nums text-slate-500">{currency.format(r.unitPrice)}</Td>
                       <Td className="text-right font-semibold tabular-nums">{currency.format(r.akhirQty * r.unitPrice)}</Td>
                     </Tr>
                   ))}
@@ -803,6 +833,17 @@ export default async function OutletDetailReportPage({
               </Table>
           </div>
         ))}
+        <div className="divide-y divide-slate-100 border-t border-slate-100">
+          {[...materialsByCategory.entries()].map(([category, catRows]) => {
+            const nominal = catRows.reduce((s, r) => s + r.akhirQty * r.unitPrice, 0);
+            return (
+              <div key={category} className="flex items-center justify-between px-5 py-2 text-sm">
+                <span className="text-slate-500">{MATERIAL_CATEGORY_LABELS[category] ?? category}</span>
+                <span className="font-semibold text-slate-700">{currency.format(nominal)}</span>
+              </div>
+            );
+          })}
+        </div>
         <div className="flex items-center justify-between rounded-lg bg-gold-50 px-5 py-3 font-bold text-brand-900">
           <span>TOTAL NILAI STOCK AKHIR</span>
           <span>{currency.format(inventory.totalAkhirNominal)}</span>
