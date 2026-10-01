@@ -13,9 +13,12 @@ import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/ui/stat-card";
 import { RunCalculationButton } from "@/components/finance/run-calculation-button";
 import { INCENTIVE_TYPE_LABELS, INCENTIVE_SCOPE_LABELS, INCENTIVE_BASIS_LABELS } from "@/lib/incentive";
+import { getCompanyDailyIncentiveBreakdown, HARI_NAMES } from "@/lib/outlet-report";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
+const number0 = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 });
 const MONTH_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+const SHIFT_LABELS: Record<string, string> = { SHIFT_1: "Shift 1", SHIFT_2: "Shift 2", FULLSHIFT: "Fullshift" };
 
 // Laporan Insentive — company-wide summary across all 10 incentive types
 // (Pramu/Pengelola per outlet, SPV per wilayah, everything else company-
@@ -37,11 +40,26 @@ export default async function InsentifPage({
   const month = monthParam ? Number(monthParam) : now.getMonth() + 1;
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i);
 
-  const calculations = await prisma.incentiveCalculation.findMany({
-    where: { year, month },
-    include: { outlet: { select: { name: true } }, region: { select: { name: true } } },
-    orderBy: [{ scope: "asc" }, { type: "asc" }],
-  });
+  const [calculations, dailyRows] = await Promise.all([
+    prisma.incentiveCalculation.findMany({
+      where: { year, month },
+      include: { outlet: { select: { name: true } }, region: { select: { name: true } } },
+      orderBy: [{ scope: "asc" }, { type: "asc" }],
+    }),
+    getCompanyDailyIncentiveBreakdown(year, month),
+  ]);
+
+  const dailySummaryByPerson = new Map<string, { name: string; total: number; days: Set<string> }>();
+  for (const r of dailyRows) {
+    const entry = dailySummaryByPerson.get(r.pramuniagaKey) ?? { name: r.pramuniagaName, total: 0, days: new Set<string>() };
+    entry.total += r.insentifPerPramu;
+    entry.days.add(`${r.date.toISOString().slice(0, 10)}|${r.outletName}`);
+    dailySummaryByPerson.set(r.pramuniagaKey, entry);
+  }
+  const dailySummary = [...dailySummaryByPerson.values()]
+    .map((v) => ({ name: v.name, total: v.total, hariKerja: v.days.size }))
+    .sort((a, b) => b.total - a.total);
+  const dailyGrandTotal = dailyRows.reduce((s, r) => s + r.insentifPerPramu, 0);
 
   const byType = new Map<string, { total: number; count: number }>();
   for (const c of calculations) {
@@ -168,6 +186,93 @@ export default async function InsentifPage({
             {calculations.length === 0 && (
               <EmptyRow colSpan={6}>Belum dihitung untuk periode ini — klik &quot;Hitung Ulang Bulan Ini&quot; di atas.</EmptyRow>
             )}
+          </tbody>
+        </Table>
+      </Card>
+
+      {/* Perincian Insentif Harian — the same bracket/roster math each
+          outlet's own Insentive Sheet uses, flattened across every active
+          outlet so this one table is the whole company's day-by-day
+          incentive audit trail (who, where, which bracket, how much). */}
+      <Card className="p-0">
+        <CardHeader className="sticky top-16 z-30 h-14 bg-white">
+          <CardTitle>Perincian Insentif Harian — Seluruh Pramuniaga ({dailyRows.length})</CardTitle>
+        </CardHeader>
+        <Table wrapperClassName="max-h-[70vh] overflow-y-auto">
+          <Thead className="sticky top-0 z-20 bg-slate-50">
+            <tr>
+              <Th>Tanggal</Th>
+              <Th>Outlet</Th>
+              <Th className="text-right">Omset</Th>
+              <Th className="text-right">%</Th>
+              <Th>Plafon Insentif</Th>
+              <Th>Pramuniaga</Th>
+              <Th>Shift</Th>
+              <Th className="text-right">Qty Pramuniaga</Th>
+              <Th className="text-right">Insentif Per Pramu</Th>
+            </tr>
+          </Thead>
+          <tbody>
+            {dailyRows.map((r, i) => (
+              <Tr key={i}>
+                <Td>
+                  {HARI_NAMES[r.date.getUTCDay()]}, {r.date.toLocaleDateString("id-ID")}
+                </Td>
+                <Td className="font-medium text-slate-900">{r.outletName}</Td>
+                <Td className="text-right tabular-nums">{currency.format(r.omset)}</Td>
+                <Td className="text-right tabular-nums">{r.ratePercent > 0 ? `${number0.format(r.ratePercent)}%` : "-"}</Td>
+                <Td className="text-xs text-slate-500">{r.plafonLabel}</Td>
+                <Td>{r.pramuniagaName}</Td>
+                <Td>
+                  <Badge tone="neutral">{SHIFT_LABELS[r.shift] ?? r.shift}</Badge>
+                </Td>
+                <Td className="text-right tabular-nums">{r.qtyPramuniaga}</Td>
+                <Td className="text-right font-semibold tabular-nums">{r.insentifPerPramu > 0 ? currency.format(r.insentifPerPramu) : "-"}</Td>
+              </Tr>
+            ))}
+            {dailyRows.length === 0 && <EmptyRow colSpan={9}>Belum ada data kehadiran/omset pada periode ini.</EmptyRow>}
+          </tbody>
+          {dailyRows.length > 0 && (
+            <tfoot>
+              <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold text-brand-900">
+                <td className="px-5 py-2.5" colSpan={8}>
+                  Total Insentif Harian (seluruh pramuniaga, seluruh outlet)
+                </td>
+                <td className="px-5 py-2.5 text-right">{currency.format(dailyGrandTotal)}</td>
+              </tr>
+            </tfoot>
+          )}
+        </Table>
+      </Card>
+
+      {/* Summary keseluruhan — total insentif per pramuniaga for the month,
+          derived from the exact same rows shown above (never a separate
+          re-calculation), so the two tables can never disagree. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Summary Insentif per Pramuniaga — {MONTH_NAMES[month - 1]} {year} ({dailySummary.length})</CardTitle>
+        </CardHeader>
+        <Table>
+          <Thead>
+            <tr>
+              <Th>Nama Pramuniaga</Th>
+              <Th className="text-right">Hari Kerja Dapat Insentif</Th>
+              <Th className="text-right">Total Insentif Bulan Ini</Th>
+            </tr>
+          </Thead>
+          <tbody>
+            {dailySummary.map((s) => (
+              <Tr key={s.name}>
+                <Td className="font-medium text-slate-900">{s.name}</Td>
+                <Td className="text-right tabular-nums">{s.hariKerja}</Td>
+                <Td className="text-right font-semibold tabular-nums">{currency.format(s.total)}</Td>
+              </Tr>
+            ))}
+            {dailySummary.length === 0 && <EmptyRow colSpan={3}>Belum ada data pada periode ini.</EmptyRow>}
+            <Tr className="bg-gold-50 font-bold text-brand-900">
+              <Td colSpan={2}>TOTAL</Td>
+              <Td className="text-right tabular-nums">{currency.format(dailyGrandTotal)}</Td>
+            </Tr>
           </tbody>
         </Table>
       </Card>

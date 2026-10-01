@@ -577,25 +577,39 @@ export type RosterDay = {
   date: Date;
   omset: number;
   qtyAllProducts: number;
-  present: { userId: string; name: string }[];
+  present: { userId: string; name: string; shift: string; rosterKey?: string }[];
   bracket: { label: string; rangeMin: number; rangeMax: number | null; rateSinglePic: number; rateMultiPic: number } | null;
   rateUsed: number;
   totalInsentifHari: number;
 };
 
-async function getDailyRoster(outletId: string, year: number, month: number, omset: Awaited<ReturnType<typeof getOmsetSheet>>) {
+export async function getDailyRoster(outletId: string, year: number, month: number, omset: Awaited<ReturnType<typeof getOmsetSheet>>) {
   const { start, end } = monthRange(year, month);
   const [attendance, brackets] = await Promise.all([
-    prisma.attendanceRecord.findMany({ where: { outletId, date: { gte: start, lte: end } }, include: { user: { select: { id: true, name: true } } } }),
+    prisma.attendanceRecord.findMany({
+      where: { outletId, date: { gte: start, lte: end } },
+      include: { user: { select: { id: true, name: true } }, pramuniagaRoster: { select: { name: true } } },
+    }),
     prisma.incentiveBracket.findMany({ where: { status: "ACTIVE" }, orderBy: { sortOrder: "asc" } }),
   ]);
 
-  const presentByDay = new Map<string, { userId: string; name: string }[]>();
+  const presentByDay = new Map<string, { userId: string; name: string; shift: string; rosterKey?: string }[]>();
   for (const a of attendance) {
     if (a.status !== "PRESENT" && a.status !== "LATE") continue;
     const key = a.date.toISOString().slice(0, 10);
     const list = presentByDay.get(key) ?? [];
-    if (!list.some((p) => p.userId === a.userId)) list.push({ userId: a.userId, name: a.user.name });
+    // Same roster-name resolution used everywhere else a login may be
+    // shared by several checked-in roster members (Kasbon, Rekap Setoran).
+    const name = a.pramuniagaRoster?.name ?? a.user.name;
+    // Dedup by the actual PERSON (roster member if one was recorded, else
+    // the login itself) — NOT by userId alone. A shared login checked in as
+    // two different roster members on the same day (exactly the "fullshift
+    // + shift lainnya" case this whole incentive-weighting rule is about)
+    // would otherwise silently collapse to just one of them here, under-
+    // counting both the crew size for rate selection and the per-person
+    // incentive split below.
+    const identityKey = a.pramuniagaRosterId ?? a.userId;
+    if (!list.some((p) => (p.rosterKey ?? p.userId) === identityKey)) list.push({ userId: a.userId, name, shift: a.shift, rosterKey: a.pramuniagaRosterId ?? undefined });
     presentByDay.set(key, list);
   }
   function bracketFor(dayOmset: number) {
@@ -628,6 +642,29 @@ async function getDailyRoster(outletId: string, year: number, month: number, oms
   });
 
   return { days, bracketsConfigured: brackets.length > 0, brackets };
+}
+
+// A day's insentif pot isn't split evenly per head — it's split per "slot",
+// where a FULLSHIFT person counts as 2 slots and a SHIFT_1/SHIFT_2 person
+// counts as 1 — e.g. one fullshift + one half-shift on the same day splits
+// the pot 3 ways (fullshift gets 2 of those 3 shares). The one exception:
+// a LONE fullshift pramuniaga (nobody else on duty that day) still counts
+// as a single slot — the 2x weighting only kicks in once there's someone
+// else to split against, never on a solo day regardless of that person's
+// own shift type.
+function incentiveSlotWeight(present: RosterDay["present"], person: RosterDay["present"][number]): number {
+  if (present.length <= 1) return 1;
+  return person.shift === "FULLSHIFT" ? 2 : 1;
+}
+function incentiveTotalSlots(present: RosterDay["present"]): number {
+  if (present.length <= 1) return present.length;
+  return present.reduce((sum, p) => sum + incentiveSlotWeight(present, p), 0);
+}
+/** One day's incentive pot, per slot (see incentiveSlotWeight) — multiply
+ * by a specific person's own weight to get what THEY earn that day. */
+function incentiveValuePerSlot(day: RosterDay): number {
+  const slots = incentiveTotalSlots(day.present);
+  return slots > 0 ? day.totalInsentifHari / slots : 0;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -670,7 +707,7 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
   for (let i = 0; i < roster.days.length; i++) {
     const day = roster.days[i];
     const perPersonQty = day.present.length > 0 ? day.qtyAllProducts / day.present.length : 0;
-    const perPersonInsentif = day.present.length > 0 ? day.totalInsentifHari / day.present.length : 0;
+    const insentifPerSlot = incentiveValuePerSlot(day);
     for (const p of day.present) {
       const payroll = payrollByUserId.get(p.userId);
       const row = byEmployee.get(p.userId) ?? {
@@ -687,7 +724,7 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
       };
       row.attendance[i] = true;
       row.qtySales += perPersonQty;
-      row.insentiveValue += perPersonInsentif;
+      row.insentiveValue += insentifPerSlot * incentiveSlotWeight(day.present, p);
       row.totalStandby += 1;
       if (!day.bracket || day.omset <= 0) row.totalNonInsentif += 1;
       byEmployee.set(p.userId, row);
@@ -783,4 +820,65 @@ async function getOutletMonthlyOmsetForCompanyShare(year: number, month: number)
   const { start, end } = monthRange(year, month);
   const agg = await prisma.dailyReport.aggregate({ where: { status: "APPROVED", date: { gte: start, lte: end } }, _sum: { omset: true } });
   return Number(agg._sum.omset ?? 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Company-wide daily incentive breakdown — the same bracket/roster math
+// the Insentive Sheet uses for one outlet, run across every active outlet
+// and flattened to one row per (day, outlet, pramuniaga present that day)
+// — for Laporan Insentif's "perincian harian seluruh pramuniaga" table.
+// Reuses getOmsetSheet + getDailyRoster per outlet (not DailyReport.omset)
+// specifically so this never disagrees with what each outlet's own
+// Insentive Sheet shows for the same day.
+// ═══════════════════════════════════════════════════════════════════════
+export type DailyIncentiveRow = {
+  date: Date;
+  outletName: string;
+  omset: number;
+  ratePercent: number;
+  plafonLabel: string;
+  pramuniagaName: string;
+  pramuniagaKey: string; // the real person — group/sum the summary table by this, never by display name
+  shift: string;
+  qtyPramuniaga: number; // the "slot" weight this person counts as that day — 2 for a fullshift sharing the day with someone else, 1 otherwise
+  insentifPerPramu: number;
+};
+
+export async function getCompanyDailyIncentiveBreakdown(year: number, month: number): Promise<DailyIncentiveRow[]> {
+  const outlets = await prisma.outlet.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true } });
+
+  const perOutlet = await Promise.all(
+    outlets.map(async (outlet) => {
+      const omset = await getOmsetSheet(outlet.id, year, month);
+      // Skip the roster/bracket query entirely for an outlet with no sales
+      // this month — cheap short-circuit so looping every active outlet
+      // (most of which have no activity in a given demo period) stays fast.
+      if (omset.days.every((d) => d.totalOmset === 0)) return [];
+      const roster = await getDailyRoster(outlet.id, year, month, omset);
+
+      const rows: DailyIncentiveRow[] = [];
+      for (const day of roster.days) {
+        if (day.present.length === 0) continue;
+        const insentifPerSlot = incentiveValuePerSlot(day);
+        for (const person of day.present) {
+          const weight = incentiveSlotWeight(day.present, person);
+          rows.push({
+            date: day.date,
+            outletName: outlet.name,
+            omset: day.omset,
+            ratePercent: day.rateUsed,
+            plafonLabel: day.bracket?.label ?? "-",
+            pramuniagaName: person.name,
+            pramuniagaKey: person.rosterKey ?? person.userId,
+            shift: person.shift,
+            qtyPramuniaga: weight,
+            insentifPerPramu: insentifPerSlot * weight,
+          });
+        }
+      }
+      return rows;
+    }),
+  );
+
+  return perOutlet.flat().sort((a, b) => a.date.getTime() - b.date.getTime() || a.outletName.localeCompare(b.outletName));
 }
