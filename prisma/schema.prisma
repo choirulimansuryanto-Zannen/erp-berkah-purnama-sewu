@@ -282,6 +282,7 @@ model User {
   companyMaterialClosingBalancesRecorded CompanyMaterialClosingBalance[] @relation("CompanyMaterialClosingRecordedBy")
   vendorLedgerEntriesRecorded VendorLedgerEntry[] @relation("VendorLedgerRecordedBy")
   receivableEntriesRecorded   ReceivableEntry[]   @relation("ReceivableEntryRecordedBy")
+  salaryRecapsRecorded        SalaryRecap[]       @relation("SalaryRecapRecordedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1776,6 +1777,46 @@ model CompanyMaterialClosingBalance {
   updatedAt    DateTime @updatedAt
 
   @@unique([materialId, year, month])
+  @@index([year, month])
+}
+
+// Rekap Salary — one monthly payroll recap row per department (business-
+// supplied, 2026-10-08). TOTAL (aktual) is DERIVED (sum of all 7 line
+// items below), never stored — verified against the source: e.g. SALES
+// OUTLET's printed total (212,536,207.54) is exactly the sum of its own
+// row's 7 figures, not a net-of-deductions calculation.
+enum SalaryRecapDepartment {
+  BOD
+  PRODUCTION
+  OPERATION
+  SALES_OFFICE
+  SALES_OUTLET
+  MARKETING
+  FA
+  HR_GA
+}
+
+model SalaryRecap {
+  id         String                @id @default(uuid())
+  year       Int
+  month      Int
+  department SalaryRecapDepartment
+
+  totalTerimaNet    Decimal @default(0) @db.Decimal(16, 2)
+  koperasi          Decimal @default(0) @db.Decimal(16, 2)
+  iuranBpjs         Decimal @default(0) @db.Decimal(16, 2)
+  kasbon            Decimal @default(0) @db.Decimal(16, 2)
+  pph21             Decimal @default(0) @db.Decimal(16, 2)
+  adjLain           Decimal @default(0) @db.Decimal(16, 2)
+  sanksi            Decimal @default(0) @db.Decimal(16, 2)
+  insentifTjOutlet  Decimal @default(0) @db.Decimal(16, 2)
+
+  recordedById String
+  recordedBy   User     @relation("SalaryRecapRecordedBy", fields: [recordedById], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([year, month, department])
   @@index([year, month])
 }
 

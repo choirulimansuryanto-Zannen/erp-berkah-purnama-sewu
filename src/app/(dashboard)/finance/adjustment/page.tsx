@@ -13,15 +13,18 @@ import { Wallet, TrendingDown, TrendingUp, Banknote, Landmark } from "lucide-rea
 import { getMonthlyHppReport } from "@/lib/accounting";
 import { MonthlyReportTable, type MonthlyReportRow } from "@/components/finance/monthly-report-table";
 import { InventoryClosingForm } from "@/components/finance/inventory-closing-form";
-import { InventoryClosingList } from "@/components/finance/inventory-closing-list";
 import { getCompanyMaterialSchedule } from "@/lib/company-material";
 import { AdjustingEntryForm } from "@/components/finance/adjusting-entry-form";
 import { JournalEntryList, type JournalEntryRow } from "@/components/finance/journal-entry-list";
 import { getFixedAssetSchedule } from "@/lib/fixed-asset";
+import { CreateFixedAssetForm } from "@/components/finance/create-fixed-asset-form";
+import { DisposeFixedAssetButton } from "@/components/finance/dispose-fixed-asset-button";
 import { getVendorLedgers } from "@/lib/vendor-ledger";
 import { VendorLedgerEntryForm } from "@/components/finance/vendor-ledger-entry-form";
 import { getReceivableLedger } from "@/lib/receivable";
 import { ReceivableEntryForm } from "@/components/finance/receivable-entry-form";
+import { getSalaryRecap, SALARY_RECAP_LINE_LABELS } from "@/lib/salary-recap";
+import { SalaryRecapForm } from "@/components/finance/salary-recap-form";
 
 const MONTH_LABELS_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
@@ -45,6 +48,8 @@ type AllParams = {
   faYear: number;
   arYear: number;
   arMonth: number;
+  srYear: number;
+  srMonth: number;
 };
 
 /** Every other section's current filter value, as hidden inputs — so submitting one section's form doesn't reset the others (a plain GET <form> replaces the whole query string with just its own fields). */
@@ -80,6 +85,8 @@ export default async function AdjustmentPage({
     faYear?: string;
     arYear?: string;
     arMonth?: string;
+    srYear?: string;
+    srMonth?: string;
   }>;
 }) {
   const user = await getCurrentUser();
@@ -143,11 +150,16 @@ export default async function AdjustmentPage({
   const arYear = sp.arYear ? Number(sp.arYear) : 2026;
   const arMonth = sp.arMonth ? Number(sp.arMonth) : 9;
 
-  const allParams: AllParams = { pYear, cmYear, cmMonth, jpFrom: localDateStr(jpRangeFrom), jpTo: localDateStr(jpRangeTo), faYear, arYear, arMonth };
+  // ── Rekap Salary ────────────────────────────────────────────────────
+  const srYear = sp.srYear ? Number(sp.srYear) : 2026;
+  const srMonth = sp.srMonth ? Number(sp.srMonth) : 9;
+
+  const allParams: AllParams = {
+    pYear, cmYear, cmMonth, jpFrom: localDateStr(jpRangeFrom), jpTo: localDateStr(jpRangeTo), faYear, arYear, arMonth, srYear, srMonth,
+  };
 
   const [
     report,
-    closingRows,
     companyMaterialSchedule,
     accounts,
     jpEntries,
@@ -155,13 +167,9 @@ export default async function AdjustmentPage({
     vendorLedgers,
     vendors,
     receivableLedger,
+    salaryRecap,
   ] = await Promise.all([
     getMonthlyHppReport(pYear),
-    prisma.inventoryClosingBalance.findMany({
-      where: { year: pYear },
-      include: { recordedBy: { select: { name: true } } },
-      orderBy: [{ month: "desc" }, { category: "asc" }],
-    }),
     getCompanyMaterialSchedule(cmYear, cmMonth),
     prisma.chartOfAccount.findMany({ where: { status: "ACTIVE" }, orderBy: { code: "asc" } }),
     prisma.journalEntry.findMany({
@@ -174,6 +182,7 @@ export default async function AdjustmentPage({
     getVendorLedgers(),
     prisma.vendor.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { sortOrder: "asc" } }),
     getReceivableLedger(arYear, arMonth),
+    getSalaryRecap(srYear, srMonth),
   ]);
 
   // ── Persediaan rows ─────────────────────────────────────────────────
@@ -249,6 +258,9 @@ export default async function AdjustmentPage({
         <a href="#adj-receivable" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
           Buku Piutang
         </a>
+        <a href="#adj-salary-recap" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          Rekap Salary
+        </a>
       </nav>
 
       {/* ══════════════════════ PERSEDIAAN ══════════════════════ */}
@@ -275,23 +287,6 @@ export default async function AdjustmentPage({
         </Card>
 
         <InventoryClosingForm />
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Riwayat Persediaan Akhir — Ringkasan per Kategori ({pYear})</CardTitle>
-          </CardHeader>
-          <InventoryClosingList
-            rows={closingRows.map((r) => ({
-              id: r.id,
-              year: r.year,
-              month: r.month,
-              category: r.category,
-              amount: Number(r.amount),
-              note: r.note,
-              recordedBy: r.recordedBy,
-            }))}
-          />
-        </Card>
 
         <Card>
           <form className="flex flex-wrap items-end gap-3 p-5">
@@ -354,7 +349,7 @@ export default async function AdjustmentPage({
                       Faktur 01 {MONTH_LABELS_ID[companyMaterialSchedule.nextMonthIdx]} {companyMaterialSchedule.nextMonthYear} Outlet
                     </th>
                     <th colSpan={2} className="border-r border-brand-900 bg-slate-400 px-3 py-2 text-center">
-                      Adjustment Faktur 01.{String(companyMaterialSchedule.prevMonthLabel).padStart(2, "0")} Outlet
+                      Adjustment Faktur 01.{String(cmMonth).padStart(2, "0")} Outlet
                     </th>
                     <th colSpan={2} className="bg-sky-700 px-3 py-2 text-center">
                       TOTAL BAHAN BAKU
@@ -531,6 +526,66 @@ export default async function AdjustmentPage({
           </div>
         </Card>
 
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Card className="p-0">
+            <div className="rounded-t-xl bg-brand-950 px-4 py-2.5">
+              <p className="text-xs font-bold uppercase tracking-wide text-white">Account Summary — Saldo</p>
+            </div>
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-100 text-[11px] font-bold uppercase text-slate-500">
+                  <th className="px-3 py-2 text-left">Account Name</th>
+                  <th className="bg-rose-100 px-3 py-2 text-right">Total Saldo Awal</th>
+                  <th className="bg-rose-200 px-3 py-2 text-right">Total Saldo Akhir</th>
+                </tr>
+              </thead>
+              <tbody>
+                {companyMaterialSchedule.accountSummary.map((a) => (
+                  <tr
+                    key={a.label}
+                    className={a.label === "TOTAL" ? "bg-brand-900 font-bold text-white" : a.label.startsWith("TOTAL") ? "bg-slate-100 font-semibold text-brand-900" : "border-b border-slate-100 odd:bg-white even:bg-slate-50/60"}
+                  >
+                    <td className="px-3 py-1.5">{a.label}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalSaldoAwalNominal)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalNilaiAkhir)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+
+          <Card className="p-0">
+            <div className="rounded-t-xl bg-brand-950 px-4 py-2.5">
+              <p className="text-xs font-bold uppercase tracking-wide text-white">
+                Account Summary — Faktur 01 {MONTH_LABELS_ID[companyMaterialSchedule.nextMonthIdx]} {companyMaterialSchedule.nextMonthYear} Outlet
+              </p>
+            </div>
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-100 text-[11px] font-bold uppercase text-slate-500">
+                  <th className="px-3 py-2 text-left">Account Name</th>
+                  <th className="bg-gold-100 px-3 py-2 text-right">Faktur Outlet</th>
+                  <th className="bg-slate-200 px-3 py-2 text-right">Adjustment Faktur 01.{String(cmMonth).padStart(2, "0")}</th>
+                  <th className="bg-sky-100 px-3 py-2 text-right">Total Bahan Baku</th>
+                </tr>
+              </thead>
+              <tbody>
+                {companyMaterialSchedule.accountSummary.map((a) => (
+                  <tr
+                    key={a.label}
+                    className={a.label === "TOTAL" ? "bg-brand-900 font-bold text-white" : a.label.startsWith("TOTAL") ? "bg-slate-100 font-semibold text-brand-900" : "border-b border-slate-100 odd:bg-white even:bg-slate-50/60"}
+                  >
+                    <td className="px-3 py-1.5">{a.label}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalFakturNominal)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalAdjustmentFakturNominal)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalNominal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </div>
+
         <Card className="p-0">
           <div className="sticky top-32 z-30 flex h-11 items-center rounded-t-xl bg-brand-950 px-5">
             <p className="text-sm font-bold uppercase tracking-wide text-white">Kartu Persediaan — {pYear} (per bulan)</p>
@@ -616,6 +671,8 @@ export default async function AdjustmentPage({
           />
           <StatCard label="Economic Value (Nilai Buku)" value={currency.format(faGrandTotal.economicValue)} tone="success" icon={<Wallet className="h-4 w-4" />} />
         </div>
+
+        <CreateFixedAssetForm />
 
         <Card className="p-0" id="fixed-asset-section">
           <CardHeader className="sticky top-32 z-30 h-14 bg-white">
@@ -910,6 +967,91 @@ export default async function AdjustmentPage({
           </table>
         </Card>
       </section>
+
+      {/* ══════════════════════ REKAP SALARY ══════════════════════ */}
+      <section id="adj-salary-recap" className="scroll-mt-32 space-y-6 border-t border-slate-200 pt-8">
+        <h2 className="text-lg font-bold text-brand-900">Rekap Salary</h2>
+        <p className="-mt-4 text-xs text-slate-500">Rekap penggajian bulanan per departemen — Total Terima (NET) dikurangi/ditambah setiap komponen, TOTAL (aktual) adalah penjumlahan seluruh baris.</p>
+
+        <Card>
+          <form className="flex flex-wrap items-end gap-3 p-5">
+            <div>
+              <Label className="text-[11px]">Bulan</Label>
+              <Select name="srMonth" defaultValue={String(srMonth)} className="mt-1">
+                {MONTH_LABELS_ID.map((m, i) => (
+                  <option key={m} value={i + 1}>
+                    {m}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label className="text-[11px]">Tahun</Label>
+              <Select name="srYear" defaultValue={String(srYear)} className="mt-1">
+                {years.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <PreserveParams all={allParams} except={["srYear", "srMonth"]} />
+            <Button type="submit" variant="secondary">
+              Tampilkan
+            </Button>
+          </form>
+        </Card>
+
+        <SalaryRecapForm />
+
+        <Card className="p-0" id="salary-recap-section">
+          <CardHeader className="sticky top-32 z-30 h-14 bg-white">
+            <CardTitle>
+              Rekap Salary — {MONTH_LABELS_ID[srMonth - 1]} {srYear}
+            </CardTitle>
+            <ExportExcelButton containerId="salary-recap-section" filename={`Rekap_Salary_${MONTH_LABELS_ID[srMonth - 1]}_${srYear}.xlsx`} />
+          </CardHeader>
+          <div className="overflow-x-auto" data-sheet-name="Rekap Salary">
+            <table className="w-full min-w-[1300px] border-collapse text-xs">
+              <thead>
+                <tr className="bg-brand-950 text-white">
+                  <th className="sticky left-0 z-10 border-r border-brand-900 bg-brand-950 px-3 py-2 text-left">Keterangan</th>
+                  {salaryRecap.columns.map((c) => (
+                    <th key={c.department} className="border-r border-brand-900 px-3 py-2 text-right">
+                      {c.label}
+                    </th>
+                  ))}
+                  <th className="px-3 py-2 text-right">Total Row</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(Object.keys(SALARY_RECAP_LINE_LABELS) as (keyof typeof SALARY_RECAP_LINE_LABELS)[]).map((key) => (
+                  <tr key={key} className="border-b border-slate-100 odd:bg-white even:bg-slate-50/60">
+                    <td className="sticky left-0 z-10 bg-inherit px-3 py-1.5 font-medium text-slate-900">{SALARY_RECAP_LINE_LABELS[key]}</td>
+                    {salaryRecap.columns.map((c) => (
+                      <td key={c.department} className="px-3 py-1.5 text-right tabular-nums">
+                        {c.values[key] > 0 ? currency.format(c.values[key]) : "-"}
+                      </td>
+                    ))}
+                    <td className="bg-gold-50/40 px-3 py-1.5 text-right font-semibold tabular-nums text-brand-900">
+                      {salaryRecap.rowTotals[key] > 0 ? currency.format(salaryRecap.rowTotals[key]) : "-"}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="bg-brand-900 font-bold text-white">
+                  <td className="sticky left-0 z-10 bg-brand-900 px-3 py-2">TOTAL (aktual)</td>
+                  {salaryRecap.columns.map((c) => (
+                    <td key={c.department} className="px-3 py-2 text-right tabular-nums">
+                      {currency.format(c.total)}
+                    </td>
+                  ))}
+                  <td className="px-3 py-2 text-right tabular-nums">{currency.format(salaryRecap.grandTotal)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </section>
     </div>
   );
 }
@@ -943,7 +1085,12 @@ function FixedAssetGroupRows({
           <td className="px-3 py-1.5 text-right tabular-nums">{r.yearToDateTotal > 0 ? currency.format(r.yearToDateTotal) : "-"}</td>
           <td className="bg-gold-50/40 px-3 py-1.5 text-right font-semibold tabular-nums text-brand-900">{currency.format(r.accumulatedDepreciation)}</td>
           <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(r.economicValue)}</td>
-          <td className="px-3 py-1.5 text-slate-500">{r.fullyDepreciated ? "Fully depreciated" : r.remark ?? ""}</td>
+          <td className="px-3 py-1.5 text-slate-500">
+            <div className="flex items-center justify-between gap-2">
+              <span>{r.fullyDepreciated ? "Fully depreciated" : r.remark ?? ""}</span>
+              <DisposeFixedAssetButton id={r.id} description={r.description} />
+            </div>
+          </td>
         </tr>
       ))}
       <tr className="bg-gold-50 font-bold text-brand-900">

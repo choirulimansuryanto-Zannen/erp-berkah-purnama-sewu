@@ -173,9 +173,24 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
     totalNominal: operasional.totalNominal + produksi.totalNominal,
   };
 
+  // "Account Summary" box at the bottom of the source sheet — 4
+  // Operasional sub-lines (Bahan Baku = Daging+Roti+Labanese+Bahan Baku
+  // Tambahan combined; the other 3 stand alone) + the 2 rollups above,
+  // reverse-engineered from which categories each printed line's total
+  // actually reconciles to.
+  const accountSummary = [
+    { label: "Bahan Baku", ...sumGroup(allRows.filter((r) => ["DAGING", "ROTI", "LABANESE", "BAHAN_BAKU_TAMBAHAN"].includes(r.category))) },
+    { label: "Bahan Pendukung", ...sumGroup(allRows.filter((r) => r.category === "BAHAN_PENDUKUNG")) },
+    { label: "Packaging", ...sumGroup(allRows.filter((r) => r.category === "PACKAGING_AB")) },
+    { label: "Marketing Tools", ...sumGroup(allRows.filter((r) => r.category === "MARKETING_TOOLS")) },
+    { label: "TOTAL OPERASIONAL", ...operasional },
+    { label: "TOTAL PRODUKSI", ...produksi },
+    { label: "TOTAL", ...grandTotal },
+  ];
+
   // Next-month label for the "Faktur 01 <bulan depan> Outlet" column header.
   const nextMonthIdx = month === 12 ? 0 : month;
   const nextMonthYear = month === 12 ? year + 1 : year;
 
-  return { groups, operasional, produksi, grandTotal, nextMonthIdx, nextMonthYear, prevMonthLabel: prev.month, prevMonthYear: prev.year };
+  return { groups, operasional, produksi, grandTotal, accountSummary, nextMonthIdx, nextMonthYear, prevMonthYear: prev.year };
 }
