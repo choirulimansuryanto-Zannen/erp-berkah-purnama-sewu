@@ -1763,6 +1763,11 @@ model CompanyMaterialClosingBalance {
   adjustmentNilai     Decimal @default(0) @db.Decimal(16, 2)
   fakturOutletQty     Decimal @default(0) @db.Decimal(14, 3)
   fakturOutletNominal Decimal @default(0) @db.Decimal(16, 2)
+  // A correction to the PRIOR month's "Faktur 01 Outlet" figure (e.g. an
+  // invoice amount revised after the fact) — distinct from adjustmentNilai
+  // above, which only corrects this month's own valuation rounding.
+  adjustmentFakturQty     Decimal @default(0) @db.Decimal(14, 3)
+  adjustmentFakturNominal Decimal @default(0) @db.Decimal(16, 2)
   note                String?
 
   recordedById String

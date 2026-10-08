@@ -332,81 +332,131 @@ export default async function AdjustmentPage({
 
           <div className="overflow-x-auto" data-sheet-name="Riwayat Persediaan">
             <div className="max-h-[75vh] overflow-y-auto">
-              <table className="w-full min-w-[1400px] border-collapse text-xs">
+              <table className="w-full min-w-[1700px] border-collapse text-xs">
                 <thead className="sticky top-0 z-20">
                   <tr className="bg-brand-950 text-white">
-                    <th rowSpan={2} className="sticky left-0 z-30 border-r border-brand-900 bg-brand-950 px-2 py-2 text-left">
+                    <th rowSpan={3} className="sticky left-0 z-30 border-r border-brand-900 bg-brand-950 px-2 py-2 text-left">
                       Kode
                     </th>
-                    <th rowSpan={2} className="sticky left-14 z-30 min-w-[220px] border-r border-brand-900 bg-brand-950 px-3 py-2 text-left">
+                    <th rowSpan={3} className="sticky left-14 z-30 min-w-[220px] border-r border-brand-900 bg-brand-950 px-3 py-2 text-left">
                       Nama Barang
                     </th>
-                    <th rowSpan={2} className="border-r border-brand-900 px-2 py-2 text-left">
+                    <th rowSpan={3} className="border-r border-brand-900 px-2 py-2 text-left">
                       Satuan
                     </th>
-                    <th colSpan={4} className="border-r border-brand-900 bg-gold-600 px-3 py-2 text-center text-brand-950">
-                      {MONTH_LABELS_ID[cmMonth - 1]}-{String(cmYear).slice(2)} Saldo Akhir
+                    <th rowSpan={3} className="border-r border-brand-900 px-2 py-2 text-right">
+                      Cost / satuan
                     </th>
-                    <th colSpan={2} className="border-r border-brand-900 bg-accent-200 px-3 py-2 text-center text-brand-950">
+                    <th colSpan={4} className="border-r border-brand-900 bg-rose-600 px-3 py-2 text-center">
+                      {MONTH_LABELS_ID[cmMonth - 1].toUpperCase()} {cmYear}
+                    </th>
+                    <th colSpan={2} className="border-r border-brand-900 bg-gold-600 px-3 py-2 text-center text-brand-950">
                       Faktur 01 {MONTH_LABELS_ID[companyMaterialSchedule.nextMonthIdx]} {companyMaterialSchedule.nextMonthYear} Outlet
                     </th>
-                    <th colSpan={2} className="px-3 py-2 text-center">
-                      Total
+                    <th colSpan={2} className="border-r border-brand-900 bg-slate-400 px-3 py-2 text-center">
+                      Adjustment Faktur 01.{String(companyMaterialSchedule.prevMonthLabel).padStart(2, "0")} Outlet
+                    </th>
+                    <th colSpan={2} className="bg-sky-700 px-3 py-2 text-center">
+                      TOTAL BAHAN BAKU
                     </th>
                   </tr>
-                  <tr className="bg-gold-500 text-brand-950">
-                    <th className="border-r border-gold-600 px-2 py-1.5 text-right font-semibold">Qty Opname</th>
-                    <th className="border-r border-gold-600 px-2 py-1.5 text-right font-semibold">Cost/satuan</th>
-                    <th className="border-r border-gold-600 px-2 py-1.5 text-right font-semibold">Nilai Akhir Persediaan</th>
-                    <th className="border-r border-brand-900 bg-gold-600 px-2 py-1.5 text-right font-semibold">Adjustment Nilai</th>
-                    <th className="border-r border-accent-300 bg-accent-200 px-2 py-1.5 text-right font-semibold text-brand-950">Qty</th>
-                    <th className="border-r border-brand-900 bg-accent-200 px-2 py-1.5 text-right font-semibold text-brand-950">Nominal (Rp)</th>
-                    <th className="border-r border-slate-300 bg-slate-100 px-2 py-1.5 text-right font-semibold">Qty</th>
-                    <th className="bg-slate-100 px-2 py-1.5 text-right font-semibold">Nominal (Rp)</th>
+                  <tr className="bg-rose-500 text-white">
+                    <th colSpan={2} className="border-r border-rose-700 px-2 py-1 text-center">
+                      Saldo Awal
+                    </th>
+                    <th colSpan={2} className="border-r border-brand-900 px-2 py-1 text-center">
+                      Saldo Akhir
+                    </th>
+                    <th colSpan={2} className="border-r border-brand-900 bg-gold-600 px-2 py-1 text-center text-brand-950" />
+                    <th colSpan={2} className="border-r border-brand-900 bg-slate-400 px-2 py-1 text-center" />
+                    <th colSpan={2} className="bg-sky-700 px-2 py-1 text-center" />
+                  </tr>
+                  <tr className="bg-rose-400 text-white">
+                    <th className="border-r border-rose-600 px-2 py-1.5 text-right font-semibold">Qty</th>
+                    <th className="border-r border-brand-900 px-2 py-1.5 text-right font-semibold">Nominal (Rp)</th>
+                    <th className="border-r border-rose-700 px-2 py-1.5 text-right font-semibold">Qty</th>
+                    <th className="border-r border-brand-900 px-2 py-1.5 text-right font-semibold">Total</th>
+                    <th className="border-r border-gold-700 bg-gold-600 px-2 py-1.5 text-right font-semibold text-brand-950">Qty</th>
+                    <th className="border-r border-brand-900 bg-gold-600 px-2 py-1.5 text-right font-semibold text-brand-950">Nominal (Rp)</th>
+                    <th className="border-r border-slate-500 bg-slate-400 px-2 py-1.5 text-right font-semibold">Qty</th>
+                    <th className="border-r border-brand-900 bg-slate-400 px-2 py-1.5 text-right font-semibold">Nominal (Rp)</th>
+                    <th className="border-r border-sky-800 bg-sky-700 px-2 py-1.5 text-right font-semibold">Qty</th>
+                    <th className="bg-sky-700 px-2 py-1.5 text-right font-semibold">Nominal (Rp)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {companyMaterialSchedule.groups.map((g) => (
-                    <Fragment key={g.category}>
-                      <tr className="bg-slate-100">
-                        <td colSpan={11} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-brand-900">
-                          {g.label}
-                        </td>
-                      </tr>
-                      {g.rows.map((r) => (
-                        <tr key={r.id} className="border-b border-slate-100 odd:bg-white even:bg-slate-50/60 hover:bg-gold-50/40">
-                          <td className="sticky left-0 z-10 bg-inherit px-2 py-1.5 text-slate-500">{r.code}</td>
-                          <td className="sticky left-14 z-10 bg-inherit px-3 py-1.5 font-medium text-slate-900">{r.name}</td>
-                          <td className="px-2 py-1.5 text-slate-500">{r.unit}</td>
-                          <td className="px-2 py-1.5 text-right tabular-nums">{r.qtyOpname > 0 ? qtyFormat.format(r.qtyOpname) : "-"}</td>
-                          <td className="px-2 py-1.5 text-right tabular-nums">{r.costPerUnit > 0 ? currency.format(r.costPerUnit) : "-"}</td>
-                          <td className="px-2 py-1.5 text-right tabular-nums">{r.nilaiAkhir > 0 ? currency.format(r.nilaiAkhir) : "-"}</td>
-                          <td className="px-2 py-1.5 text-right tabular-nums">{r.adjustmentNilai !== 0 ? currency.format(r.adjustmentNilai) : "-"}</td>
-                          <td className="bg-accent-50 px-2 py-1.5 text-right tabular-nums">{r.fakturOutletQty > 0 ? qtyFormat.format(r.fakturOutletQty) : "-"}</td>
-                          <td className="bg-accent-50 px-2 py-1.5 text-right tabular-nums">{r.fakturOutletNominal > 0 ? currency.format(r.fakturOutletNominal) : "-"}</td>
-                          <td className="px-2 py-1.5 text-right tabular-nums">{r.totalQty !== 0 ? qtyFormat.format(r.totalQty) : "-"}</td>
-                          <td className="bg-gold-50/40 px-2 py-1.5 text-right font-semibold tabular-nums text-brand-900">
-                            {r.totalNominal !== 0 ? currency.format(r.totalNominal) : "-"}
+                  {companyMaterialSchedule.groups.map((g, gi) => {
+                    const prevSuperGroup = gi > 0 ? companyMaterialSchedule.groups[gi - 1].superGroup : null;
+                    const showSuperGroupBanner = g.superGroup && g.superGroup !== prevSuperGroup;
+                    return (
+                      <Fragment key={g.category}>
+                        {showSuperGroupBanner && (
+                          <tr className="bg-blue-100">
+                            <td colSpan={13} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-blue-900">
+                              {g.superGroup}
+                            </td>
+                          </tr>
+                        )}
+                        {!g.superGroup && (
+                          <tr className="bg-blue-100">
+                            <td colSpan={13} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-blue-900">
+                              {g.label}
+                            </td>
+                          </tr>
+                        )}
+                        {g.superGroup && (
+                          <tr className="bg-rose-50">
+                            <td colSpan={13} className="px-5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-700">
+                              {g.label}
+                            </td>
+                          </tr>
+                        )}
+                        {g.rows.map((r) => (
+                          <tr key={r.id} className="border-b border-slate-100 odd:bg-white even:bg-slate-50/60 hover:bg-gold-50/40">
+                            <td className="sticky left-0 z-10 bg-inherit px-2 py-1.5 text-slate-500">{r.code}</td>
+                            <td className="sticky left-14 z-10 bg-inherit px-3 py-1.5 font-medium text-slate-900">{r.name}</td>
+                            <td className="px-2 py-1.5 text-slate-500">{r.unit}</td>
+                            <td className="px-2 py-1.5 text-right tabular-nums">{r.costPerUnit > 0 ? currency.format(r.costPerUnit) : "-"}</td>
+                            <td className="bg-rose-50/60 px-2 py-1.5 text-right tabular-nums">{r.saldoAwalQty > 0 ? qtyFormat.format(r.saldoAwalQty) : "-"}</td>
+                            <td className="bg-rose-50/60 px-2 py-1.5 text-right tabular-nums">{r.saldoAwalNominal > 0 ? currency.format(r.saldoAwalNominal) : "-"}</td>
+                            <td className="bg-rose-50/30 px-2 py-1.5 text-right tabular-nums">{r.qtyOpname > 0 ? qtyFormat.format(r.qtyOpname) : "-"}</td>
+                            <td className="bg-rose-50/30 px-2 py-1.5 text-right font-semibold tabular-nums">{r.nilaiAkhir > 0 ? currency.format(r.nilaiAkhir) : "-"}</td>
+                            <td className="bg-gold-50/40 px-2 py-1.5 text-right tabular-nums">{r.fakturOutletQty > 0 ? qtyFormat.format(r.fakturOutletQty) : "-"}</td>
+                            <td className="bg-gold-50/40 px-2 py-1.5 text-right tabular-nums">{r.fakturOutletNominal > 0 ? currency.format(r.fakturOutletNominal) : "-"}</td>
+                            <td className="bg-slate-50 px-2 py-1.5 text-right tabular-nums">{r.adjustmentFakturQty !== 0 ? qtyFormat.format(r.adjustmentFakturQty) : "-"}</td>
+                            <td className="bg-slate-50 px-2 py-1.5 text-right tabular-nums">{r.adjustmentFakturNominal !== 0 ? currency.format(r.adjustmentFakturNominal) : "-"}</td>
+                            <td className="bg-sky-50 px-2 py-1.5 text-right tabular-nums">{r.totalQty !== 0 ? qtyFormat.format(r.totalQty) : "-"}</td>
+                            <td className="bg-sky-50 px-2 py-1.5 text-right font-semibold tabular-nums text-sky-900">
+                              {r.totalNominal !== 0 ? currency.format(r.totalNominal) : "-"}
+                            </td>
+                          </tr>
+                        ))}
+                        <tr className="font-bold text-white">
+                          <td colSpan={4} className="sticky left-0 z-10 bg-brand-900 px-3 py-1.5">
+                            TOTAL {g.label}
+                          </td>
+                          <td className="bg-rose-600 px-2 py-1.5 text-right tabular-nums" colSpan={2}>
+                            {currency.format(g.totalSaldoAwalNominal)}
+                          </td>
+                          <td className="bg-rose-700 px-2 py-1.5 text-right tabular-nums" colSpan={2}>
+                            {currency.format(g.totalNilaiAkhir)}
+                          </td>
+                          <td className="bg-gold-600 px-2 py-1.5 text-right tabular-nums text-brand-950" colSpan={2}>
+                            {currency.format(g.totalFakturNominal)}
+                          </td>
+                          <td className="bg-slate-500 px-2 py-1.5 text-right tabular-nums" colSpan={2}>
+                            {currency.format(g.totalAdjustmentFakturNominal)}
+                          </td>
+                          <td className="bg-sky-700 px-2 py-1.5 text-right tabular-nums" colSpan={2}>
+                            {currency.format(g.totalNominal)}
                           </td>
                         </tr>
-                      ))}
-                      <tr className="bg-gold-50 font-bold text-brand-900">
-                        <td colSpan={5} className="sticky left-0 z-10 bg-gold-50 px-3 py-1.5">
-                          TOTAL {g.label}
-                        </td>
-                        <td className="px-2 py-1.5 text-right tabular-nums">{currency.format(g.totalNilaiAkhir)}</td>
-                        <td />
-                        <td className="bg-accent-100 px-2 py-1.5 text-right tabular-nums" colSpan={2}>
-                          {currency.format(g.totalFakturNominal)}
-                        </td>
-                        <td />
-                        <td className="px-2 py-1.5 text-right tabular-nums">{currency.format(g.totalNominal)}</td>
-                      </tr>
-                    </Fragment>
-                  ))}
+                      </Fragment>
+                    );
+                  })}
                   {companyMaterialSchedule.groups.length === 0 && (
                     <tr>
-                      <td colSpan={11} className="px-3 py-6 text-center text-slate-400">
+                      <td colSpan={13} className="px-3 py-6 text-center text-slate-400">
                         Belum ada data stock-opname untuk periode ini.
                       </td>
                     </tr>
@@ -415,40 +465,64 @@ export default async function AdjustmentPage({
                 {companyMaterialSchedule.groups.length > 0 && (
                   <tfoot>
                     <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold text-brand-900">
-                      <td colSpan={5} className="px-3 py-2">
+                      <td colSpan={4} className="px-3 py-2">
                         TOTAL OPERASIONAL
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums">{currency.format(companyMaterialSchedule.operasional.totalNilaiAkhir)}</td>
-                      <td />
+                      <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
+                        {currency.format(companyMaterialSchedule.operasional.totalSaldoAwalNominal)}
+                      </td>
+                      <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
+                        {currency.format(companyMaterialSchedule.operasional.totalNilaiAkhir)}
+                      </td>
                       <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
                         {currency.format(companyMaterialSchedule.operasional.totalFakturNominal)}
                       </td>
-                      <td />
-                      <td className="px-2 py-2 text-right tabular-nums">{currency.format(companyMaterialSchedule.operasional.totalNominal)}</td>
+                      <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
+                        {currency.format(companyMaterialSchedule.operasional.totalAdjustmentFakturNominal)}
+                      </td>
+                      <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
+                        {currency.format(companyMaterialSchedule.operasional.totalNominal)}
+                      </td>
                     </tr>
                     <tr className="bg-slate-50 font-semibold text-brand-900">
-                      <td colSpan={5} className="px-3 py-2">
+                      <td colSpan={4} className="px-3 py-2">
                         TOTAL PRODUKSI
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums">{currency.format(companyMaterialSchedule.produksi.totalNilaiAkhir)}</td>
-                      <td />
+                      <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
+                        {currency.format(companyMaterialSchedule.produksi.totalSaldoAwalNominal)}
+                      </td>
+                      <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
+                        {currency.format(companyMaterialSchedule.produksi.totalNilaiAkhir)}
+                      </td>
                       <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
                         {currency.format(companyMaterialSchedule.produksi.totalFakturNominal)}
                       </td>
-                      <td />
-                      <td className="px-2 py-2 text-right tabular-nums">{currency.format(companyMaterialSchedule.produksi.totalNominal)}</td>
+                      <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
+                        {currency.format(companyMaterialSchedule.produksi.totalAdjustmentFakturNominal)}
+                      </td>
+                      <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
+                        {currency.format(companyMaterialSchedule.produksi.totalNominal)}
+                      </td>
                     </tr>
                     <tr className="bg-brand-900 font-bold text-white">
-                      <td colSpan={5} className="px-3 py-2">
+                      <td colSpan={4} className="px-3 py-2">
                         TOTAL
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums">{currency.format(companyMaterialSchedule.grandTotal.totalNilaiAkhir)}</td>
-                      <td />
+                      <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
+                        {currency.format(companyMaterialSchedule.grandTotal.totalSaldoAwalNominal)}
+                      </td>
+                      <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
+                        {currency.format(companyMaterialSchedule.grandTotal.totalNilaiAkhir)}
+                      </td>
                       <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
                         {currency.format(companyMaterialSchedule.grandTotal.totalFakturNominal)}
                       </td>
-                      <td />
-                      <td className="px-2 py-2 text-right tabular-nums">{currency.format(companyMaterialSchedule.grandTotal.totalNominal)}</td>
+                      <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
+                        {currency.format(companyMaterialSchedule.grandTotal.totalAdjustmentFakturNominal)}
+                      </td>
+                      <td colSpan={2} className="px-2 py-2 text-right tabular-nums">
+                        {currency.format(companyMaterialSchedule.grandTotal.totalNominal)}
+                      </td>
                     </tr>
                   </tfoot>
                 )}

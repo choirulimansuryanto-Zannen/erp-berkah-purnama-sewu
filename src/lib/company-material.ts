@@ -1,15 +1,16 @@
 import { prisma } from "@/lib/prisma";
 
 // Company-wide (warehouse-level) SKU stock-opname — "Riwayat Persediaan
-// Akhir" detail table on /finance/persediaan. Nilai Akhir and Total are
-// DERIVED here, never stored, so they can't drift from their inputs:
-//   Nilai Akhir Persediaan = qtyOpname × costPerUnit + adjustmentNilai
-//   Total Qty              = qtyOpname − fakturOutletQty
-//   Total Nominal          = Nilai Akhir Persediaan − fakturOutletNominal
-// (the Faktur Outlet columns are goods already invoiced OUT to outlets
-// effective the 1st of the following month, so Total = what's left after
-// that shipment — confirmed by reconciling against the source: Daging's
-// 95,809,000 saldo − 47,261,500 faktur = 48,547,500, exactly its Total).
+// Akhir" detail table on /finance/persediaan. Every derived figure is
+// computed here, never stored, so it can't drift from its inputs:
+//   Saldo Awal (this month)   = Saldo Akhir of the PRIOR month (rollover)
+//   Nilai Akhir (Saldo Akhir) = qtyOpname × costPerUnit + adjustmentNilai
+//   Total Qty      = qtyOpname − fakturOutletQty − adjustmentFakturQty
+//   Total Nominal  = Nilai Akhir − fakturOutletNominal − adjustmentFakturNominal
+// (Faktur Outlet = goods already invoiced out to outlets effective the 1st
+// of the following month; Adjustment Faktur corrects a PRIOR month's own
+// Faktur figure — distinct from adjustmentNilai, which only corrects this
+// month's own valuation rounding.)
 
 export const COMPANY_MATERIAL_CATEGORY_LABELS: Record<string, string> = {
   DAGING: "Daging",
@@ -38,6 +39,23 @@ export const COMPANY_MATERIAL_CATEGORY_ORDER = [
   "MARKETING_TOOLS",
 ] as const;
 
+// Daging/Roti/Labanese are visually nested under one "Bahan Baku AB" parent
+// banner in the source sheet (the other categories each stand on their
+// own) — purely a rendering grouping, the underlying category stays flat.
+export const COMPANY_MATERIAL_SUPER_GROUP: Record<string, string | null> = {
+  DAGING: "Bahan Baku AB",
+  ROTI: "Bahan Baku AB",
+  LABANESE: "Bahan Baku AB",
+  BAHAN_BAKU_TAMBAHAN: null,
+  BAHAN_PENDUKUNG: null,
+  PACKAGING_AB: null,
+  BAHAN_BAKU_AD: null,
+  BAHAN_CAMPURAN_AD: null,
+  PACKAGING_AD: null,
+  BARANG_JADI_AD: null,
+  MARKETING_TOOLS: null,
+};
+
 // AB divisions (Daging/Roti/Labanese/Bahan Baku Tambahan/Bahan Pendukung/
 // Packaging AB) + Marketing Tools = "Operasional"; AD divisions (Bahan
 // Baku/Campuran/Packaging/Barang Jadi AD) = "Produksi" — the split the
@@ -51,12 +69,15 @@ export type CompanyMaterialRow = {
   code: string;
   name: string;
   unit: string;
-  qtyOpname: number;
   costPerUnit: number;
-  nilaiAkhir: number;
-  adjustmentNilai: number;
+  saldoAwalQty: number;
+  saldoAwalNominal: number;
+  qtyOpname: number; // Saldo Akhir qty
+  nilaiAkhir: number; // Saldo Akhir nominal
   fakturOutletQty: number;
   fakturOutletNominal: number;
+  adjustmentFakturQty: number;
+  adjustmentFakturNominal: number;
   totalQty: number;
   totalNominal: number;
 };
@@ -64,55 +85,80 @@ export type CompanyMaterialRow = {
 export type CompanyMaterialCategoryGroup = {
   category: string;
   label: string;
+  superGroup: string | null;
   rows: CompanyMaterialRow[];
+  totalSaldoAwalNominal: number;
   totalNilaiAkhir: number;
   totalFakturNominal: number;
+  totalAdjustmentFakturNominal: number;
   totalNominal: number;
 };
 
 function sumGroup(rows: CompanyMaterialRow[]) {
   return {
+    totalSaldoAwalNominal: rows.reduce((s, r) => s + r.saldoAwalNominal, 0),
     totalNilaiAkhir: rows.reduce((s, r) => s + r.nilaiAkhir, 0),
     totalFakturNominal: rows.reduce((s, r) => s + r.fakturOutletNominal, 0),
+    totalAdjustmentFakturNominal: rows.reduce((s, r) => s + r.adjustmentFakturNominal, 0),
     totalNominal: rows.reduce((s, r) => s + r.totalNominal, 0),
   };
 }
 
+function prevMonth(year: number, month: number): { year: number; month: number } {
+  return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+}
+
 export async function getCompanyMaterialSchedule(year: number, month: number) {
+  const prev = prevMonth(year, month);
+
   const materials = await prisma.companyMaterial.findMany({
     where: { status: "ACTIVE" },
-    include: { closingBalances: { where: { year, month } } },
+    include: {
+      closingBalances: { where: { OR: [{ year, month }, { year: prev.year, month: prev.month }] } },
+    },
     orderBy: [{ category: "asc" }, { sortOrder: "asc" }],
   });
 
   const allRows: (CompanyMaterialRow & { category: string })[] = materials.map((m) => {
-    const cb = m.closingBalances[0];
+    const cb = m.closingBalances.find((c) => c.year === year && c.month === month);
+    const cbPrev = m.closingBalances.find((c) => c.year === prev.year && c.month === prev.month);
+
+    const costPerUnit = Number(cb?.costPerUnit ?? cbPrev?.costPerUnit ?? 0);
     const qtyOpname = Number(cb?.qtyOpname ?? 0);
-    const costPerUnit = Number(cb?.costPerUnit ?? 0);
     const adjustmentNilai = Number(cb?.adjustmentNilai ?? 0);
     const fakturOutletQty = Number(cb?.fakturOutletQty ?? 0);
     const fakturOutletNominal = Number(cb?.fakturOutletNominal ?? 0);
+    const adjustmentFakturQty = Number(cb?.adjustmentFakturQty ?? 0);
+    const adjustmentFakturNominal = Number(cb?.adjustmentFakturNominal ?? 0);
+
+    const saldoAwalQty = Number(cbPrev?.qtyOpname ?? 0);
+    const saldoAwalNominal = saldoAwalQty * Number(cbPrev?.costPerUnit ?? costPerUnit) + Number(cbPrev?.adjustmentNilai ?? 0);
+
     const nilaiAkhir = qtyOpname * costPerUnit + adjustmentNilai;
+
     return {
       id: m.id,
       code: m.code,
       name: m.name,
       unit: m.unit,
       category: m.category,
-      qtyOpname,
       costPerUnit,
+      saldoAwalQty,
+      saldoAwalNominal,
+      qtyOpname,
       nilaiAkhir,
-      adjustmentNilai,
       fakturOutletQty,
       fakturOutletNominal,
-      totalQty: qtyOpname - fakturOutletQty,
-      totalNominal: nilaiAkhir - fakturOutletNominal,
+      adjustmentFakturQty,
+      adjustmentFakturNominal,
+      totalQty: qtyOpname - fakturOutletQty - adjustmentFakturQty,
+      totalNominal: nilaiAkhir - fakturOutletNominal - adjustmentFakturNominal,
     };
   });
 
   const groups: CompanyMaterialCategoryGroup[] = COMPANY_MATERIAL_CATEGORY_ORDER.filter((cat) => allRows.some((r) => r.category === cat)).map((cat) => {
     const rows = allRows.filter((r) => r.category === cat);
-    return { category: cat, label: COMPANY_MATERIAL_CATEGORY_LABELS[cat], rows, ...sumGroup(rows) };
+    return { category: cat, label: COMPANY_MATERIAL_CATEGORY_LABELS[cat], superGroup: COMPANY_MATERIAL_SUPER_GROUP[cat], rows, ...sumGroup(rows) };
   });
 
   const operasionalRows = allRows.filter((r) => OPERASIONAL_CATEGORIES.has(r.category));
@@ -120,8 +166,10 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
   const operasional = sumGroup(operasionalRows);
   const produksi = sumGroup(produksiRows);
   const grandTotal = {
+    totalSaldoAwalNominal: operasional.totalSaldoAwalNominal + produksi.totalSaldoAwalNominal,
     totalNilaiAkhir: operasional.totalNilaiAkhir + produksi.totalNilaiAkhir,
     totalFakturNominal: operasional.totalFakturNominal + produksi.totalFakturNominal,
+    totalAdjustmentFakturNominal: operasional.totalAdjustmentFakturNominal + produksi.totalAdjustmentFakturNominal,
     totalNominal: operasional.totalNominal + produksi.totalNominal,
   };
 
@@ -129,5 +177,5 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
   const nextMonthIdx = month === 12 ? 0 : month;
   const nextMonthYear = month === 12 ? year + 1 : year;
 
-  return { groups, operasional, produksi, grandTotal, nextMonthIdx, nextMonthYear };
+  return { groups, operasional, produksi, grandTotal, nextMonthIdx, nextMonthYear, prevMonthLabel: prev.month, prevMonthYear: prev.year };
 }
