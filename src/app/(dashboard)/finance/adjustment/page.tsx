@@ -430,7 +430,8 @@ export default async function AdjustmentPage({
               <thead>
                 <tr className="bg-slate-100 text-[11px] font-bold uppercase text-slate-500">
                   <th className="px-3 py-2 text-left">Account Name</th>
-                  <th className="bg-gold-100 px-3 py-2 text-right">Faktur Outlet Tanggal 01 Bulan Selanjutnya</th>
+                  <th className="bg-gold-100 px-3 py-2 text-right">Faktur Awal Bulan Outlet</th>
+                  <th className="bg-slate-200 px-3 py-2 text-right">Adjustment Inventory</th>
                   <th className="bg-sky-100 px-3 py-2 text-right">Total Bahan Baku</th>
                 </tr>
               </thead>
@@ -442,6 +443,7 @@ export default async function AdjustmentPage({
                   >
                     <td className="px-3 py-1.5">{a.label}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalFakturNominal)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalAdjustmentInventoryNominal)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalNominal)}</td>
                   </tr>
                 ))}

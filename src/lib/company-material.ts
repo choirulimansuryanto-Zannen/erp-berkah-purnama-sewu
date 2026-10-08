@@ -78,6 +78,12 @@ export type CompanyMaterialRow = {
   fakturOutletNominal: number;
   totalBahanBakuQty: number; // derived — see module docblock
   totalBahanBakuNominal: number;
+  // Adjustment Inventory — historical/legacy figure (pre-dates the
+  // current Total Bahan Baku formula), kept only for Account Summary
+  // traceability. Not derived, not editable here, not part of any live
+  // formula; it simply surfaces whatever was last recorded against this
+  // row (0 for anything entered since).
+  adjustmentInventoryNominal: number;
 };
 
 export type CompanyMaterialCategoryGroup = {
@@ -89,6 +95,7 @@ export type CompanyMaterialCategoryGroup = {
   totalNilaiAkhir: number;
   totalFakturNominal: number;
   totalNominal: number;
+  totalAdjustmentInventoryNominal: number;
 };
 
 function sumGroup(rows: CompanyMaterialRow[]) {
@@ -97,6 +104,7 @@ function sumGroup(rows: CompanyMaterialRow[]) {
     totalNilaiAkhir: rows.reduce((s, r) => s + r.nilaiAkhir, 0),
     totalFakturNominal: rows.reduce((s, r) => s + r.fakturOutletNominal, 0),
     totalNominal: rows.reduce((s, r) => s + r.totalBahanBakuNominal, 0),
+    totalAdjustmentInventoryNominal: rows.reduce((s, r) => s + r.adjustmentInventoryNominal, 0),
   };
 }
 
@@ -138,6 +146,7 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
       fakturOutletNominal: fakturOutletQty * costPerUnit,
       totalBahanBakuQty,
       totalBahanBakuNominal: totalBahanBakuQty * costPerUnit,
+      adjustmentInventoryNominal: Number(cb?.adjustmentFakturNominal ?? 0),
     };
   });
 
@@ -155,19 +164,25 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
     totalNilaiAkhir: operasional.totalNilaiAkhir + produksi.totalNilaiAkhir,
     totalFakturNominal: operasional.totalFakturNominal + produksi.totalFakturNominal,
     totalNominal: operasional.totalNominal + produksi.totalNominal,
+    totalAdjustmentInventoryNominal: operasional.totalAdjustmentInventoryNominal + produksi.totalAdjustmentInventoryNominal,
   };
 
-  // "Account Summary" boxes — both are straightforward sums of the Tabel
-  // SKU rows above: 4 Operasional sub-lines (Bahan Baku = Daging+Roti+
-  // Labanese+Bahan Baku Tambahan combined; the other 3 stand alone) + the
-  // 2 rollups, reverse-engineered from which categories each printed
-  // line's total actually reconciles to.
+  // "Account Summary" boxes — straightforward sums of the Tabel SKU rows
+  // above, broken out by account: Bahan Baku AB combines Daging/Roti/
+  // Labanese/Bahan Baku Tambahan into one line; every other category
+  // (Bahan Pendukung AB, Packaging AB, Marketing Tools, and each of the
+  // 4 AD categories) stands on its own line — plus the Operasional/
+  // Produksi/grand-total rollups.
   const accountSummary = [
-    { label: "Bahan Baku", ...sumGroup(allRows.filter((r) => ["DAGING", "ROTI", "LABANESE", "BAHAN_BAKU_TAMBAHAN"].includes(r.category))) },
-    { label: "Bahan Pendukung", ...sumGroup(allRows.filter((r) => r.category === "BAHAN_PENDUKUNG")) },
-    { label: "Packaging", ...sumGroup(allRows.filter((r) => r.category === "PACKAGING_AB")) },
-    { label: "Marketing Tools", ...sumGroup(allRows.filter((r) => r.category === "MARKETING_TOOLS")) },
+    { label: "Bahan Baku AB", ...sumGroup(allRows.filter((r) => ["DAGING", "ROTI", "LABANESE", "BAHAN_BAKU_TAMBAHAN"].includes(r.category))) },
+    { label: COMPANY_MATERIAL_CATEGORY_LABELS.BAHAN_PENDUKUNG, ...sumGroup(allRows.filter((r) => r.category === "BAHAN_PENDUKUNG")) },
+    { label: COMPANY_MATERIAL_CATEGORY_LABELS.PACKAGING_AB, ...sumGroup(allRows.filter((r) => r.category === "PACKAGING_AB")) },
+    { label: COMPANY_MATERIAL_CATEGORY_LABELS.MARKETING_TOOLS, ...sumGroup(allRows.filter((r) => r.category === "MARKETING_TOOLS")) },
     { label: "TOTAL OPERASIONAL", ...operasional },
+    { label: COMPANY_MATERIAL_CATEGORY_LABELS.BAHAN_BAKU_AD, ...sumGroup(allRows.filter((r) => r.category === "BAHAN_BAKU_AD")) },
+    { label: COMPANY_MATERIAL_CATEGORY_LABELS.BAHAN_CAMPURAN_AD, ...sumGroup(allRows.filter((r) => r.category === "BAHAN_CAMPURAN_AD")) },
+    { label: COMPANY_MATERIAL_CATEGORY_LABELS.PACKAGING_AD, ...sumGroup(allRows.filter((r) => r.category === "PACKAGING_AD")) },
+    { label: COMPANY_MATERIAL_CATEGORY_LABELS.BARANG_JADI_AD, ...sumGroup(allRows.filter((r) => r.category === "BARANG_JADI_AD")) },
     { label: "TOTAL PRODUKSI", ...produksi },
     { label: "TOTAL", ...grandTotal },
   ];
