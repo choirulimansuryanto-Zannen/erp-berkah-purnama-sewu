@@ -80,6 +80,12 @@ export type CompanyMaterialRow = {
   adjustmentFakturNominal: number;
   totalQty: number;
   totalNominal: number;
+  // "Total Bahan Baku" quantity used by the editable SKU table above
+  // Account Summary — material actually CONSUMED this period, a different
+  // metric from totalQty above (which nets off next month's outlet
+  // shipment instead). Formula as given: Saldo Akhir − Saldo Awal −
+  // Adjustment (Faktur/Inventory) qty.
+  totalBahanBakuQty: number;
 };
 
 export type CompanyMaterialCategoryGroup = {
@@ -153,6 +159,7 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
       adjustmentFakturNominal,
       totalQty: qtyOpname - fakturOutletQty - adjustmentFakturQty,
       totalNominal: nilaiAkhir - fakturOutletNominal - adjustmentFakturNominal,
+      totalBahanBakuQty: qtyOpname - saldoAwalQty - adjustmentFakturQty,
     };
   });
 
