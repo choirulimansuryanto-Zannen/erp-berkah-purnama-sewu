@@ -308,16 +308,14 @@ export default async function AdjustmentPage({
 
           <Card className="p-0">
             <div className="rounded-t-xl bg-brand-950 px-4 py-2.5">
-              <p className="text-xs font-bold uppercase tracking-wide text-white">
-                Account Summary — Faktur 01 {MONTH_LABELS_ID[companyMaterialSchedule.nextMonthIdx]} {companyMaterialSchedule.nextMonthYear} Outlet
-              </p>
+              <p className="text-xs font-bold uppercase tracking-wide text-white">Account Summary — Pecah Invoice</p>
             </div>
             <table className="w-full border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-100 text-[11px] font-bold uppercase text-slate-500">
                   <th className="px-3 py-2 text-left">Account Name</th>
-                  <th className="bg-gold-100 px-3 py-2 text-right">Faktur Outlet</th>
-                  <th className="bg-slate-200 px-3 py-2 text-right">Adjustment Faktur 01.{String(cmMonth).padStart(2, "0")}</th>
+                  <th className="bg-gold-100 px-3 py-2 text-right">Faktur Outlet Tanggal 01 Bulan Selanjutnya</th>
+                  <th className="bg-slate-200 px-3 py-2 text-right">Adjustment Faktur</th>
                   <th className="bg-sky-100 px-3 py-2 text-right">Total Bahan Baku</th>
                 </tr>
               </thead>
