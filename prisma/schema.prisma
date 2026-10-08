@@ -279,6 +279,9 @@ model User {
   outletLedgerEntriesCreated OutletLedgerEntry[]
   outletPayrollsAsEmployee   OutletPayroll[] @relation("OutletPayrollUser")
   outletPayrollsRecorded     OutletPayroll[] @relation("OutletPayrollRecordedBy")
+  companyMaterialClosingBalancesRecorded CompanyMaterialClosingBalance[] @relation("CompanyMaterialClosingRecordedBy")
+  vendorLedgerEntriesRecorded VendorLedgerEntry[] @relation("VendorLedgerRecordedBy")
+  receivableEntriesRecorded   ReceivableEntry[]   @relation("ReceivableEntryRecordedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1377,6 +1380,61 @@ model WarehouseReceiving {
   @@index([expiryDate])
 }
 
+enum FixedAssetCategory {
+  BANGUNAN_KANTOR
+  PERALATAN_KANTOR
+  BANGUNAN_PABRIK
+  PERALATAN_PABRIK
+  KENDARAAN
+}
+
+enum FixedAssetStatus {
+  ACTIVE
+  DISPOSED
+}
+
+// Itemized fixed-asset register (one row per physical asset) — the sub-
+// ledger supporting Neraca's "Asset Tetap" / "Akumulasi Penyusutan" summary
+// lines (Chart of Account 18000), business-supplied (2026-10-08). Straight-
+// line depreciation is computed LIVE from (depreciableBase, usefulLifeMonths,
+// acquisitionDate) in src/lib/fixed-asset.ts rather than stored as a frozen
+// snapshot, so the schedule stays correct as later periods are selected —
+// same convention as every other FA Company report (Neraca, Laba Rugi, etc.).
+//
+// NOT yet wired into the ledger/Jurnal Penyesuaian — this is an
+// informational register for tracking individual assets; any GL posting of
+// depreciation still goes through Jurnal Penyesuaian exactly as before.
+model FixedAsset {
+  id String @id @default(uuid())
+
+  // Row number from the business's own register — kept purely so Export
+  // Excel reproduces a familiar order; not a business key (the source
+  // register skips some numbers, which this does not try to replicate).
+  no       Int?
+  category FixedAssetCategory
+
+  description       String
+  acquisitionAmount Decimal @db.Decimal(16, 2)
+
+  // The portion of acquisitionAmount actually subject to depreciation — can
+  // be less than the full acquisition cost (e.g. land bundled into a
+  // building purchase is never depreciated, or the asset was already
+  // partially written off before this register started tracking it).
+  // Monthly depreciation = depreciableBase ÷ usefulLifeMonths.
+  depreciableBase  Decimal  @db.Decimal(16, 2)
+  usefulLifeMonths Int
+  acquisitionDate  DateTime @db.Date
+
+  remark String?
+  status FixedAssetStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([status])
+}
+
 model StockDistribution {
   id             String             @id @default(uuid())
   productId      String
@@ -1648,6 +1706,147 @@ model OutletMaterialClosingBalance {
 
   @@unique([outletId, materialId, year, month])
   @@index([outletId, year, month])
+}
+
+// Company-wide (warehouse-level) material/SKU catalog — distinct from
+// OutletMaterial (per-outlet stock-opname above): this is the central
+// warehouse's own catalog across every division (AB = Operasional, AD =
+// Produksi, MS = Marketing), business-supplied (2026-10-08). Backs the
+// "Riwayat Persediaan Akhir" SKU-level detail table on /finance/persediaan.
+enum CompanyMaterialCategory {
+  DAGING
+  ROTI
+  LABANESE
+  BAHAN_BAKU_TAMBAHAN
+  BAHAN_PENDUKUNG
+  PACKAGING_AB
+  BAHAN_BAKU_AD
+  BAHAN_CAMPURAN_AD
+  PACKAGING_AD
+  BARANG_JADI_AD
+  MARKETING_TOOLS
+}
+
+model CompanyMaterial {
+  id        String                   @id @default(uuid())
+  code      String                   @unique
+  name      String
+  category  CompanyMaterialCategory
+  unit      String
+  sortOrder Int                      @default(0)
+  status    ProductStatus            @default(ACTIVE)
+
+  closingBalances CompanyMaterialClosingBalance[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+}
+
+// One monthly stock-opname snapshot per material — qtyOpname × costPerUnit
+// is the valuation; adjustmentNilai is a separate manual correction line
+// (rarely used in the source data); fakturOutlet{Qty,Nominal} is the very
+// next day's (1st of the following month) outlet-distribution invoice,
+// tracked alongside the warehouse balance so "Total" = warehouse + what's
+// already committed to outlets. Nilai Akhir / Total are DERIVED at read
+// time (src/lib/company-material.ts), never stored, so they can't drift.
+model CompanyMaterialClosingBalance {
+  id         String          @id @default(uuid())
+  materialId String
+  material   CompanyMaterial @relation(fields: [materialId], references: [id])
+  year       Int
+  month      Int
+
+  qtyOpname           Decimal @default(0) @db.Decimal(14, 3)
+  costPerUnit         Decimal @default(0) @db.Decimal(14, 2)
+  adjustmentNilai     Decimal @default(0) @db.Decimal(16, 2)
+  fakturOutletQty     Decimal @default(0) @db.Decimal(14, 3)
+  fakturOutletNominal Decimal @default(0) @db.Decimal(16, 2)
+  note                String?
+
+  recordedById String
+  recordedBy   User     @relation("CompanyMaterialClosingRecordedBy", fields: [recordedById], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([materialId, year, month])
+  @@index([year, month])
+}
+
+// Buku Hutang Vendor — one running ledger per vendor (business-supplied
+// template, 2026-10-08): Date / Hutang (new payable) / Bayar (payment made)
+// per entry; Debet/Kredit and the running Saldo shown on the page are
+// DERIVED from these two fields (src/lib/vendor-ledger.ts), never stored.
+model Vendor {
+  id        String     @id @default(uuid())
+  name      String
+  status    UserStatus @default(ACTIVE)
+  sortOrder Int        @default(0)
+
+  ledgerEntries VendorLedgerEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model VendorLedgerEntry {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+  date     DateTime @db.Date
+
+  // Hutang = a new payable recorded against this vendor; Bayar = a payment
+  // made to reduce it. Exactly one is normally non-zero per entry.
+  hutang  Decimal @default(0) @db.Decimal(14, 2)
+  bayar   Decimal @default(0) @db.Decimal(14, 2)
+  remarks String?
+
+  recordedById String
+  recordedBy   User     @relation("VendorLedgerRecordedBy", fields: [recordedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([vendorId, date])
+}
+
+// Buku Pencatatan Piutang — "ALI BABA Historical Account Receivable"
+// (business-supplied, 2026-10-08). `group` mirrors the business's own
+// bottom-summary buckets (Outlet/Mitra/Sayur/Kobar/Mangkacau/Tortilla/Mie
+// Steak) — reverse-engineered from which rows its printed Saldo Bulan
+// Lalu/Penambahan/Pembayaran/Saldo Bulan Ini totals actually reconcile to,
+// and verified to match every one of those 7 totals exactly. Mitra
+// Code/Name are kept as plain fields (not a separate master table) — only 4
+// distinct codes appear across the whole source register, too small a list
+// to justify its own CRUD yet.
+enum ReceivableGroup {
+  OUTLET
+  MITRA
+  SAYUR
+  KOBAR
+  MANGKACAU
+  TORTILLA
+  MIE_STEAK
+}
+
+model ReceivableEntry {
+  id          String   @id @default(uuid())
+  date        DateTime @db.Date
+  mitraCode   String
+  mitraName   String
+  noFaktur    String?
+  tglFaktur   DateTime? @db.Date
+  description String
+  debt        Decimal  @default(0) @db.Decimal(14, 2)
+  credit      Decimal  @default(0) @db.Decimal(14, 2)
+  remarks     String?
+  group       ReceivableGroup
+
+  recordedById String
+  recordedBy   User     @relation("ReceivableEntryRecordedBy", fields: [recordedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([date])
+  @@index([group])
 }
 
 enum OutletAdjustmentType {
