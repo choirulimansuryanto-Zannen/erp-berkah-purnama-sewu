@@ -35,22 +35,53 @@ export type OmsetSheetDay = {
   kgDagingKetul: number;
 };
 
-export async function getOmsetSheet(outletId: string, year: number, month: number) {
-  const { start, end } = monthRange(year, month);
-  const [txItems, products, toppings, packageComponents] = await Promise.all([
-    prisma.transactionItem.findMany({
-      where: { transaction: { outletId, status: "COMPLETED", createdAt: { gte: start, lte: end } } },
-      select: {
-        qty: true,
-        productId: true,
-        toppings: { select: { toppingId: true, qty: true } },
-        transaction: { select: { createdAt: true, total: true } },
-      },
-    }),
+// The product/topping/package catalog never varies by outlet or month —
+// fetching it fresh on every getOmsetSheet call is harmless for a single
+// outlet's own report page, but getCompanyDailyIncentiveBreakdown calls this
+// once per active outlet (63x), so `preloaded` lets it fetch this catalog
+// ONCE up front and hand it to every outlet instead of 63 redundant copies
+// of the exact same global tables.
+type OmsetCatalog = Awaited<ReturnType<typeof loadOmsetCatalog>>;
+export async function loadOmsetCatalog() {
+  const [products, toppings, packageComponents] = await Promise.all([
     prisma.product.findMany({ orderBy: { sortOrder: "asc" } }),
     prisma.topping.findMany({ orderBy: { name: "asc" } }),
     prisma.packageComponent.findMany({ select: { packageProductId: true, componentProductId: true, componentToppingId: true, qty: true } }),
   ]);
+  return { products, toppings, packageComponents };
+}
+
+const TX_ITEM_SELECT = {
+  qty: true,
+  productId: true,
+  toppings: { select: { toppingId: true, qty: true } },
+  transaction: { select: { outletId: true, createdAt: true, total: true } },
+} as const;
+type TxItemRow = Awaited<ReturnType<typeof prisma.transactionItem.findMany<{ select: typeof TX_ITEM_SELECT }>>>[number];
+
+// `preloadedTxItems`, like `preloaded` above, exists only so a bulk caller
+// (getCompanyDailyIncentiveBreakdown) can fetch every outlet's transaction
+// items in ONE query instead of 63 separate per-outlet round trips, and hand
+// each outlet its own pre-filtered slice. A single-outlet caller never
+// passes this — it keeps fetching its own slice exactly as before.
+export async function getOmsetSheet(
+  outletId: string,
+  year: number,
+  month: number,
+  preloaded?: OmsetCatalog,
+  preloadedTxItems?: TxItemRow[],
+) {
+  const { start, end } = monthRange(year, month);
+  const [txItems, catalog] = await Promise.all([
+    preloadedTxItems
+      ? Promise.resolve(preloadedTxItems)
+      : prisma.transactionItem.findMany({
+          where: { transaction: { outletId, status: "COMPLETED", createdAt: { gte: start, lte: end } } },
+          select: TX_ITEM_SELECT,
+        }),
+    preloaded ? Promise.resolve(preloaded) : loadOmsetCatalog(),
+  ]);
+  const { products, toppings, packageComponents } = catalog;
 
   const productById = new Map(products.map((p) => [p.id, p]));
   const componentsByPackageId = new Map<string, typeof packageComponents>();
@@ -583,14 +614,34 @@ export type RosterDay = {
   totalInsentifHari: number;
 };
 
-export async function getDailyRoster(outletId: string, year: number, month: number, omset: Awaited<ReturnType<typeof getOmsetSheet>>) {
+// Same reasoning as OmsetCatalog above — the active bracket table is global,
+// not per-outlet, so getCompanyDailyIncentiveBreakdown can fetch it once and
+// hand it to every outlet instead of re-querying it 63 times.
+type BracketList = Awaited<ReturnType<typeof prisma.incentiveBracket.findMany>>;
+const ATTENDANCE_INCLUDE = { user: { select: { id: true, name: true } }, pramuniagaRoster: { select: { name: true } } } as const;
+type AttendanceRow = Awaited<ReturnType<typeof prisma.attendanceRecord.findMany<{ include: typeof ATTENDANCE_INCLUDE }>>>[number];
+
+// `preloadedAttendance`, same reasoning as getOmsetSheet's `preloadedTxItems`
+// — lets a bulk caller fetch every outlet's attendance in ONE query and hand
+// each outlet its own slice, instead of 63 separate round trips. A
+// single-outlet caller never passes this.
+export async function getDailyRoster(
+  outletId: string,
+  year: number,
+  month: number,
+  omset: Awaited<ReturnType<typeof getOmsetSheet>>,
+  preloadedBrackets?: BracketList,
+  preloadedAttendance?: AttendanceRow[],
+) {
   const { start, end } = monthRange(year, month);
   const [attendance, brackets, monthlyTargetRow] = await Promise.all([
-    prisma.attendanceRecord.findMany({
-      where: { outletId, date: { gte: start, lte: end } },
-      include: { user: { select: { id: true, name: true } }, pramuniagaRoster: { select: { name: true } } },
-    }),
-    prisma.incentiveBracket.findMany({ where: { status: "ACTIVE" }, orderBy: { sortOrder: "asc" } }),
+    preloadedAttendance
+      ? Promise.resolve(preloadedAttendance)
+      : prisma.attendanceRecord.findMany({
+          where: { outletId, date: { gte: start, lte: end } },
+          include: ATTENDANCE_INCLUDE,
+        }),
+    preloadedBrackets ? Promise.resolve(preloadedBrackets) : prisma.incentiveBracket.findMany({ where: { status: "ACTIVE" }, orderBy: { sortOrder: "asc" } }),
     prisma.outletMonthlyTarget.findUnique({ where: { outletId_year_month: { outletId, year, month } } }),
   ]);
 
@@ -701,6 +752,11 @@ const STANDARD_WORKING_DAYS = 27;
 
 export type AbsenSheetRow = {
   userId: string;
+  // Stable per-PERSON identity for grouping/React keys — distinct from
+  // userId, which is the shared login and can genuinely be the same value
+  // for two different roster members (see byEmployee below). Falls back to
+  // userId when the day has no roster member recorded.
+  rosterKey: string;
   name: string;
   attendance: boolean[]; // length = days in month
   qtySales: number;
@@ -721,15 +777,23 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
   const nDays = daysInMonth(year, month);
   const payrollByUserId = new Map(payrolls.map((p) => [p.userId, p]));
 
+  // Keyed by the PERSON (rosterKey ?? userId), never by userId alone — a
+  // login can be shared by several roster members on the same crew-of-2
+  // day (the whole reason the fullshift-weight split exists), and keying
+  // this map by userId silently merged their attendance/insentif into one
+  // row under whichever name was inserted first. Mirrors the identity key
+  // getDailyRoster's own dedup and getCompanyDailyIncentiveBreakdown both use.
   const byEmployee = new Map<string, Omit<AbsenSheetRow, "totalSalary">>();
   for (let i = 0; i < roster.days.length; i++) {
     const day = roster.days[i];
     const perPersonQty = day.present.length > 0 ? day.qtyAllProducts / day.present.length : 0;
     const insentifPerSlot = incentiveValuePerSlot(day);
     for (const p of day.present) {
+      const identityKey = p.rosterKey ?? p.userId;
       const payroll = payrollByUserId.get(p.userId);
-      const row = byEmployee.get(p.userId) ?? {
+      const row = byEmployee.get(identityKey) ?? {
         userId: p.userId,
+        rosterKey: identityKey,
         name: p.name,
         attendance: new Array(nDays).fill(false),
         qtySales: 0,
@@ -745,7 +809,7 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
       row.insentiveValue += insentifPerSlot * incentiveSlotWeight(day.present, p);
       row.totalStandby += 1;
       if (!day.bracket || day.omset <= 0) row.totalNonInsentif += 1;
-      byEmployee.set(p.userId, row);
+      byEmployee.set(identityKey, row);
     }
   }
 
@@ -871,16 +935,46 @@ export type DailyIncentiveRow = {
 };
 
 export async function getCompanyDailyIncentiveBreakdown(year: number, month: number): Promise<DailyIncentiveRow[]> {
-  const outlets = await prisma.outlet.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true } });
+  const { start, end } = monthRange(year, month);
+
+  // Everything below is fetched ONCE for every active outlet instead of once
+  // PER outlet (63 outlets × 2 genuinely outlet-scoped queries used to mean
+  // 126 separate round trips here alone) — this function is the only caller
+  // that needs all outlets at once, so the batching lives here rather than
+  // in getOmsetSheet/getDailyRoster themselves, which every single-outlet
+  // caller (the per-outlet report page, etc.) still calls exactly as before.
+  const [outlets, catalog, brackets, allTxItems, allAttendance] = await Promise.all([
+    prisma.outlet.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true } }),
+    loadOmsetCatalog(),
+    prisma.incentiveBracket.findMany({ where: { status: "ACTIVE" }, orderBy: { sortOrder: "asc" } }),
+    prisma.transactionItem.findMany({
+      where: { transaction: { status: "COMPLETED", createdAt: { gte: start, lte: end } } },
+      select: TX_ITEM_SELECT,
+    }),
+    prisma.attendanceRecord.findMany({ where: { date: { gte: start, lte: end } }, include: ATTENDANCE_INCLUDE }),
+  ]);
+
+  const txItemsByOutlet = new Map<string, TxItemRow[]>();
+  for (const item of allTxItems) {
+    const list = txItemsByOutlet.get(item.transaction.outletId) ?? [];
+    list.push(item);
+    txItemsByOutlet.set(item.transaction.outletId, list);
+  }
+  const attendanceByOutlet = new Map<string, AttendanceRow[]>();
+  for (const a of allAttendance) {
+    const list = attendanceByOutlet.get(a.outletId) ?? [];
+    list.push(a);
+    attendanceByOutlet.set(a.outletId, list);
+  }
 
   const perOutlet = await Promise.all(
     outlets.map(async (outlet) => {
-      const omset = await getOmsetSheet(outlet.id, year, month);
+      const omset = await getOmsetSheet(outlet.id, year, month, catalog, txItemsByOutlet.get(outlet.id) ?? []);
       // Skip the roster/bracket query entirely for an outlet with no sales
       // this month — cheap short-circuit so looping every active outlet
       // (most of which have no activity in a given demo period) stays fast.
       if (omset.days.every((d) => d.totalOmset === 0)) return [];
-      const roster = await getDailyRoster(outlet.id, year, month, omset);
+      const roster = await getDailyRoster(outlet.id, year, month, omset, brackets, attendanceByOutlet.get(outlet.id) ?? []);
 
       const rows: DailyIncentiveRow[] = [];
       for (const day of roster.days) {

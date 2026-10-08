@@ -51,6 +51,8 @@ import {
   Columns3,
   Percent,
   Layers,
+  Building2,
+  Landmark,
 } from "lucide-react";
 import { can, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/cn";
@@ -123,9 +125,12 @@ const NAV_SECTIONS: NavSection[] = [
         children: [
           { href: "/finance/journal", label: "Jurnal (6 Buku Kas)", icon: Receipt, permission: "finance:view_ledger" },
           { href: "/finance/ledger", label: "Buku Besar", icon: History, permission: "finance:view_ledger" },
+          { href: "/finance/persediaan", label: "Persediaan", icon: Boxes, permission: "finance:view_ledger" },
+          { href: "/finance/vendor-payable", label: "Buku Hutang Vendor", icon: Landmark, permission: "finance:view_ledger" },
+          { href: "/finance/receivable", label: "Buku Piutang", icon: HandCoins, permission: "finance:view_ledger" },
+          { href: "/finance/fixed-asset", label: "Fixed Asset", icon: Building2, permission: "finance:view_ledger" },
           { href: "/finance/adjusting-entries", label: "Jurnal Penyesuaian", icon: NotebookPen, permission: "finance:view_ledger" },
           { href: "/finance/worksheet", label: "Worksheet (Neraca Lajur)", icon: Table2, permission: "finance:view_ledger" },
-          { href: "/finance/persediaan", label: "Persediaan", icon: Boxes, permission: "finance:view_ledger" },
           { href: "/finance/hpp", label: "Laporan HPP", icon: Factory, permission: "finance:view_ledger" },
           { href: "/finance/reports", label: "Laba Rugi", icon: FileCheck2, permission: "finance:view_ledger" },
           { href: "/finance/equity-changes", label: "Perubahan Ekuitas", icon: PieChart, permission: "finance:view_ledger" },
@@ -167,6 +172,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/admin/pramuniaga-roster", label: "Roster Pramuniaga", icon: UserCheck, permission: "admin:system_config" },
       { href: "/admin/freezer-materials", label: "Bahan Baku Freezer", icon: Snowflake, permission: "admin:system_config" },
       { href: "/admin/outlet-materials", label: "Data Stock Available", icon: Boxes, permission: "admin:system_config" },
+      { href: "/admin/vendors", label: "Vendor", icon: Landmark, permission: "admin:system_config" },
       { href: "/admin/outlet-ledger-accounts", label: "Jurnal Sheet — Chart of Accounts", icon: Table2, permission: "admin:system_config" },
       { href: "/admin/incentive-brackets", label: "Bracket Insentif Outlet", icon: Layers, permission: "finance:manage_incentive_rules" },
       { href: "/admin/settings", label: "System Settings", icon: Settings, permission: "admin:system_config" },

@@ -19,6 +19,8 @@ import {
   Table2,
   Boxes,
   Factory,
+  Building2,
+  HandCoins,
 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -59,9 +61,12 @@ function addSeries(...series: number[][]): number[] {
 const FA_QUICK_LINKS = [
   { href: "/finance/journal", label: "Jurnal (6 Buku Kas)", icon: Receipt },
   { href: "/finance/ledger", label: "Buku Besar", icon: History },
+  { href: "/finance/persediaan", label: "Persediaan", icon: Boxes },
+  { href: "/finance/vendor-payable", label: "Buku Hutang Vendor", icon: Landmark },
+  { href: "/finance/receivable", label: "Buku Piutang", icon: HandCoins },
+  { href: "/finance/fixed-asset", label: "Fixed Asset", icon: Building2 },
   { href: "/finance/adjusting-entries", label: "Jurnal Penyesuaian", icon: NotebookPen },
   { href: "/finance/worksheet", label: "Worksheet (Neraca Lajur)", icon: Table2 },
-  { href: "/finance/persediaan", label: "Persediaan", icon: Boxes },
   { href: "/finance/hpp", label: "Laporan HPP", icon: Factory },
   { href: "/finance/reports", label: "Laba Rugi", icon: FileCheck2 },
   { href: "/finance/equity-changes", label: "Perubahan Ekuitas", icon: PieChart },

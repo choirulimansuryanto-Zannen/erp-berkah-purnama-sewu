@@ -79,7 +79,11 @@ export default async function KasbonPramuniagaPage({
     entry.count += 1;
     summaryMap.set(r.personKey, entry);
   }
-  const summary = [...summaryMap.values()].sort((a, b) => b.total - a.total);
+  // key kept alongside name — two different roster members can share a
+  // display name, so the name alone (or name+total) isn't a safe React key.
+  const summary = [...summaryMap.entries()]
+    .map(([key, v]) => ({ key, ...v }))
+    .sort((a, b) => b.total - a.total);
 
   const totalKasbon = rows.reduce((s, r) => s + r.amount, 0);
   const exceededCount = summary.filter((s) => statusFor(s.total) === "exceeded").length;
@@ -178,7 +182,7 @@ export default async function KasbonPramuniagaPage({
               const pct = Math.min(100, (s.total / PLAFOND_MAX) * 100);
               const barColor = status === "exceeded" ? "bg-rose-500" : status === "warning" ? "bg-amber-500" : "bg-emerald-500";
               return (
-                <Tr key={s.name + s.total}>
+                <Tr key={s.key}>
                   <Td className="font-medium text-slate-900">{s.name}</Td>
                   <Td className="text-right">{s.count}</Td>
                   <Td className="text-right font-semibold">{currency.format(s.total)}</Td>
@@ -217,7 +221,7 @@ export default async function KasbonPramuniagaPage({
                 const remaining = Math.max(0, PLAFOND_MAX - s.total);
                 return (
                   <div
-                    key={s.name}
+                    key={s.key}
                     className={`flex flex-wrap items-center justify-between gap-2 rounded-lg px-4 py-2.5 text-sm ${
                       status === "exceeded" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"
                     }`}

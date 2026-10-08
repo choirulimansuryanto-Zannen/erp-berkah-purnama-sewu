@@ -56,8 +56,12 @@ export default async function InsentifPage({
     entry.days.add(`${r.date.toISOString().slice(0, 10)}|${r.outletName}`);
     dailySummaryByPerson.set(r.pramuniagaKey, entry);
   }
-  const dailySummary = [...dailySummaryByPerson.values()]
-    .map((v) => ({ name: v.name, total: v.total, hariKerja: v.days.size }))
+  // key kept alongside name: two different roster members (at different
+  // outlets) can share the same display name, so the name alone can't be
+  // used as the React list key — it previously was, which silently
+  // triggered a "duplicate key" warning whenever that collision happened.
+  const dailySummary = [...dailySummaryByPerson.entries()]
+    .map(([key, v]) => ({ key, name: v.name, total: v.total, hariKerja: v.days.size }))
     .sort((a, b) => b.total - a.total);
   const dailyGrandTotal = dailyRows.reduce((s, r) => s + r.insentifPerPramu, 0);
 
@@ -262,7 +266,7 @@ export default async function InsentifPage({
           </Thead>
           <tbody>
             {dailySummary.map((s) => (
-              <Tr key={s.name}>
+              <Tr key={s.key}>
                 <Td className="font-medium text-slate-900">{s.name}</Td>
                 <Td className="text-right tabular-nums">{s.hariKerja}</Td>
                 <Td className="text-right font-semibold tabular-nums">{currency.format(s.total)}</Td>

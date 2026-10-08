@@ -138,7 +138,15 @@ export default async function OutletDetailReportPage({
   // Insentive figure was actually posted to account #22 that month) —
   // the bracket-calculated totalInsentifSemua below is a separate
   // reference/KPI figure, not subtracted again here.
-  const totalInsentifSemua = absen.totalInsentiveValue + insentive.royalti + insentive.insentiveOfficer + insentive.insentiveHead;
+  //
+  // NOTE: totalInsentifSemua bundles 4 DIFFERENT incentive line items
+  // (pramuniaga bracket insentif + Royalti + Officer + Head Sales). It must
+  // NEVER be shown as the headline "Insentif" stat card — that previously
+  // made the page's top number disagree with the Insentive Sheet table's own
+  // TOTAL row (which only reflects the pramuniaga bracket figure), reading as
+  // a calculation bug. Kept here only as a "Total Keseluruhan" breakdown line
+  // next to its components (see Parameter & Perhitungan Insentive section).
+  const totalInsentifSemua = insentive.totalInsentifHari + insentive.royalti + insentive.insentiveOfficer + insentive.insentiveHead;
   const reportLabaBersih = report.labaBersih;
 
   return (
@@ -161,7 +169,12 @@ export default async function OutletDetailReportPage({
         <StatCard label="Total Omset" value={currency.format(omset.totalOmset)} tone="brand" icon={<Wallet className="h-4 w-4" />} />
         <StatCard label="Total Purchase" value={currency.format(purchase.total)} tone="accent" icon={<ShoppingBag className="h-4 w-4" />} />
         <StatCard label="Total Adjustment" value={currency.format(adjustment.total)} tone={adjustment.total > 0 ? "warning" : "success"} icon={<AlertTriangle className="h-4 w-4" />} />
-        <StatCard label="Total Insentif" value={currency.format(totalInsentifSemua)} tone="info" icon={<Sparkles className="h-4 w-4" />} />
+        <StatCard
+          label="Insentif Pramuniaga"
+          value={currency.format(insentive.totalInsentifHari)}
+          tone="info"
+          icon={<Sparkles className="h-4 w-4" />}
+        />
       </div>
 
       {/* a. Omset Sheet */}
@@ -587,7 +600,7 @@ export default async function OutletDetailReportPage({
             </Thead>
             <tbody>
               {absen.rows.map((r, idx) => (
-                <Tr key={r.userId}>
+                <Tr key={r.rosterKey}>
                   <Td>{idx + 1}</Td>
                   <Td className="font-medium text-slate-900">{r.name}</Td>
                   <Td>{outlet.name}</Td>
@@ -748,7 +761,7 @@ export default async function OutletDetailReportPage({
           </Thead>
           <tbody>
             {insentive.absenRows.map((r) => (
-              <Tr key={r.userId}>
+              <Tr key={r.rosterKey}>
                 <Td className="font-medium text-slate-900">{r.name}</Td>
                 <Td className="text-right tabular-nums">{r.totalStandby}</Td>
                 <Td className="text-right font-semibold tabular-nums">{currency.format(r.insentiveValue)}</Td>
@@ -764,6 +777,10 @@ export default async function OutletDetailReportPage({
             <p className="font-bold text-brand-900">{insentive.openingDay}</p>
           </div>
           <div>
+            <p className="text-xs text-slate-400">Insentif Pramuniaga (Bracket)</p>
+            <p className="font-bold text-brand-900">{currency.format(insentive.totalInsentifHari)}</p>
+          </div>
+          <div>
             <p className="text-xs text-slate-400">Royalti</p>
             <p className="font-bold text-brand-900">{currency.format(insentive.royalti)}</p>
           </div>
@@ -774,6 +791,10 @@ export default async function OutletDetailReportPage({
           <div>
             <p className="text-xs text-slate-400">Insentive Head</p>
             <p className="font-bold text-brand-900">{currency.format(insentive.insentiveHead)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">Total Keseluruhan (Pramuniaga + Royalti + Officer + Head)</p>
+            <p className="font-bold text-brand-900">{currency.format(totalInsentifSemua)}</p>
           </div>
           <div>
             <p className="text-xs text-slate-400">Omset Bersih</p>
@@ -962,7 +983,7 @@ export default async function OutletDetailReportPage({
 
           <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
             <FileBarChart className="h-3.5 w-3.5" />
-            {outlet.name} — {MONTH_NAMES[month - 1]} {year} — Insentif per hitungan bracket (referensi, di luar jurnal): {currency.format(totalInsentifSemua)} —
+            {outlet.name} — {MONTH_NAMES[month - 1]} {year} — Insentif per hitungan bracket (referensi, di luar jurnal): {currency.format(insentive.totalInsentifHari)} —
             Nilai stock akhir Inventory Sheet: {currency.format(inventory.totalAkhirNominal)}
           </div>
         </div>
