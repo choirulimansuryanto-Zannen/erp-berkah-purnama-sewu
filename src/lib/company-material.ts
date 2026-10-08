@@ -1,18 +1,16 @@
 import { prisma } from "@/lib/prisma";
 
 // Company-wide (warehouse-level) SKU stock-opname — "Tabel SKU" on
-// /finance/adjustment. Qty Saldo Awal, Qty Saldo Akhir, Harga/Cost, Qty
-// Faktur Outlet, and Qty Total Bahan Baku (material actually consumed
-// this period) are all directly editable per (item, year, month). Every
-// Nominal figure and the Qty Adjustment are DERIVED here, never stored,
-// so they can't drift from their inputs:
-//   Nominal <X>   = Qty <X> × Harga/Cost        (for Saldo Awal, Saldo
+// /finance/adjustment. Qty Saldo Awal, Qty Saldo Akhir, Harga/Cost, and
+// Qty Faktur Outlet are directly editable per (item, year, month). Qty
+// Total Bahan Baku and every Nominal figure are DERIVED here, never
+// stored, so they can't drift from their inputs:
+//   Nominal <X>        = Qty <X> × Harga/Cost   (for Saldo Awal, Saldo
 //                                                 Akhir, Faktur Outlet,
 //                                                 and Total Bahan Baku)
-//   Qty Adjustment = Qty Saldo Akhir − Qty Saldo Awal − Qty Total Bahan Baku
-// (the residual needed to reconcile the two balances against what was
-// actually consumed — shown in Account Summary for traceability, not
-// itself an input anywhere).
+//   Qty Total Bahan Baku = Qty Saldo Awal − Qty Saldo Akhir − Qty Faktur Outlet
+// (material consumed in production = what left the warehouse overall,
+// minus what was invoiced out to outlets).
 
 export const COMPANY_MATERIAL_CATEGORY_LABELS: Record<string, string> = {
   DAGING: "Daging",
@@ -78,10 +76,8 @@ export type CompanyMaterialRow = {
   nilaiAkhir: number; // Nominal Saldo Akhir
   fakturOutletQty: number;
   fakturOutletNominal: number;
-  totalBahanBakuQty: number; // directly edited — material consumed this period
+  totalBahanBakuQty: number; // derived — see module docblock
   totalBahanBakuNominal: number;
-  adjustmentQty: number; // derived residual — see module docblock
-  adjustmentNominal: number;
 };
 
 export type CompanyMaterialCategoryGroup = {
@@ -92,7 +88,6 @@ export type CompanyMaterialCategoryGroup = {
   totalSaldoAwalNominal: number;
   totalNilaiAkhir: number;
   totalFakturNominal: number;
-  totalAdjustmentFakturNominal: number;
   totalNominal: number;
 };
 
@@ -101,7 +96,6 @@ function sumGroup(rows: CompanyMaterialRow[]) {
     totalSaldoAwalNominal: rows.reduce((s, r) => s + r.saldoAwalNominal, 0),
     totalNilaiAkhir: rows.reduce((s, r) => s + r.nilaiAkhir, 0),
     totalFakturNominal: rows.reduce((s, r) => s + r.fakturOutletNominal, 0),
-    totalAdjustmentFakturNominal: rows.reduce((s, r) => s + r.adjustmentNominal, 0),
     totalNominal: rows.reduce((s, r) => s + r.totalBahanBakuNominal, 0),
   };
 }
@@ -126,8 +120,8 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
     const saldoAwalQty = Number(cb?.saldoAwalQty ?? 0);
     const qtyOpname = Number(cb?.qtyOpname ?? 0);
     const fakturOutletQty = Number(cb?.fakturOutletQty ?? 0);
-    const totalBahanBakuQty = Number(cb?.totalBahanBakuQty ?? 0);
-    const adjustmentQty = qtyOpname - saldoAwalQty - totalBahanBakuQty;
+    // Derived, not stored — see module docblock.
+    const totalBahanBakuQty = saldoAwalQty - qtyOpname - fakturOutletQty;
 
     return {
       id: m.id,
@@ -144,8 +138,6 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
       fakturOutletNominal: fakturOutletQty * costPerUnit,
       totalBahanBakuQty,
       totalBahanBakuNominal: totalBahanBakuQty * costPerUnit,
-      adjustmentQty,
-      adjustmentNominal: adjustmentQty * costPerUnit,
     };
   });
 
@@ -162,7 +154,6 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
     totalSaldoAwalNominal: operasional.totalSaldoAwalNominal + produksi.totalSaldoAwalNominal,
     totalNilaiAkhir: operasional.totalNilaiAkhir + produksi.totalNilaiAkhir,
     totalFakturNominal: operasional.totalFakturNominal + produksi.totalFakturNominal,
-    totalAdjustmentFakturNominal: operasional.totalAdjustmentFakturNominal + produksi.totalAdjustmentFakturNominal,
     totalNominal: operasional.totalNominal + produksi.totalNominal,
   };
 

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 
 const MONTH_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
+const qtyFormat = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 3 });
 
 type MaterialOption = { id: string; code: string; name: string; categoryLabel: string };
 
@@ -15,7 +16,9 @@ type MaterialOption = { id: string; code: string; name: string; categoryLabel: s
 // kali Item/Periode berganti, nilai yang sudah tersimpan (atau Saldo Awal
 // default dari bulan sebelumnya) dimuat otomatis, supaya menyimpan ulang
 // tidak diam-diam menimpa field yang tidak dimaksud diubah dengan nol.
-// Semua Nominal dihitung server (Qty × Harga), tidak diinput di sini.
+// Semua Nominal dihitung server (Qty × Harga), tidak diinput di sini. Qty
+// Total Bahan Baku juga tidak diinput — otomatis dihitung dari Saldo Awal
+// − Saldo Akhir − Faktur Outlet, ditampilkan di sini hanya sebagai pratinjau.
 export function CompanyMaterialEntryForm({ materials, defaultYear, defaultMonth }: { materials: MaterialOption[]; defaultYear: number; defaultMonth: number }) {
   const router = useRouter();
   const [year, setYear] = useState(defaultYear);
@@ -25,7 +28,6 @@ export function CompanyMaterialEntryForm({ materials, defaultYear, defaultMonth 
   const [qtyOpname, setQtyOpname] = useState("0");
   const [costPerUnit, setCostPerUnit] = useState("0");
   const [fakturOutletQty, setFakturOutletQty] = useState("0");
-  const [totalBahanBakuQty, setTotalBahanBakuQty] = useState("0");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -44,7 +46,6 @@ export function CompanyMaterialEntryForm({ materials, defaultYear, defaultMonth 
         setQtyOpname(String(d.qtyOpname ?? 0));
         setCostPerUnit(String(d.costPerUnit ?? 0));
         setFakturOutletQty(String(d.fakturOutletQty ?? 0));
-        setTotalBahanBakuQty(String(d.totalBahanBakuQty ?? 0));
       })
       .finally(() => setLoading(false));
   }, [materialId, year, month]);
@@ -63,7 +64,6 @@ export function CompanyMaterialEntryForm({ materials, defaultYear, defaultMonth 
           qtyOpname: Number(qtyOpname || 0),
           costPerUnit: Number(costPerUnit || 0),
           fakturOutletQty: Number(fakturOutletQty || 0),
-          totalBahanBakuQty: Number(totalBahanBakuQty || 0),
         }),
       });
       const data = await res.json();
@@ -79,6 +79,8 @@ export function CompanyMaterialEntryForm({ materials, defaultYear, defaultMonth 
 
   const cost = Number(costPerUnit || 0);
   const preview = (qty: string) => currency.format(Number(qty || 0) * cost);
+  // Derived, not input — mirrors src/lib/company-material.ts.
+  const totalBahanBakuQty = Number(saldoAwalQty || 0) - Number(qtyOpname || 0) - Number(fakturOutletQty || 0);
 
   return (
     <Card>
@@ -144,16 +146,9 @@ export function CompanyMaterialEntryForm({ materials, defaultYear, defaultMonth 
             <p className="mt-1 text-[11px] text-slate-400">Nominal: {preview(fakturOutletQty)}</p>
           </div>
           <div>
-            <Label>Qty Total Bahan Baku</Label>
-            <Input
-              className="mt-1"
-              type="number"
-              step="any"
-              value={totalBahanBakuQty}
-              onChange={(e) => setTotalBahanBakuQty(e.target.value)}
-              disabled={loading}
-            />
-            <p className="mt-1 text-[11px] text-slate-400">Nominal: {preview(totalBahanBakuQty)}</p>
+            <Label>Qty Total Bahan Baku (otomatis)</Label>
+            <Input className="mt-1 bg-slate-50 text-slate-500" type="text" value={qtyFormat.format(totalBahanBakuQty)} disabled readOnly />
+            <p className="mt-1 text-[11px] text-slate-400">Nominal: {currency.format(totalBahanBakuQty * cost)}</p>
           </div>
         </div>
 

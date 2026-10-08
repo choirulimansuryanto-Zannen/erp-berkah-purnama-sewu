@@ -31,7 +31,6 @@ export async function GET(request: Request) {
       qtyOpname: Number(current.qtyOpname),
       costPerUnit: Number(current.costPerUnit),
       fakturOutletQty: Number(current.fakturOutletQty),
-      totalBahanBakuQty: Number(current.totalBahanBakuQty),
     });
   }
 
@@ -46,7 +45,6 @@ export async function GET(request: Request) {
     qtyOpname: 0,
     costPerUnit: prevRow ? Number(prevRow.costPerUnit) : 0,
     fakturOutletQty: 0,
-    totalBahanBakuQty: 0,
   });
 }
 

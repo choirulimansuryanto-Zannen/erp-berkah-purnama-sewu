@@ -251,7 +251,10 @@ export default async function AdjustmentPage({
         <InventoryClosingForm />
 
         <Card>
-          <form className="flex flex-wrap items-end gap-3 p-5">
+          <p className="px-5 pt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Pilih Periode — berlaku untuk Tabel Persediaan &amp; Tabel SKU di bawah
+          </p>
+          <form className="flex flex-wrap items-end gap-3 p-5 pt-3">
             <div>
               <Label className="text-[11px]">Bulan</Label>
               <Select name="cmMonth" defaultValue={String(cmMonth)} className="mt-1">
@@ -287,9 +290,14 @@ export default async function AdjustmentPage({
 
         <Card className="p-0" id="company-material-sku-section">
           <CardHeader className="sticky top-32 z-30 h-14 bg-white">
-            <CardTitle>
-              Tabel SKU — {MONTH_LABELS_ID[cmMonth - 1]} {cmYear}
-            </CardTitle>
+            <div className="flex items-center gap-3">
+              <CardTitle>
+                Tabel SKU — {MONTH_LABELS_ID[cmMonth - 1]} {cmYear}
+              </CardTitle>
+              <a href="#adj-persediaan" className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-gold-100">
+                Ubah Periode
+              </a>
+            </div>
             <ExportExcelButton containerId="company-material-sku-section" filename={`Tabel_SKU_${MONTH_LABELS_ID[cmMonth - 1]}_${cmYear}.xlsx`} />
           </CardHeader>
           <div className="overflow-x-auto" data-sheet-name="Tabel SKU">
@@ -423,7 +431,6 @@ export default async function AdjustmentPage({
                 <tr className="bg-slate-100 text-[11px] font-bold uppercase text-slate-500">
                   <th className="px-3 py-2 text-left">Account Name</th>
                   <th className="bg-gold-100 px-3 py-2 text-right">Faktur Outlet Tanggal 01 Bulan Selanjutnya</th>
-                  <th className="bg-slate-200 px-3 py-2 text-right">Adjustment Faktur</th>
                   <th className="bg-sky-100 px-3 py-2 text-right">Total Bahan Baku</th>
                 </tr>
               </thead>
@@ -435,7 +442,6 @@ export default async function AdjustmentPage({
                   >
                     <td className="px-3 py-1.5">{a.label}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalFakturNominal)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalAdjustmentFakturNominal)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalNominal)}</td>
                   </tr>
                 ))}
