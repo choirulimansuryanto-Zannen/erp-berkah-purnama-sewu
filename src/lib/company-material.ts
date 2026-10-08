@@ -1,16 +1,18 @@
 import { prisma } from "@/lib/prisma";
 
-// Company-wide (warehouse-level) SKU stock-opname — "Riwayat Persediaan
-// Akhir" detail table on /finance/persediaan. Every derived figure is
-// computed here, never stored, so it can't drift from its inputs:
-//   Saldo Awal (this month)   = Saldo Akhir of the PRIOR month (rollover)
-//   Nilai Akhir (Saldo Akhir) = qtyOpname × costPerUnit + adjustmentNilai
-//   Total Qty      = qtyOpname − fakturOutletQty − adjustmentFakturQty
-//   Total Nominal  = Nilai Akhir − fakturOutletNominal − adjustmentFakturNominal
-// (Faktur Outlet = goods already invoiced out to outlets effective the 1st
-// of the following month; Adjustment Faktur corrects a PRIOR month's own
-// Faktur figure — distinct from adjustmentNilai, which only corrects this
-// month's own valuation rounding.)
+// Company-wide (warehouse-level) SKU stock-opname — "Tabel SKU" on
+// /finance/adjustment. Qty Saldo Awal, Qty Saldo Akhir, Harga/Cost, Qty
+// Faktur Outlet, and Qty Total Bahan Baku (material actually consumed
+// this period) are all directly editable per (item, year, month). Every
+// Nominal figure and the Qty Adjustment are DERIVED here, never stored,
+// so they can't drift from their inputs:
+//   Nominal <X>   = Qty <X> × Harga/Cost        (for Saldo Awal, Saldo
+//                                                 Akhir, Faktur Outlet,
+//                                                 and Total Bahan Baku)
+//   Qty Adjustment = Qty Saldo Akhir − Qty Saldo Awal − Qty Total Bahan Baku
+// (the residual needed to reconcile the two balances against what was
+// actually consumed — shown in Account Summary for traceability, not
+// itself an input anywhere).
 
 export const COMPANY_MATERIAL_CATEGORY_LABELS: Record<string, string> = {
   DAGING: "Daging",
@@ -72,20 +74,14 @@ export type CompanyMaterialRow = {
   costPerUnit: number;
   saldoAwalQty: number;
   saldoAwalNominal: number;
-  qtyOpname: number; // Saldo Akhir qty
-  nilaiAkhir: number; // Saldo Akhir nominal
+  qtyOpname: number; // Qty Saldo Akhir
+  nilaiAkhir: number; // Nominal Saldo Akhir
   fakturOutletQty: number;
   fakturOutletNominal: number;
-  adjustmentFakturQty: number;
-  adjustmentFakturNominal: number;
-  totalQty: number;
-  totalNominal: number;
-  // "Total Bahan Baku" quantity used by the editable SKU table above
-  // Account Summary — material actually CONSUMED this period, a different
-  // metric from totalQty above (which nets off next month's outlet
-  // shipment instead). Formula as given: Saldo Akhir − Saldo Awal −
-  // Adjustment (Faktur/Inventory) qty.
-  totalBahanBakuQty: number;
+  totalBahanBakuQty: number; // directly edited — material consumed this period
+  totalBahanBakuNominal: number;
+  adjustmentQty: number; // derived residual — see module docblock
+  adjustmentNominal: number;
 };
 
 export type CompanyMaterialCategoryGroup = {
@@ -105,8 +101,8 @@ function sumGroup(rows: CompanyMaterialRow[]) {
     totalSaldoAwalNominal: rows.reduce((s, r) => s + r.saldoAwalNominal, 0),
     totalNilaiAkhir: rows.reduce((s, r) => s + r.nilaiAkhir, 0),
     totalFakturNominal: rows.reduce((s, r) => s + r.fakturOutletNominal, 0),
-    totalAdjustmentFakturNominal: rows.reduce((s, r) => s + r.adjustmentFakturNominal, 0),
-    totalNominal: rows.reduce((s, r) => s + r.totalNominal, 0),
+    totalAdjustmentFakturNominal: rows.reduce((s, r) => s + r.adjustmentNominal, 0),
+    totalNominal: rows.reduce((s, r) => s + r.totalBahanBakuNominal, 0),
   };
 }
 
@@ -119,28 +115,19 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
 
   const materials = await prisma.companyMaterial.findMany({
     where: { status: "ACTIVE" },
-    include: {
-      closingBalances: { where: { OR: [{ year, month }, { year: prev.year, month: prev.month }] } },
-    },
+    include: { closingBalances: { where: { year, month } } },
     orderBy: [{ category: "asc" }, { sortOrder: "asc" }],
   });
 
   const allRows: (CompanyMaterialRow & { category: string })[] = materials.map((m) => {
-    const cb = m.closingBalances.find((c) => c.year === year && c.month === month);
-    const cbPrev = m.closingBalances.find((c) => c.year === prev.year && c.month === prev.month);
+    const cb = m.closingBalances[0];
 
-    const costPerUnit = Number(cb?.costPerUnit ?? cbPrev?.costPerUnit ?? 0);
+    const costPerUnit = Number(cb?.costPerUnit ?? 0);
+    const saldoAwalQty = Number(cb?.saldoAwalQty ?? 0);
     const qtyOpname = Number(cb?.qtyOpname ?? 0);
-    const adjustmentNilai = Number(cb?.adjustmentNilai ?? 0);
     const fakturOutletQty = Number(cb?.fakturOutletQty ?? 0);
-    const fakturOutletNominal = Number(cb?.fakturOutletNominal ?? 0);
-    const adjustmentFakturQty = Number(cb?.adjustmentFakturQty ?? 0);
-    const adjustmentFakturNominal = Number(cb?.adjustmentFakturNominal ?? 0);
-
-    const saldoAwalQty = Number(cbPrev?.qtyOpname ?? 0);
-    const saldoAwalNominal = saldoAwalQty * Number(cbPrev?.costPerUnit ?? costPerUnit) + Number(cbPrev?.adjustmentNilai ?? 0);
-
-    const nilaiAkhir = qtyOpname * costPerUnit + adjustmentNilai;
+    const totalBahanBakuQty = Number(cb?.totalBahanBakuQty ?? 0);
+    const adjustmentQty = qtyOpname - saldoAwalQty - totalBahanBakuQty;
 
     return {
       id: m.id,
@@ -150,16 +137,15 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
       category: m.category,
       costPerUnit,
       saldoAwalQty,
-      saldoAwalNominal,
+      saldoAwalNominal: saldoAwalQty * costPerUnit,
       qtyOpname,
-      nilaiAkhir,
+      nilaiAkhir: qtyOpname * costPerUnit,
       fakturOutletQty,
-      fakturOutletNominal,
-      adjustmentFakturQty,
-      adjustmentFakturNominal,
-      totalQty: qtyOpname - fakturOutletQty - adjustmentFakturQty,
-      totalNominal: nilaiAkhir - fakturOutletNominal - adjustmentFakturNominal,
-      totalBahanBakuQty: qtyOpname - saldoAwalQty - adjustmentFakturQty,
+      fakturOutletNominal: fakturOutletQty * costPerUnit,
+      totalBahanBakuQty,
+      totalBahanBakuNominal: totalBahanBakuQty * costPerUnit,
+      adjustmentQty,
+      adjustmentNominal: adjustmentQty * costPerUnit,
     };
   });
 
@@ -180,11 +166,11 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
     totalNominal: operasional.totalNominal + produksi.totalNominal,
   };
 
-  // "Account Summary" box at the bottom of the source sheet — 4
-  // Operasional sub-lines (Bahan Baku = Daging+Roti+Labanese+Bahan Baku
-  // Tambahan combined; the other 3 stand alone) + the 2 rollups above,
-  // reverse-engineered from which categories each printed line's total
-  // actually reconciles to.
+  // "Account Summary" boxes — both are straightforward sums of the Tabel
+  // SKU rows above: 4 Operasional sub-lines (Bahan Baku = Daging+Roti+
+  // Labanese+Bahan Baku Tambahan combined; the other 3 stand alone) + the
+  // 2 rollups, reverse-engineered from which categories each printed
+  // line's total actually reconciles to.
   const accountSummary = [
     { label: "Bahan Baku", ...sumGroup(allRows.filter((r) => ["DAGING", "ROTI", "LABANESE", "BAHAN_BAKU_TAMBAHAN"].includes(r.category))) },
     { label: "Bahan Pendukung", ...sumGroup(allRows.filter((r) => r.category === "BAHAN_PENDUKUNG")) },
@@ -195,7 +181,7 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
     { label: "TOTAL", ...grandTotal },
   ];
 
-  // Next-month label for the "Faktur 01 <bulan depan> Outlet" column header.
+  // Next-month label for the "Faktur Outlet Tanggal 01 Bulan Selanjutnya" column header.
   const nextMonthIdx = month === 12 ? 0 : month;
   const nextMonthYear = month === 12 ? year + 1 : year;
 

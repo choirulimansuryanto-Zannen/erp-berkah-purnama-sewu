@@ -294,19 +294,21 @@ export default async function AdjustmentPage({
           </CardHeader>
           <div className="overflow-x-auto" data-sheet-name="Tabel SKU">
             <div className="max-h-[75vh] overflow-y-auto">
-              <table className="w-full min-w-[1500px] border-collapse text-xs">
+              <table className="w-full min-w-[1700px] border-collapse text-xs">
                 <thead className="sticky top-0 z-20">
                   <tr className="bg-brand-950 text-white">
                     <th className="sticky left-0 z-30 border-r border-brand-900 bg-brand-950 px-2 py-2 text-left">Kode</th>
                     <th className="sticky left-14 z-30 min-w-[200px] border-r border-brand-900 bg-brand-950 px-3 py-2 text-left">Nama Barang</th>
                     <th className="border-r border-brand-900 px-2 py-2 text-left">Satuan</th>
-                    <th className="border-r border-brand-900 bg-rose-600 px-2 py-2 text-right">Qty Saldo Awal</th>
-                    <th className="border-r border-brand-900 bg-rose-700 px-2 py-2 text-right">Qty Saldo Akhir</th>
                     <th className="border-r border-brand-900 px-2 py-2 text-right">Harga / Cost</th>
-                    <th className="border-r border-brand-900 px-2 py-2 text-right">Nominal</th>
-                    <th className="border-r border-brand-900 bg-gold-600 px-2 py-2 text-right text-brand-950">Qty Faktur Outlet</th>
-                    <th className="border-r border-brand-900 bg-slate-400 px-2 py-2 text-right">Qty Adjustment</th>
-                    <th className="bg-sky-700 px-2 py-2 text-right">Total Bahan Baku (Qty)</th>
+                    <th className="border-r border-rose-700 bg-rose-600 px-2 py-2 text-right">Qty Saldo Awal</th>
+                    <th className="border-r border-brand-900 bg-rose-600 px-2 py-2 text-right">Nominal Saldo Awal</th>
+                    <th className="border-r border-rose-800 bg-rose-700 px-2 py-2 text-right">Qty Saldo Akhir</th>
+                    <th className="border-r border-brand-900 bg-rose-700 px-2 py-2 text-right">Nominal Saldo Akhir</th>
+                    <th className="border-r border-gold-700 bg-gold-600 px-2 py-2 text-right text-brand-950">Qty Faktur Outlet</th>
+                    <th className="border-r border-brand-900 bg-gold-600 px-2 py-2 text-right text-brand-950">Nominal Faktur Outlet</th>
+                    <th className="border-r border-sky-800 bg-sky-700 px-2 py-2 text-right">Qty Total Bahan Baku</th>
+                    <th className="bg-sky-700 px-2 py-2 text-right">Nominal Total Bahan Baku</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -317,21 +319,21 @@ export default async function AdjustmentPage({
                       <Fragment key={g.category}>
                         {showSuperGroupBanner && (
                           <tr className="bg-blue-100">
-                            <td colSpan={10} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-blue-900">
+                            <td colSpan={12} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-blue-900">
                               {g.superGroup}
                             </td>
                           </tr>
                         )}
                         {!g.superGroup && (
                           <tr className="bg-blue-100">
-                            <td colSpan={10} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-blue-900">
+                            <td colSpan={12} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-blue-900">
                               {g.label}
                             </td>
                           </tr>
                         )}
                         {g.superGroup && (
                           <tr className="bg-rose-50">
-                            <td colSpan={10} className="px-5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-700">
+                            <td colSpan={12} className="px-5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-700">
                               {g.label}
                             </td>
                           </tr>
@@ -341,23 +343,39 @@ export default async function AdjustmentPage({
                             <td className="sticky left-0 z-10 bg-inherit px-2 py-1.5 text-slate-500">{r.code}</td>
                             <td className="sticky left-14 z-10 bg-inherit px-3 py-1.5 font-medium text-slate-900">{r.name}</td>
                             <td className="px-2 py-1.5 text-slate-500">{r.unit}</td>
-                            <td className="bg-rose-50/40 px-2 py-1.5 text-right tabular-nums">{r.saldoAwalQty > 0 ? qtyFormat.format(r.saldoAwalQty) : "-"}</td>
-                            <td className="bg-rose-50/60 px-2 py-1.5 text-right tabular-nums">{r.qtyOpname > 0 ? qtyFormat.format(r.qtyOpname) : "-"}</td>
                             <td className="px-2 py-1.5 text-right tabular-nums">{r.costPerUnit > 0 ? currency.format(r.costPerUnit) : "-"}</td>
-                            <td className="px-2 py-1.5 text-right font-semibold tabular-nums">{r.nilaiAkhir > 0 ? currency.format(r.nilaiAkhir) : "-"}</td>
-                            <td className="bg-gold-50/40 px-2 py-1.5 text-right tabular-nums">{r.fakturOutletQty > 0 ? qtyFormat.format(r.fakturOutletQty) : "-"}</td>
-                            <td className="bg-slate-50 px-2 py-1.5 text-right tabular-nums">{r.adjustmentFakturQty !== 0 ? qtyFormat.format(r.adjustmentFakturQty) : "-"}</td>
+                            <td className="bg-rose-50/40 px-2 py-1.5 text-right tabular-nums">{r.saldoAwalQty !== 0 ? qtyFormat.format(r.saldoAwalQty) : "-"}</td>
+                            <td className="bg-rose-50/40 px-2 py-1.5 text-right tabular-nums">{r.saldoAwalNominal !== 0 ? currency.format(r.saldoAwalNominal) : "-"}</td>
+                            <td className="bg-rose-50/60 px-2 py-1.5 text-right tabular-nums">{r.qtyOpname !== 0 ? qtyFormat.format(r.qtyOpname) : "-"}</td>
+                            <td className="bg-rose-50/60 px-2 py-1.5 text-right font-semibold tabular-nums">{r.nilaiAkhir !== 0 ? currency.format(r.nilaiAkhir) : "-"}</td>
+                            <td className="bg-gold-50/40 px-2 py-1.5 text-right tabular-nums">{r.fakturOutletQty !== 0 ? qtyFormat.format(r.fakturOutletQty) : "-"}</td>
+                            <td className="bg-gold-50/40 px-2 py-1.5 text-right tabular-nums">{r.fakturOutletNominal !== 0 ? currency.format(r.fakturOutletNominal) : "-"}</td>
+                            <td className="bg-sky-50 px-2 py-1.5 text-right tabular-nums">{r.totalBahanBakuQty !== 0 ? qtyFormat.format(r.totalBahanBakuQty) : "-"}</td>
                             <td className="bg-sky-50 px-2 py-1.5 text-right font-semibold tabular-nums text-sky-900">
-                              {r.totalBahanBakuQty !== 0 ? qtyFormat.format(r.totalBahanBakuQty) : "-"}
+                              {r.totalBahanBakuNominal !== 0 ? currency.format(r.totalBahanBakuNominal) : "-"}
                             </td>
                           </tr>
                         ))}
+                        <tr className="bg-gold-50 font-bold text-brand-900">
+                          <td colSpan={3} className="sticky left-0 z-10 bg-gold-50 px-3 py-1.5">
+                            TOTAL NOMINAL {g.label}
+                          </td>
+                          <td />
+                          <td />
+                          <td className="px-2 py-1.5 text-right tabular-nums">{currency.format(g.totalSaldoAwalNominal)}</td>
+                          <td />
+                          <td className="px-2 py-1.5 text-right tabular-nums">{currency.format(g.totalNilaiAkhir)}</td>
+                          <td />
+                          <td className="px-2 py-1.5 text-right tabular-nums">{currency.format(g.totalFakturNominal)}</td>
+                          <td />
+                          <td className="px-2 py-1.5 text-right tabular-nums">{currency.format(g.totalNominal)}</td>
+                        </tr>
                       </Fragment>
                     );
                   })}
                   {companyMaterialSchedule.groups.length === 0 && (
                     <tr>
-                      <td colSpan={10} className="px-3 py-6 text-center text-slate-400">
+                      <td colSpan={12} className="px-3 py-6 text-center text-slate-400">
                         Belum ada data item.
                       </td>
                     </tr>
