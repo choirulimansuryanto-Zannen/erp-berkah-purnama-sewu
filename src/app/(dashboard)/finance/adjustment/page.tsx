@@ -11,7 +11,6 @@ import { ExportExcelButton } from "@/components/ui/export-excel-button";
 import { Wallet, TrendingDown, TrendingUp, Banknote, Landmark } from "lucide-react";
 import { InventoryClosingForm } from "@/components/finance/inventory-closing-form";
 import { getCompanyMaterialSchedule } from "@/lib/company-material";
-import { CompanyMaterialEntryForm } from "@/components/finance/company-material-entry-form";
 import { CompanyMaterialSkuTable } from "@/components/finance/company-material-sku-table";
 import { AdjustingEntryForm } from "@/components/finance/adjusting-entry-form";
 import { JournalEntryList, type JournalEntryRow } from "@/components/finance/journal-entry-list";
@@ -280,12 +279,6 @@ export default async function AdjustmentPage({
             </Button>
           </form>
         </Card>
-
-        <CompanyMaterialEntryForm
-          materials={companyMaterialSchedule.groups.flatMap((g) => g.rows.map((r) => ({ id: r.id, code: r.code, name: r.name, categoryLabel: g.label })))}
-          defaultYear={cmYear}
-          defaultMonth={cmMonth}
-        />
 
         <Card className="p-0" id="company-material-sku-section">
           <CardHeader className="sticky top-32 z-30 h-14 bg-white">
