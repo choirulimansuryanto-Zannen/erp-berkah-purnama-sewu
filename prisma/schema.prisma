@@ -1771,10 +1771,13 @@ model CompanyMaterial {
 // DERIVED residual (qtyOpname − saldoAwalQty − totalBahanBakuQty), shown
 // in Account Summary for traceability but never itself stored or edited.
 //
-// adjustmentNilai / fakturOutletNominal / adjustmentFakturQty /
-// adjustmentFakturNominal are legacy columns from an earlier formula
-// version — superseded, kept only so already-recorded history isn't lost;
-// nothing reads or writes them going forward.
+// adjustmentNilai / fakturOutletNominal / adjustmentFakturNominal are
+// legacy columns from an earlier formula version — superseded, kept
+// only so already-recorded history isn't lost; nothing reads or writes
+// them going forward. adjustmentFakturQty is NOT legacy — it's the
+// live, directly-edited "Qty Adjustment" column in Tabel SKU (its
+// Nominal is always derived live, qty × costPerUnit, never stored in
+// adjustmentFakturNominal).
 model CompanyMaterialClosingBalance {
   id         String          @id @default(uuid())
   materialId String
@@ -1791,9 +1794,11 @@ model CompanyMaterialClosingBalance {
   // Legacy / superseded — see model comment.
   adjustmentNilai         Decimal @default(0) @db.Decimal(16, 2)
   fakturOutletNominal     Decimal @default(0) @db.Decimal(16, 2)
-  adjustmentFakturQty     Decimal @default(0) @db.Decimal(14, 3)
   adjustmentFakturNominal Decimal @default(0) @db.Decimal(16, 2)
-  note                    String?
+
+  adjustmentFakturQty Decimal @default(0) @db.Decimal(14, 3) // Qty Adjustment — direct input
+
+  note String?
 
   recordedById String
   recordedBy   User     @relation("CompanyMaterialClosingRecordedBy", fields: [recordedById], references: [id])

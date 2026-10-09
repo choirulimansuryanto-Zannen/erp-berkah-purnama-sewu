@@ -31,6 +31,7 @@ export async function GET(request: Request) {
       qtyOpname: Number(current.qtyOpname),
       costPerUnit: Number(current.costPerUnit),
       fakturOutletQty: Number(current.fakturOutletQty),
+      adjustmentFakturQty: Number(current.adjustmentFakturQty),
     });
   }
 
@@ -45,6 +46,7 @@ export async function GET(request: Request) {
     qtyOpname: 0,
     costPerUnit: prevRow ? Number(prevRow.costPerUnit) : 0,
     fakturOutletQty: 0,
+    adjustmentFakturQty: 0,
   });
 }
 

@@ -8,6 +8,7 @@ export const upsertCompanyMaterialClosingSchema = z.object({
   qtyOpname: z.number().default(0),
   costPerUnit: z.number().min(0).default(0),
   fakturOutletQty: z.number().default(0),
+  adjustmentFakturQty: z.number().default(0),
   // Qty Total Bahan Baku is no longer an input — it's derived (Saldo Awal
   // − Saldo Akhir − Faktur Outlet), computed in src/lib/company-material.ts.
 });

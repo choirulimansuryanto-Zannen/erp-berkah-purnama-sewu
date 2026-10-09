@@ -1,16 +1,20 @@
 import { prisma } from "@/lib/prisma";
 
 // Company-wide (warehouse-level) SKU stock-opname — "Tabel SKU" on
-// /finance/adjustment. Qty Saldo Awal, Qty Saldo Akhir, Harga/Cost, and
-// Qty Faktur Outlet are directly editable per (item, year, month). Qty
-// Total Bahan Baku and every Nominal figure are DERIVED here, never
-// stored, so they can't drift from their inputs:
+// /finance/adjustment. Qty Saldo Awal, Qty Saldo Akhir, Harga/Cost, Qty
+// Faktur Outlet, and Qty Adjustment are directly editable per (item,
+// year, month). Qty Total Bahan Baku and every Nominal figure are
+// DERIVED here, never stored, so they can't drift from their inputs:
 //   Nominal <X>        = Qty <X> × Harga/Cost   (for Saldo Awal, Saldo
 //                                                 Akhir, Faktur Outlet,
-//                                                 and Total Bahan Baku)
+//                                                 Adjustment, and Total
+//                                                 Bahan Baku)
 //   Qty Total Bahan Baku = Qty Saldo Awal − Qty Saldo Akhir − Qty Faktur Outlet
 // (material consumed in production = what left the warehouse overall,
-// minus what was invoiced out to outlets).
+// minus what was invoiced out to outlets). Qty Adjustment itself feeds
+// no other formula — it's an independent manual correction figure,
+// shown in Tabel SKU and rolled up into Account Summary — Pecah
+// Invoice's "Adjustment Inventory" column.
 
 export const COMPANY_MATERIAL_CATEGORY_LABELS: Record<string, string> = {
   DAGING: "Daging",
@@ -78,12 +82,8 @@ export type CompanyMaterialRow = {
   fakturOutletNominal: number;
   totalBahanBakuQty: number; // derived — see module docblock
   totalBahanBakuNominal: number;
-  // Adjustment Inventory — historical/legacy figure (pre-dates the
-  // current Total Bahan Baku formula), kept only for Account Summary
-  // traceability. Not derived, not editable here, not part of any live
-  // formula; it simply surfaces whatever was last recorded against this
-  // row (0 for anything entered since).
-  adjustmentInventoryNominal: number;
+  adjustmentQty: number; // directly edited — independent manual correction
+  adjustmentInventoryNominal: number; // = adjustmentQty × costPerUnit
 };
 
 export type CompanyMaterialCategoryGroup = {
@@ -128,6 +128,7 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
     const saldoAwalQty = Number(cb?.saldoAwalQty ?? 0);
     const qtyOpname = Number(cb?.qtyOpname ?? 0);
     const fakturOutletQty = Number(cb?.fakturOutletQty ?? 0);
+    const adjustmentQty = Number(cb?.adjustmentFakturQty ?? 0);
     // Derived, not stored — see module docblock.
     const totalBahanBakuQty = saldoAwalQty - qtyOpname - fakturOutletQty;
 
@@ -144,9 +145,10 @@ export async function getCompanyMaterialSchedule(year: number, month: number) {
       nilaiAkhir: qtyOpname * costPerUnit,
       fakturOutletQty,
       fakturOutletNominal: fakturOutletQty * costPerUnit,
+      adjustmentQty,
+      adjustmentInventoryNominal: adjustmentQty * costPerUnit,
       totalBahanBakuQty,
       totalBahanBakuNominal: totalBahanBakuQty * costPerUnit,
-      adjustmentInventoryNominal: Number(cb?.adjustmentFakturNominal ?? 0),
     };
   });
 

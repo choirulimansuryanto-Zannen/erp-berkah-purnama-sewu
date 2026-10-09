@@ -29,6 +29,7 @@ function SkuRow({ row, year, month }: { row: CompanyMaterialRow; year: number; m
   const [saldoAwalQty, setSaldoAwalQty] = useState(String(row.saldoAwalQty));
   const [qtyOpname, setQtyOpname] = useState(String(row.qtyOpname));
   const [fakturOutletQty, setFakturOutletQty] = useState(String(row.fakturOutletQty));
+  const [adjustmentQty, setAdjustmentQty] = useState(String(row.adjustmentQty));
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -46,6 +47,7 @@ function SkuRow({ row, year, month }: { row: CompanyMaterialRow; year: number; m
           qtyOpname: Number(qtyOpname || 0),
           costPerUnit: row.costPerUnit,
           fakturOutletQty: Number(fakturOutletQty || 0),
+          adjustmentFakturQty: Number(adjustmentQty || 0),
         }),
       });
       setFailed(!res.ok);
@@ -121,6 +123,19 @@ function SkuRow({ row, year, month }: { row: CompanyMaterialRow; year: number; m
         />
       </td>
       <td className="bg-gold-50/40 px-2 py-1.5 text-right tabular-nums">{row.fakturOutletNominal !== 0 ? currency.format(row.fakturOutletNominal) : "-"}</td>
+      <td className={`bg-slate-100 py-1.5 ${failed ? "ring-1 ring-inset ring-red-500" : ""}`}>
+        <input
+          className={inputClass}
+          type="number"
+          step="any"
+          value={adjustmentQty}
+          disabled={saving}
+          onChange={(e) => setAdjustmentQty(e.target.value)}
+          onBlur={save}
+          onKeyDown={onKeyDown}
+        />
+      </td>
+      <td className="bg-slate-100 px-2 py-1.5 text-right tabular-nums">{row.adjustmentInventoryNominal !== 0 ? currency.format(row.adjustmentInventoryNominal) : "-"}</td>
       <td className="bg-sky-50 px-2 py-1.5 text-right tabular-nums">{row.totalBahanBakuQty !== 0 ? qtyFormat.format(row.totalBahanBakuQty) : "-"}</td>
       <td className="bg-sky-50 px-2 py-1.5 text-right font-semibold tabular-nums text-sky-900">
         {row.totalBahanBakuNominal !== 0 ? currency.format(row.totalBahanBakuNominal) : "-"}
@@ -144,6 +159,8 @@ export function CompanyMaterialSkuTable({ groups, year, month }: { groups: Compa
           <th className="border-r border-brand-900 bg-rose-700 px-2 py-2 text-right">Nominal Saldo Akhir</th>
           <th className="border-r border-gold-700 bg-gold-600 px-2 py-2 text-right text-brand-950">Qty Faktur Outlet</th>
           <th className="border-r border-brand-900 bg-gold-600 px-2 py-2 text-right text-brand-950">Nominal Faktur Outlet</th>
+          <th className="border-r border-slate-400 bg-slate-500 px-2 py-2 text-right">Qty Adjustment</th>
+          <th className="border-r border-brand-900 bg-slate-500 px-2 py-2 text-right">Nominal Adjustment</th>
           <th className="border-r border-sky-800 bg-sky-700 px-2 py-2 text-right">Qty Total Bahan Baku</th>
           <th className="bg-sky-700 px-2 py-2 text-right">Nominal Total Bahan Baku</th>
         </tr>
@@ -156,21 +173,21 @@ export function CompanyMaterialSkuTable({ groups, year, month }: { groups: Compa
             <Fragment key={g.category}>
               {showSuperGroupBanner && (
                 <tr className="bg-blue-100">
-                  <td colSpan={12} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-blue-900">
+                  <td colSpan={14} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-blue-900">
                     {g.superGroup}
                   </td>
                 </tr>
               )}
               {!g.superGroup && (
                 <tr className="bg-blue-100">
-                  <td colSpan={12} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-blue-900">
+                  <td colSpan={14} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-blue-900">
                     {g.label}
                   </td>
                 </tr>
               )}
               {g.superGroup && (
                 <tr className="bg-rose-50">
-                  <td colSpan={12} className="px-5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-700">
+                  <td colSpan={14} className="px-5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-700">
                     {g.label}
                   </td>
                 </tr>
@@ -189,6 +206,8 @@ export function CompanyMaterialSkuTable({ groups, year, month }: { groups: Compa
                 <td />
                 <td className="px-2 py-1.5 text-right tabular-nums">{currency.format(g.totalFakturNominal)}</td>
                 <td />
+                <td className="px-2 py-1.5 text-right tabular-nums">{currency.format(g.totalAdjustmentInventoryNominal)}</td>
+                <td />
                 <td className="px-2 py-1.5 text-right tabular-nums">{currency.format(g.totalNominal)}</td>
               </tr>
             </Fragment>
@@ -196,7 +215,7 @@ export function CompanyMaterialSkuTable({ groups, year, month }: { groups: Compa
         })}
         {groups.length === 0 && (
           <tr>
-            <td colSpan={12} className="px-3 py-6 text-center text-slate-400">
+            <td colSpan={14} className="px-3 py-6 text-center text-slate-400">
               Belum ada data item.
             </td>
           </tr>
