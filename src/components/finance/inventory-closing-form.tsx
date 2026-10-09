@@ -17,12 +17,11 @@ const CATEGORY_OPTIONS: { value: string; label: string }[] = [
   { value: "PROYEK_DALAM_PENYELESAIAN", label: "Proyek Dalam Penyelesaian" },
 ];
 
-// Categories with an exact-matching line in Tabel SKU's Account Summary —
-// Saldo table, auto-filled from there (see
-// /api/finance/company-material-account-summary) instead of typed by
-// hand. The other two categories (Bahan Setengah Jadi, Proyek Dalam
-// Penyelesaian) have no such match and stay manual.
-const AUTO_FILLED_CATEGORIES = new Set(["BAHAN_BAKU", "BAHAN_PENDUKUNG", "BARANG_JADI"]);
+// Bahan Baku is auto-filled from Tabel SKU's own Account Summary —
+// Saldo grand total (see /api/finance/company-material-account-summary)
+// instead of typed by hand — the overall stock-akhir figure, not broken
+// down per account. Every other category stays manual.
+const AUTO_FILLED_CATEGORIES = new Set(["BAHAN_BAKU"]);
 
 function currentYear(): number {
   return new Date().getFullYear();
@@ -98,8 +97,8 @@ export function InventoryClosingForm() {
       <CardContent>
         <p className="mb-3 text-xs text-slate-500">
           Diisi tiap tutup bulan berdasarkan hasil hitung fisik. Nilai ini menjadi &quot;Persediaan Akhir&quot; bulan berjalan
-          sekaligus &quot;Persediaan Awal&quot; bulan berikutnya pada Laporan HPP. Untuk kategori Bahan Baku, Bahan Pendukung, dan
-          Barang Jadi, nilainya otomatis diambil dari Tabel SKU — Account Summary — Saldo (kolom Total Saldo Akhir).
+          sekaligus &quot;Persediaan Awal&quot; bulan berikutnya pada Laporan HPP. Untuk kategori Bahan Baku, nilainya otomatis
+          diambil dari Tabel SKU — Account Summary — Saldo (total Stock Akhir keseluruhan, kolom Total Saldo Akhir).
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div>

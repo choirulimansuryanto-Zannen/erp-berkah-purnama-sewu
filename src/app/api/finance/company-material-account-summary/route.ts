@@ -2,13 +2,11 @@ import { NextResponse } from "next/server";
 import { requirePermission } from "@/lib/api-guard";
 import { getCompanyMaterialSchedule } from "@/lib/company-material";
 
-// Lets Input Persediaan Akhir auto-fill "Nilai Persediaan Akhir" from
-// Tabel SKU's own Account Summary — Saldo "Total Saldo Akhir" figures,
-// for the handful of InventoryClosing categories that have an exact
-// match there, instead of re-typing a number the Tabel SKU already
-// computed. Categories without a clean match (Bahan Setengah Jadi,
-// Proyek Dalam Penyelesaian) aren't covered — the form keeps manual
-// entry for those.
+// Lets Input Persediaan Akhir auto-fill "Nilai Persediaan Akhir" for the
+// Bahan Baku category from Tabel SKU's own Account Summary — Saldo grand
+// "TOTAL" row (Total Saldo Akhir) — the overall stock-akhir figure, not
+// broken down per account. The other 4 categories aren't covered — the
+// form keeps manual entry for those.
 export async function GET(request: Request) {
   const { user, response } = await requirePermission("finance:view_ledger");
   if (!user) return response!;
@@ -21,13 +19,7 @@ export async function GET(request: Request) {
   }
 
   const { accountSummary } = await getCompanyMaterialSchedule(year, month);
-  const find = (label: string) => accountSummary.find((a) => a.label === label)?.totalNilaiAkhir ?? 0;
+  const total = accountSummary.find((a) => a.label === "TOTAL")?.totalNilaiAkhir ?? 0;
 
-  // "Bahan Baku" = both Bahan Baku AB and Bahan Baku AD rows combined —
-  // the two account-summary lines literally named "Bahan Baku *".
-  const BAHAN_BAKU = find("Bahan Baku AB") + find("Bahan Baku AD");
-  const BAHAN_PENDUKUNG = find("Bahan Pendukung AB");
-  const BARANG_JADI = find("Barang Jadi AD");
-
-  return NextResponse.json({ BAHAN_BAKU, BAHAN_PENDUKUNG, BARANG_JADI });
+  return NextResponse.json({ BAHAN_BAKU: total });
 }
