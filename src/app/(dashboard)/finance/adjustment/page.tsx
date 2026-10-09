@@ -20,8 +20,8 @@ import { getVendorLedgers } from "@/lib/vendor-ledger";
 import { VendorLedgerEntryForm } from "@/components/finance/vendor-ledger-entry-form";
 import { getReceivableLedger } from "@/lib/receivable";
 import { ReceivableEntryForm } from "@/components/finance/receivable-entry-form";
-import { getSalaryRecap, SALARY_RECAP_LINE_LABELS } from "@/lib/salary-recap";
-import { SalaryRecapForm } from "@/components/finance/salary-recap-form";
+import { getSalaryRecap } from "@/lib/salary-recap";
+import { SalaryRecapTable } from "@/components/finance/salary-recap-table";
 
 const MONTH_LABELS_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
@@ -216,19 +216,16 @@ export default async function AdjustmentPage({
     <div className="space-y-8">
       <PageHeader
         title="Adjustment"
-        description="Persediaan, Jurnal Penyesuaian, Fixed Asset, Buku Hutang Vendor, dan Buku Piutang — satu sheet, scroll untuk berpindah antar bagian."
+        description="Fixed Asset, Rekap Salary, Buku Hutang Vendor, Buku Piutang, Persediaan, dan Jurnal Penyesuaian — satu sheet, scroll untuk berpindah antar bagian."
       />
 
       {/* Quick nav — jumps are a shortcut, every section is still reachable by scrolling */}
       <nav className="sticky top-16 z-40 flex flex-wrap gap-2 rounded-xl border border-slate-200/70 bg-white/95 p-3 text-xs font-semibold shadow-[var(--shadow-card)] backdrop-blur">
-        <a href="#adj-persediaan" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
-          Persediaan
-        </a>
-        <a href="#adj-jurnal-penyesuaian" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
-          Jurnal Penyesuaian
-        </a>
         <a href="#adj-fixed-asset" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
           Fixed Asset
+        </a>
+        <a href="#adj-salary-recap" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          Rekap Salary
         </a>
         <a href="#adj-vendor-payable" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
           Buku Hutang Vendor
@@ -236,164 +233,16 @@ export default async function AdjustmentPage({
         <a href="#adj-receivable" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
           Buku Piutang
         </a>
-        <a href="#adj-salary-recap" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
-          Rekap Salary
+        <a href="#adj-persediaan" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          Persediaan
+        </a>
+        <a href="#adj-jurnal-penyesuaian" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          Jurnal Penyesuaian
         </a>
       </nav>
 
-      {/* ══════════════════════ PERSEDIAAN ══════════════════════ */}
-      <section id="adj-persediaan" className="scroll-mt-32 space-y-6">
-        <h2 className="text-lg font-bold text-brand-900">Persediaan</h2>
-
-        <Card>
-          <p className="px-5 pt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Pilih Periode — berlaku untuk Tabel Persediaan &amp; Tabel SKU di bawah
-          </p>
-          <form className="flex flex-wrap items-end gap-3 p-5 pt-3">
-            <div>
-              <Label className="text-[11px]">Bulan</Label>
-              <Select name="cmMonth" defaultValue={String(cmMonth)} className="mt-1">
-                {MONTH_LABELS_ID.map((m, i) => (
-                  <option key={m} value={i + 1}>
-                    {m}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label className="text-[11px]">Tahun</Label>
-              <Select name="cmYear" defaultValue={String(cmYear)} className="mt-1">
-                {years.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <PreserveParams all={allParams} except={["cmYear", "cmMonth"]} />
-            <Button type="submit" variant="secondary">
-              Tampilkan
-            </Button>
-          </form>
-        </Card>
-
-        <Card className="p-0" id="company-material-sku-section">
-          <CardHeader className="sticky top-32 z-30 h-14 bg-white">
-            <div className="flex items-center gap-3">
-              <CardTitle>
-                Tabel SKU — {MONTH_LABELS_ID[cmMonth - 1]} {cmYear}
-              </CardTitle>
-              <a href="#adj-persediaan" className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-gold-100">
-                Ubah Periode
-              </a>
-            </div>
-            <ExportExcelButton containerId="company-material-sku-section" filename={`Tabel_SKU_${MONTH_LABELS_ID[cmMonth - 1]}_${cmYear}.xlsx`} />
-          </CardHeader>
-          <div className="max-h-[75vh] overflow-auto" data-sheet-name="Tabel SKU">
-            <CompanyMaterialSkuTable groups={companyMaterialSchedule.groups} year={cmYear} month={cmMonth} />
-          </div>
-        </Card>
-
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Card className="p-0">
-            <div className="rounded-t-xl bg-brand-950 px-4 py-2.5">
-              <p className="text-xs font-bold uppercase tracking-wide text-white">Account Summary — Saldo</p>
-            </div>
-            <table className="w-full border-collapse text-xs">
-              <thead>
-                <tr className="h-[46px] bg-slate-100 text-[11px] font-bold uppercase text-slate-500">
-                  <th className="min-w-[150px] px-3 py-2 text-left align-middle">Account Name</th>
-                  <th className="bg-rose-100 px-3 py-2 text-right align-middle">Total Saldo Awal</th>
-                  <th className="bg-rose-200 px-3 py-2 text-right align-middle">Total Saldo Akhir</th>
-                </tr>
-              </thead>
-              <tbody>
-                {companyMaterialSchedule.accountSummary.map((a) => (
-                  <tr
-                    key={a.label}
-                    className={a.label === "TOTAL" ? "bg-brand-900 font-bold text-white" : a.label.startsWith("TOTAL") ? "bg-slate-100 font-semibold text-brand-900" : "border-b border-slate-100 odd:bg-white even:bg-slate-50/60"}
-                  >
-                    <td className="whitespace-nowrap px-3 py-1.5">{a.label}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalSaldoAwalNominal)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalNilaiAkhir)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
-
-          <Card className="p-0">
-            <div className="rounded-t-xl bg-brand-950 px-4 py-2.5">
-              <p className="text-xs font-bold uppercase tracking-wide text-white">Account Summary — Pecah Invoice</p>
-            </div>
-            <table className="w-full border-collapse text-xs">
-              <thead>
-                <tr className="h-[46px] bg-slate-100 text-[11px] font-bold uppercase text-slate-500">
-                  <th className="min-w-[150px] px-3 py-2 text-left align-middle">Account Name</th>
-                  <th className="bg-gold-100 px-3 py-2 text-right align-middle">Faktur Awal Bulan Outlet</th>
-                  <th className="bg-slate-200 px-3 py-2 text-right align-middle">Adjustment Inventory</th>
-                  <th className="bg-sky-100 px-3 py-2 text-right align-middle">Total Bahan Baku</th>
-                </tr>
-              </thead>
-              <tbody>
-                {companyMaterialSchedule.accountSummary.map((a) => (
-                  <tr
-                    key={a.label}
-                    className={a.label === "TOTAL" ? "bg-brand-900 font-bold text-white" : a.label.startsWith("TOTAL") ? "bg-slate-100 font-semibold text-brand-900" : "border-b border-slate-100 odd:bg-white even:bg-slate-50/60"}
-                  >
-                    <td className="whitespace-nowrap px-3 py-1.5">{a.label}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalFakturNominal)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalAdjustmentInventoryNominal)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalNominal)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
-        </div>
-      </section>
-
-      {/* ══════════════════ JURNAL PENYESUAIAN ══════════════════ */}
-      <section id="adj-jurnal-penyesuaian" className="scroll-mt-32 space-y-6 border-t border-slate-200 pt-8">
-        <h2 className="text-lg font-bold text-brand-900">Jurnal Penyesuaian</h2>
-        <p className="-mt-4 text-xs text-slate-500">
-          Entri non-kas akhir periode — depresiasi, akrual, amortisasi dibayar-di-muka, koreksi. Tidak menyentuh akun buku kas manapun.
-        </p>
-
-        <Card>
-          <form className="flex flex-wrap items-end gap-2 p-5">
-            <div>
-              <Label htmlFor="jpFrom">Dari Tanggal</Label>
-              <Input id="jpFrom" type="date" name="jpFrom" defaultValue={allParams.jpFrom} max={todayStr()} className="mt-1" />
-            </div>
-            <div>
-              <Label htmlFor="jpTo">Sampai Tanggal</Label>
-              <Input id="jpTo" type="date" name="jpTo" defaultValue={allParams.jpTo} max={todayStr()} className="mt-1" />
-            </div>
-            <PreserveParams all={allParams} except={["jpFrom", "jpTo"]} />
-            <Button type="submit" variant="secondary">
-              Tampilkan
-            </Button>
-          </form>
-        </Card>
-
-        <div className="rounded-xl border border-slate-200/70 bg-white p-4 shadow-[var(--shadow-card)]">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Jurnal Penyesuaian Aktif (periode ini)</p>
-          <p className="mt-1 text-2xl font-bold text-brand-900">{jpActiveCount}</p>
-        </div>
-
-        <AdjustingEntryForm accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, type: a.type, cashBook: a.cashBook }))} />
-
-        <Card className="p-0">
-          <CardHeader className="sticky top-32 z-30 h-14 bg-white">
-            <CardTitle>Riwayat Jurnal Penyesuaian ({jpRows.length})</CardTitle>
-          </CardHeader>
-          <JournalEntryList entries={jpRows} />
-        </Card>
-      </section>
-
       {/* ══════════════════════ FIXED ASSET ══════════════════════ */}
-      <section id="adj-fixed-asset" className="scroll-mt-32 space-y-6 border-t border-slate-200 pt-8">
+      <section id="adj-fixed-asset" className="scroll-mt-32 space-y-6">
         <h2 className="text-lg font-bold text-brand-900">Fixed Asset</h2>
         <p className="-mt-4 text-xs text-slate-500">
           Daftar aset tetap per unit — nilai perolehan, dasar penyusutan (PT), penyusutan bulanan, akumulasi penyusutan, dan nilai buku (Economic Value).
@@ -516,6 +365,53 @@ export default async function AdjustmentPage({
                   </tfoot>
                 )}
             </table>
+          </div>
+        </Card>
+      </section>
+
+      {/* ══════════════════════ REKAP SALARY ══════════════════════ */}
+      <section id="adj-salary-recap" className="scroll-mt-32 space-y-6 border-t border-slate-200 pt-8">
+        <h2 className="text-lg font-bold text-brand-900">Rekap Salary</h2>
+        <p className="-mt-4 text-xs text-slate-500">Rekap penggajian bulanan per departemen — Total Terima (NET) dikurangi/ditambah setiap komponen, TOTAL (aktual) adalah penjumlahan seluruh baris.</p>
+
+        <Card>
+          <form className="flex flex-wrap items-end gap-3 p-5">
+            <div>
+              <Label className="text-[11px]">Bulan</Label>
+              <Select name="srMonth" defaultValue={String(srMonth)} className="mt-1">
+                {MONTH_LABELS_ID.map((m, i) => (
+                  <option key={m} value={i + 1}>
+                    {m}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label className="text-[11px]">Tahun</Label>
+              <Select name="srYear" defaultValue={String(srYear)} className="mt-1">
+                {years.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <PreserveParams all={allParams} except={["srYear", "srMonth"]} />
+            <Button type="submit" variant="secondary">
+              Tampilkan
+            </Button>
+          </form>
+        </Card>
+
+        <Card className="p-0" id="salary-recap-section">
+          <CardHeader className="sticky top-32 z-30 h-14 bg-white">
+            <CardTitle>
+              Rekap Salary — {MONTH_LABELS_ID[srMonth - 1]} {srYear}
+            </CardTitle>
+            <ExportExcelButton containerId="salary-recap-section" filename={`Rekap_Salary_${MONTH_LABELS_ID[srMonth - 1]}_${srYear}.xlsx`} />
+          </CardHeader>
+          <div className="overflow-x-auto" data-sheet-name="Rekap Salary">
+            <SalaryRecapTable columns={salaryRecap.columns} rowTotals={salaryRecap.rowTotals} grandTotal={salaryRecap.grandTotal} year={srYear} month={srMonth} />
           </div>
         </Card>
       </section>
@@ -723,16 +619,18 @@ export default async function AdjustmentPage({
         </Card>
       </section>
 
-      {/* ══════════════════════ REKAP SALARY ══════════════════════ */}
-      <section id="adj-salary-recap" className="scroll-mt-32 space-y-6 border-t border-slate-200 pt-8">
-        <h2 className="text-lg font-bold text-brand-900">Rekap Salary</h2>
-        <p className="-mt-4 text-xs text-slate-500">Rekap penggajian bulanan per departemen — Total Terima (NET) dikurangi/ditambah setiap komponen, TOTAL (aktual) adalah penjumlahan seluruh baris.</p>
+      {/* ══════════════════════ PERSEDIAAN ══════════════════════ */}
+      <section id="adj-persediaan" className="scroll-mt-32 space-y-6 border-t border-slate-200 pt-8">
+        <h2 className="text-lg font-bold text-brand-900">Persediaan</h2>
 
         <Card>
-          <form className="flex flex-wrap items-end gap-3 p-5">
+          <p className="px-5 pt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Pilih Periode — berlaku untuk Tabel Persediaan &amp; Tabel SKU di bawah
+          </p>
+          <form className="flex flex-wrap items-end gap-3 p-5 pt-3">
             <div>
               <Label className="text-[11px]">Bulan</Label>
-              <Select name="srMonth" defaultValue={String(srMonth)} className="mt-1">
+              <Select name="cmMonth" defaultValue={String(cmMonth)} className="mt-1">
                 {MONTH_LABELS_ID.map((m, i) => (
                   <option key={m} value={i + 1}>
                     {m}
@@ -742,7 +640,7 @@ export default async function AdjustmentPage({
             </div>
             <div>
               <Label className="text-[11px]">Tahun</Label>
-              <Select name="srYear" defaultValue={String(srYear)} className="mt-1">
+              <Select name="cmYear" defaultValue={String(cmYear)} className="mt-1">
                 {years.map((y) => (
                   <option key={y} value={y}>
                     {y}
@@ -750,61 +648,125 @@ export default async function AdjustmentPage({
                 ))}
               </Select>
             </div>
-            <PreserveParams all={allParams} except={["srYear", "srMonth"]} />
+            <PreserveParams all={allParams} except={["cmYear", "cmMonth"]} />
             <Button type="submit" variant="secondary">
               Tampilkan
             </Button>
           </form>
         </Card>
 
-        <SalaryRecapForm />
-
-        <Card className="p-0" id="salary-recap-section">
+        <Card className="p-0" id="company-material-sku-section">
           <CardHeader className="sticky top-32 z-30 h-14 bg-white">
-            <CardTitle>
-              Rekap Salary — {MONTH_LABELS_ID[srMonth - 1]} {srYear}
-            </CardTitle>
-            <ExportExcelButton containerId="salary-recap-section" filename={`Rekap_Salary_${MONTH_LABELS_ID[srMonth - 1]}_${srYear}.xlsx`} />
+            <div className="flex items-center gap-3">
+              <CardTitle>
+                Tabel SKU — {MONTH_LABELS_ID[cmMonth - 1]} {cmYear}
+              </CardTitle>
+              <a href="#adj-persediaan" className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-gold-100">
+                Ubah Periode
+              </a>
+            </div>
+            <ExportExcelButton containerId="company-material-sku-section" filename={`Tabel_SKU_${MONTH_LABELS_ID[cmMonth - 1]}_${cmYear}.xlsx`} />
           </CardHeader>
-          <div className="overflow-x-auto" data-sheet-name="Rekap Salary">
-            <table className="w-full min-w-[1300px] border-collapse text-xs">
+          <div className="max-h-[75vh] overflow-auto" data-sheet-name="Tabel SKU">
+            <CompanyMaterialSkuTable groups={companyMaterialSchedule.groups} year={cmYear} month={cmMonth} />
+          </div>
+        </Card>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Card className="p-0">
+            <div className="rounded-t-xl bg-brand-950 px-4 py-2.5">
+              <p className="text-xs font-bold uppercase tracking-wide text-white">Account Summary — Saldo</p>
+            </div>
+            <table className="w-full border-collapse text-xs">
               <thead>
-                <tr className="bg-brand-950 text-white">
-                  <th className="sticky will-change-transform left-0 z-10 border-r border-brand-900 bg-brand-950 px-3 py-2 text-left">Keterangan</th>
-                  {salaryRecap.columns.map((c) => (
-                    <th key={c.department} className="border-r border-brand-900 px-3 py-2 text-right">
-                      {c.label}
-                    </th>
-                  ))}
-                  <th className="px-3 py-2 text-right">Total Row</th>
+                <tr className="h-[46px] bg-slate-100 text-[11px] font-bold uppercase text-slate-500">
+                  <th className="min-w-[150px] px-3 py-2 text-left align-middle">Account Name</th>
+                  <th className="bg-rose-100 px-3 py-2 text-right align-middle">Total Saldo Awal</th>
+                  <th className="bg-rose-200 px-3 py-2 text-right align-middle">Total Saldo Akhir</th>
                 </tr>
               </thead>
               <tbody>
-                {(Object.keys(SALARY_RECAP_LINE_LABELS) as (keyof typeof SALARY_RECAP_LINE_LABELS)[]).map((key) => (
-                  <tr key={key} className="border-b border-slate-100 odd:bg-white even:bg-slate-50/60">
-                    <td className="sticky will-change-transform left-0 z-10 bg-white px-3 py-1.5 font-medium text-slate-900">{SALARY_RECAP_LINE_LABELS[key]}</td>
-                    {salaryRecap.columns.map((c) => (
-                      <td key={c.department} className="px-3 py-1.5 text-right tabular-nums">
-                        {c.values[key] > 0 ? currency.format(c.values[key]) : "-"}
-                      </td>
-                    ))}
-                    <td className="bg-gold-50/40 px-3 py-1.5 text-right font-semibold tabular-nums text-brand-900">
-                      {salaryRecap.rowTotals[key] > 0 ? currency.format(salaryRecap.rowTotals[key]) : "-"}
-                    </td>
+                {companyMaterialSchedule.accountSummary.map((a) => (
+                  <tr
+                    key={a.label}
+                    className={a.label === "TOTAL" ? "bg-brand-900 font-bold text-white" : a.label.startsWith("TOTAL") ? "bg-slate-100 font-semibold text-brand-900" : "border-b border-slate-100 odd:bg-white even:bg-slate-50/60"}
+                  >
+                    <td className="whitespace-nowrap px-3 py-1.5">{a.label}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalSaldoAwalNominal)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalNilaiAkhir)}</td>
                   </tr>
                 ))}
-                <tr className="bg-brand-900 font-bold text-white">
-                  <td className="sticky will-change-transform left-0 z-10 bg-brand-900 px-3 py-2">TOTAL (aktual)</td>
-                  {salaryRecap.columns.map((c) => (
-                    <td key={c.department} className="px-3 py-2 text-right tabular-nums">
-                      {currency.format(c.total)}
-                    </td>
-                  ))}
-                  <td className="px-3 py-2 text-right tabular-nums">{currency.format(salaryRecap.grandTotal)}</td>
-                </tr>
               </tbody>
             </table>
-          </div>
+          </Card>
+
+          <Card className="p-0">
+            <div className="rounded-t-xl bg-brand-950 px-4 py-2.5">
+              <p className="text-xs font-bold uppercase tracking-wide text-white">Account Summary — Pecah Invoice</p>
+            </div>
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="h-[46px] bg-slate-100 text-[11px] font-bold uppercase text-slate-500">
+                  <th className="min-w-[150px] px-3 py-2 text-left align-middle">Account Name</th>
+                  <th className="bg-gold-100 px-3 py-2 text-right align-middle">Faktur Awal Bulan Outlet</th>
+                  <th className="bg-slate-200 px-3 py-2 text-right align-middle">Adjustment Inventory</th>
+                  <th className="bg-sky-100 px-3 py-2 text-right align-middle">Total Bahan Baku</th>
+                </tr>
+              </thead>
+              <tbody>
+                {companyMaterialSchedule.accountSummary.map((a) => (
+                  <tr
+                    key={a.label}
+                    className={a.label === "TOTAL" ? "bg-brand-900 font-bold text-white" : a.label.startsWith("TOTAL") ? "bg-slate-100 font-semibold text-brand-900" : "border-b border-slate-100 odd:bg-white even:bg-slate-50/60"}
+                  >
+                    <td className="whitespace-nowrap px-3 py-1.5">{a.label}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalFakturNominal)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalAdjustmentInventoryNominal)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(a.totalNominal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </div>
+      </section>
+
+      {/* ══════════════════ JURNAL PENYESUAIAN ══════════════════ */}
+      <section id="adj-jurnal-penyesuaian" className="scroll-mt-32 space-y-6 border-t border-slate-200 pt-8">
+        <h2 className="text-lg font-bold text-brand-900">Jurnal Penyesuaian</h2>
+        <p className="-mt-4 text-xs text-slate-500">
+          Entri non-kas akhir periode — depresiasi, akrual, amortisasi dibayar-di-muka, koreksi. Tidak menyentuh akun buku kas manapun.
+        </p>
+
+        <Card>
+          <form className="flex flex-wrap items-end gap-2 p-5">
+            <div>
+              <Label htmlFor="jpFrom">Dari Tanggal</Label>
+              <Input id="jpFrom" type="date" name="jpFrom" defaultValue={allParams.jpFrom} max={todayStr()} className="mt-1" />
+            </div>
+            <div>
+              <Label htmlFor="jpTo">Sampai Tanggal</Label>
+              <Input id="jpTo" type="date" name="jpTo" defaultValue={allParams.jpTo} max={todayStr()} className="mt-1" />
+            </div>
+            <PreserveParams all={allParams} except={["jpFrom", "jpTo"]} />
+            <Button type="submit" variant="secondary">
+              Tampilkan
+            </Button>
+          </form>
+        </Card>
+
+        <div className="rounded-xl border border-slate-200/70 bg-white p-4 shadow-[var(--shadow-card)]">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Jurnal Penyesuaian Aktif (periode ini)</p>
+          <p className="mt-1 text-2xl font-bold text-brand-900">{jpActiveCount}</p>
+        </div>
+
+        <AdjustingEntryForm accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, type: a.type, cashBook: a.cashBook }))} />
+
+        <Card className="p-0">
+          <CardHeader className="sticky top-32 z-30 h-14 bg-white">
+            <CardTitle>Riwayat Jurnal Penyesuaian ({jpRows.length})</CardTitle>
+          </CardHeader>
+          <JournalEntryList entries={jpRows} />
         </Card>
       </section>
     </div>
