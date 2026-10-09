@@ -139,7 +139,12 @@ export default async function AdjustmentPage({
 
   // ── Fixed Asset ─────────────────────────────────────────────────────
   const faYear = sp.faYear ? Number(sp.faYear) : now.getFullYear();
-  const faMonth = faYear === now.getFullYear() ? now.getMonth() + 1 : 12;
+  // Cuts off YTD/Accumulated/Economic-Value only — the monthly grid
+  // itself always shows all 12 months of faYear regardless (see
+  // getFixedAssetSchedule's docblock), so future months are never
+  // missing a column.
+  const faAsOfMonth = faYear < now.getFullYear() ? 12 : faYear > now.getFullYear() ? 0 : now.getMonth() + 1;
+  const faAsOfLabel = faAsOfMonth === 0 ? "belum mulai" : `s/d ${MONTH_LABELS_ID[faAsOfMonth - 1]}`;
 
   // ── Buku Piutang ────────────────────────────────────────────────────
   const arYear = sp.arYear ? Number(sp.arYear) : 2026;
@@ -171,7 +176,7 @@ export default async function AdjustmentPage({
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: 300,
     }),
-    getFixedAssetSchedule(faYear, faMonth),
+    getFixedAssetSchedule(faYear, faAsOfMonth),
     getVendorLedgers(),
     prisma.vendor.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { sortOrder: "asc" } }),
     getReceivableLedger(arYear, arMonth),
@@ -282,6 +287,10 @@ export default async function AdjustmentPage({
 
         <CreateFixedAssetForm />
 
+        <p className="text-[11px] text-slate-400">
+          Jadwal penyusutan 12 bulan penuh ({faYear}) selalu tampil, termasuk bulan yang belum terjadi — kolom bertanda <span className="italic">*</span> adalah proyeksi, dihitung otomatis dari jadwal penyusutan garis lurus.
+        </p>
+
         <Card className="p-0" id="fixed-asset-section">
           <CardHeader className="sticky top-32 z-30 h-14 bg-white">
             <CardTitle>Daftar Aset Tetap — {faYear}</CardTitle>
@@ -305,35 +314,48 @@ export default async function AdjustmentPage({
                       PT
                     </th>
                     <th rowSpan={2} className="min-w-[120px] border-r border-brand-900 bg-gold-600 px-3 py-2 text-right text-brand-950">
-                      {faYear}
+                      {faYear} YTD
+                      <br />
+                      <span className="text-[10px] font-normal normal-case">({faAsOfLabel})</span>
                     </th>
                     <th colSpan={faMonthCount} className="border-r border-brand-900 bg-gold-600 px-3 py-2 text-center text-brand-950">
-                      {faYear}
+                      {faYear} — Jadwal Penyusutan Bulanan (12 bulan penuh)
                     </th>
                     <th rowSpan={2} className="min-w-[120px] border-r border-brand-900 bg-gold-600 px-3 py-2 text-right text-brand-950">
-                      {faYear}
+                      {faYear} YTD
+                      <br />
+                      <span className="text-[10px] font-normal normal-case">({faAsOfLabel})</span>
                     </th>
                     <th rowSpan={2} className="min-w-[140px] border-r border-brand-900 px-3 py-2 text-right">
                       Accum Depreciation Expense
+                      <br />
+                      <span className="text-[10px] font-normal normal-case text-slate-300">({faAsOfLabel})</span>
                     </th>
                     <th rowSpan={2} className="min-w-[130px] border-r border-brand-900 px-3 py-2 text-right">
                       Economic Value
+                      <br />
+                      <span className="text-[10px] font-normal normal-case text-slate-300">({faAsOfLabel})</span>
                     </th>
                     <th rowSpan={2} className="min-w-[140px] px-3 py-2 text-left">
                       Remark
                     </th>
                   </tr>
                   <tr className="bg-gold-500 text-brand-950">
-                    {faMonthLabels.map((m) => (
-                      <th key={m} className="border-r border-gold-600 px-2 py-1.5 text-right font-semibold">
+                    {faMonthLabels.map((m, i) => (
+                      <th
+                        key={m}
+                        className={`border-r px-2 py-1.5 text-right font-semibold ${i + 1 > faAsOfMonth ? "border-gold-600 bg-gold-400/60 italic text-brand-900/60" : "border-gold-600"} ${i + 1 === faAsOfMonth + 1 ? "border-l-2 border-l-brand-900" : ""}`}
+                        title={i + 1 > faAsOfMonth ? "Proyeksi — belum terjadi" : undefined}
+                      >
                         {m}
+                        {i + 1 > faAsOfMonth && <span className="ml-0.5">*</span>}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {faGroups.map((g) => (
-                    <FixedAssetGroupRows key={g.category} group={g} monthCount={faMonthCount} />
+                    <FixedAssetGroupRows key={g.category} group={g} monthCount={faMonthCount} asOfMonth={faAsOfMonth} />
                   ))}
                   {faGroups.length === 0 && (
                     <tr>
@@ -353,7 +375,7 @@ export default async function AdjustmentPage({
                       <td className="px-3 py-2 text-right tabular-nums">{currency.format(faGrandTotal.depreciableBase)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{currency.format(faGrandTotal.yearToDateTotal)}</td>
                       {faGrandTotal.months.map((v, i) => (
-                        <td key={i} className="px-2 py-2 text-right tabular-nums">
+                        <td key={i} className={`px-2 py-2 text-right tabular-nums ${i + 1 > faAsOfMonth ? "italic text-white/60" : ""}`}>
                           {currency.format(v)}
                         </td>
                       ))}
@@ -776,10 +798,13 @@ export default async function AdjustmentPage({
 function FixedAssetGroupRows({
   group,
   monthCount,
+  asOfMonth,
 }: {
   group: Awaited<ReturnType<typeof getFixedAssetSchedule>>["groups"][number];
   monthCount: number;
+  asOfMonth: number;
 }) {
+  const projectedCell = "bg-slate-50/60 italic text-slate-400";
   return (
     <>
       <tr className="bg-slate-100">
@@ -795,7 +820,7 @@ function FixedAssetGroupRows({
           <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(r.depreciableBase)}</td>
           <td className="px-3 py-1.5 text-right tabular-nums">{r.yearToDateTotal > 0 ? currency.format(r.yearToDateTotal) : "-"}</td>
           {Array.from({ length: monthCount }, (_, i) => r.months[i] ?? 0).map((v, i) => (
-            <td key={i} className="px-2 py-1.5 text-right tabular-nums">
+            <td key={i} className={`px-2 py-1.5 text-right tabular-nums ${i + 1 > asOfMonth ? projectedCell : ""}`}>
               {v > 0 ? currency.format(v) : "-"}
             </td>
           ))}
@@ -818,7 +843,7 @@ function FixedAssetGroupRows({
         <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(group.totals.depreciableBase)}</td>
         <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(group.totals.yearToDateTotal)}</td>
         {Array.from({ length: monthCount }, (_, i) => group.totals.months[i] ?? 0).map((v, i) => (
-          <td key={i} className="px-2 py-1.5 text-right tabular-nums">
+          <td key={i} className={`px-2 py-1.5 text-right tabular-nums ${i + 1 > asOfMonth ? "italic text-brand-900/50" : ""}`}>
             {currency.format(v)}
           </td>
         ))}

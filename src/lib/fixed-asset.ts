@@ -2,9 +2,22 @@ import { prisma } from "@/lib/prisma";
 
 // Fixed Asset register — straight-line depreciation computed LIVE from
 // (depreciableBase, usefulLifeMonths, acquisitionDate) for whatever
-// year/month is selected, rather than stored as a frozen snapshot. This
-// means the schedule keeps accruing correctly every month going forward —
-// same convention as every other FA Company report (Neraca, Laba Rugi, …).
+// year is selected, rather than stored as a frozen snapshot. This means
+// the schedule keeps accruing correctly every month going forward — same
+// convention as every other FA Company report (Neraca, Laba Rugi, …).
+//
+// The monthly grid ALWAYS shows all 12 months of the selected year —
+// depreciation is a deterministic schedule (known asset, known useful
+// life, known acquisition date), not data that needs to be entered each
+// month, so November/December's columns exist and are computed in
+// October just as readily as January's. `asOfMonth` only controls where
+// the YTD/Accumulated/Economic-Value *summary* figures are cut off
+// (defaults to "today" — see getFixedAssetSchedule's caller in
+// page.tsx): current year → up to the current month, past year → the
+// full 12 months, future year → 0 (nothing in it has happened yet).
+// Months after asOfMonth still appear in the grid (so the full year's
+// schedule is visible at a glance) but are flagged `isProjected` so the
+// UI can style them as forecast rather than actual.
 //
 // Column meanings (matching the business's own register):
 //   Acquisition Amount — the full purchase cost.
@@ -13,9 +26,9 @@ import { prisma } from "@/lib/prisma";
 //     building purchase is never depreciated). This is a FIXED reference
 //     value, the same every period — by construction it always equals
 //     Accumulated Depreciation + Economic Value for any period shown.
-//   2026 / monthly columns — this year's depreciation, Jan..selected month.
+//   2026 / monthly columns — this year's depreciation, Jan..Dec.
 //   Accum Depreciation Expense — total accumulated since acquisition,
-//     through the selected month (prior years + this year to date).
+//     through asOfMonth (prior years + this year to date).
 //   Economic Value — net book value: depreciableBase − accumulated.
 
 export const FIXED_ASSET_CATEGORY_LABELS: Record<string, string> = {
@@ -33,10 +46,11 @@ export type FixedAssetScheduleRow = {
   description: string;
   acquisitionAmount: number;
   depreciableBase: number; // "PT"
-  yearToDateTotal: number; // this year's Jan..selectedMonth total — the "2026" column
-  months: number[]; // one entry per month, Jan..selectedMonth
-  accumulatedDepreciation: number; // through selected month, since acquisition
-  economicValue: number; // net book value as of selected month
+  yearToDateTotal: number; // this year's Jan..asOfMonth total — the "2026" column
+  months: number[]; // always 12 entries, Jan..Dec
+  monthsProjected: boolean[]; // true for months after asOfMonth — forecast, not yet elapsed
+  accumulatedDepreciation: number; // through asOfMonth, since acquisition
+  economicValue: number; // net book value as of asOfMonth
   remark: string | null;
   fullyDepreciated: boolean;
 };
@@ -45,7 +59,7 @@ export type FixedAssetCategoryGroup = {
   category: string;
   label: string;
   rows: FixedAssetScheduleRow[];
-  totals: Omit<FixedAssetScheduleRow, "id" | "no" | "description" | "remark" | "fullyDepreciated">;
+  totals: Omit<FixedAssetScheduleRow, "id" | "no" | "description" | "remark" | "fullyDepreciated" | "monthsProjected">;
 };
 
 function monthIndex(year: number, month1to12: number): number {
@@ -60,12 +74,12 @@ function monthsElapsedThrough(acquisitionDate: Date, year: number, month1to12: n
   return Math.max(0, Math.min(usefulLifeMonths, refIdx - acqIdx + 1));
 }
 
-function sumRows(rows: FixedAssetScheduleRow[], monthCount: number) {
+function sumRows(rows: FixedAssetScheduleRow[]) {
   const totals = {
     acquisitionAmount: 0,
     depreciableBase: 0,
     yearToDateTotal: 0,
-    months: Array.from({ length: monthCount }, () => 0),
+    months: Array.from({ length: 12 }, () => 0),
     accumulatedDepreciation: 0,
     economicValue: 0,
   };
@@ -75,12 +89,19 @@ function sumRows(rows: FixedAssetScheduleRow[], monthCount: number) {
     totals.yearToDateTotal += r.yearToDateTotal;
     totals.accumulatedDepreciation += r.accumulatedDepreciation;
     totals.economicValue += r.economicValue;
-    for (let i = 0; i < monthCount; i++) totals.months[i] += r.months[i] ?? 0;
+    for (let i = 0; i < 12; i++) totals.months[i] += r.months[i] ?? 0;
   }
   return totals;
 }
 
-export async function getFixedAssetSchedule(year: number, month: number) {
+/**
+ * `asOfMonth` (1-12, or 0) cuts off the YTD/Accumulated/Economic-Value
+ * summary figures — pass the current month for the current year, 12 for
+ * a past year, 0 for a future year (see page.tsx). The monthly grid
+ * itself always covers the full 12 months of `year`, independent of
+ * asOfMonth, so future months are never missing a column.
+ */
+export async function getFixedAssetSchedule(year: number, asOfMonth: number) {
   const assets = await prisma.fixedAsset.findMany({
     where: { status: "ACTIVE" },
     orderBy: [{ category: "asc" }, { no: "asc" }],
@@ -94,13 +115,17 @@ export async function getFixedAssetSchedule(year: number, month: number) {
     const priorAccumulated = monthly * monthsElapsedPriorYear;
 
     const months: number[] = [];
+    const monthsProjected: boolean[] = [];
+    let cumRunning = 0;
     let cumThisYear = 0;
-    for (let m = 1; m <= month; m++) {
+    for (let m = 1; m <= 12; m++) {
       const elapsedThroughM = monthsElapsedThrough(a.acquisitionDate, year, m, a.usefulLifeMonths);
       const cumThroughM = elapsedThroughM * monthly;
-      const thisMonth = Math.max(0, cumThroughM - priorAccumulated - cumThisYear);
+      const thisMonth = Math.max(0, cumThroughM - priorAccumulated - cumRunning);
       months.push(thisMonth);
-      cumThisYear += thisMonth;
+      monthsProjected.push(m > asOfMonth);
+      cumRunning += thisMonth;
+      if (m <= asOfMonth) cumThisYear += thisMonth;
     }
 
     const accumulatedDepreciation = Math.min(depreciableBase, priorAccumulated + cumThisYear);
@@ -115,6 +140,7 @@ export async function getFixedAssetSchedule(year: number, month: number) {
       depreciableBase,
       yearToDateTotal: cumThisYear,
       months,
+      monthsProjected,
       accumulatedDepreciation,
       economicValue,
       remark: a.remark,
@@ -124,10 +150,10 @@ export async function getFixedAssetSchedule(year: number, month: number) {
 
   const groups: FixedAssetCategoryGroup[] = FIXED_ASSET_CATEGORY_ORDER.filter((cat) => allRows.some((r) => r.category === cat)).map((cat) => {
     const rows = allRows.filter((r) => r.category === cat);
-    return { category: cat, label: FIXED_ASSET_CATEGORY_LABELS[cat], rows, totals: sumRows(rows, month) };
+    return { category: cat, label: FIXED_ASSET_CATEGORY_LABELS[cat], rows, totals: sumRows(rows) };
   });
 
-  const grandTotal = sumRows(allRows, month);
+  const grandTotal = sumRows(allRows);
 
-  return { groups, grandTotal, monthCount: month };
+  return { groups, grandTotal, monthCount: 12, asOfMonth };
 }
