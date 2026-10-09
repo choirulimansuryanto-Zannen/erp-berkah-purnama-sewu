@@ -12,6 +12,24 @@ type Account = { id: string; code: string; name: string };
 const cellInputClass =
   "w-full min-w-0 rounded border-0 bg-transparent px-1.5 py-1 text-slate-900 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50";
 
+// Frozen (sticky) zone covers Tgl/TRX_BOOKS/Line/COA-Akun — fixed pixel
+// widths so each column's `left` offset stacks correctly while scrolling
+// horizontally through Debit/Credit/Remarks/Cost Description/Cost
+// Centre. Explicit solid backgrounds (not `bg-inherit`) on every sticky
+// cell — `background: inherit` on a sticky cell is a known Chromium
+// repaint bug (ghosting of scrolled-under content), already hit and
+// fixed once this session on Tabel SKU/Fixed Asset/Rekap Salary.
+const COL_TGL_W = "w-[90px]";
+const COL_TRX_W = "w-[90px]";
+const COL_LINE_W = "w-[50px]";
+const COL_COA_W = "w-[260px]";
+const LEFT_TGL = "left-0";
+const LEFT_TRX = "left-[90px]";
+const LEFT_LINE = "left-[180px]";
+const LEFT_COA = "left-[230px]";
+const stickyCellClass = "sticky will-change-transform z-10 bg-white";
+const stickyHeaderClass = "sticky will-change-transform z-20 bg-brand-950";
+
 // One row per JournalEntryLine — Tgl/TRX_BOOKS/line are always derived
 // from the selected period (see lib/accounting.ts), never typed by hand.
 // COA, Debit/Credit, Remark, Cost Description and Cost Centre are all
@@ -51,10 +69,10 @@ function GridRow({ line, accounts, isFirstOfPair }: { line: AdjustingGridLine; a
 
   return (
     <tr className={`border-b border-slate-100 text-xs ${isFirstOfPair ? "border-t-2 border-t-slate-200" : ""} odd:bg-white even:bg-slate-50/60`}>
-      <td className="px-2 py-1 text-slate-500">{dateFormat.format(line.date)}</td>
-      <td className="px-2 py-1 font-mono text-slate-500">{line.trxBooks}</td>
-      <td className="px-2 py-1 text-center text-slate-400">{line.lineNo}</td>
-      <td className="px-1 py-1" title={failed ? "Gagal menyimpan — coba lagi" : undefined}>
+      <td className={`${stickyCellClass} ${LEFT_TGL} ${COL_TGL_W} px-2 py-1 text-slate-500`}>{dateFormat.format(line.date)}</td>
+      <td className={`${stickyCellClass} ${LEFT_TRX} ${COL_TRX_W} px-2 py-1 font-mono text-slate-500`}>{line.trxBooks}</td>
+      <td className={`${stickyCellClass} ${LEFT_LINE} ${COL_LINE_W} px-2 py-1 text-center text-slate-400`}>{line.lineNo}</td>
+      <td className={`${stickyCellClass} ${LEFT_COA} ${COL_COA_W} border-r border-slate-200 px-1 py-1`} title={failed ? "Gagal menyimpan — coba lagi" : undefined}>
         <select
           className={`${cellInputClass} ${failed ? "ring-1 ring-inset ring-red-500" : ""}`}
           value={accountId}
@@ -218,10 +236,10 @@ export function JurnalPenyesuaianGrid({ lines, accounts, year, month }: { lines:
         <table className="w-full min-w-[1400px] border-collapse text-xs">
           <thead>
             <tr className="bg-brand-950 text-white">
-              <th className="px-2 py-2 text-left">Tgl</th>
-              <th className="px-2 py-2 text-left">TRX_BOOKS</th>
-              <th className="px-2 py-2 text-center">Line</th>
-              <th className="min-w-[260px] px-2 py-2 text-left">COA / Akun</th>
+              <th className={`${stickyHeaderClass} ${LEFT_TGL} ${COL_TGL_W} px-2 py-2 text-left`}>Tgl</th>
+              <th className={`${stickyHeaderClass} ${LEFT_TRX} ${COL_TRX_W} px-2 py-2 text-left`}>TRX_BOOKS</th>
+              <th className={`${stickyHeaderClass} ${LEFT_LINE} ${COL_LINE_W} px-2 py-2 text-center`}>Line</th>
+              <th className={`${stickyHeaderClass} ${LEFT_COA} ${COL_COA_W} border-r border-brand-800 px-2 py-2 text-left`}>COA / Akun</th>
               <th className="px-2 py-2 text-right">Debit</th>
               <th className="px-2 py-2 text-right">Credit</th>
               <th className="min-w-[180px] px-2 py-2 text-left">Remarks</th>
@@ -246,7 +264,7 @@ export function JurnalPenyesuaianGrid({ lines, accounts, year, month }: { lines:
           {lines.length > 0 && (
             <tfoot>
               <tr className="bg-brand-900 font-bold text-white">
-                <td colSpan={4} className="px-2 py-2">
+                <td colSpan={4} className={`sticky will-change-transform ${LEFT_TGL} z-10 bg-brand-900 px-2 py-2`}>
                   TOTAL
                 </td>
                 <td className="px-2 py-2 text-right tabular-nums">{currency.format(totalDebit)}</td>
