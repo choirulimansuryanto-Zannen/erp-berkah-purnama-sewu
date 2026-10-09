@@ -299,10 +299,8 @@ export default async function AdjustmentPage({
             </div>
             <ExportExcelButton containerId="company-material-sku-section" filename={`Tabel_SKU_${MONTH_LABELS_ID[cmMonth - 1]}_${cmYear}.xlsx`} />
           </CardHeader>
-          <div className="overflow-x-auto" data-sheet-name="Tabel SKU">
-            <div className="max-h-[75vh] overflow-y-auto">
-              <CompanyMaterialSkuTable groups={companyMaterialSchedule.groups} year={cmYear} month={cmMonth} />
-            </div>
+          <div className="max-h-[75vh] overflow-auto" data-sheet-name="Tabel SKU">
+            <CompanyMaterialSkuTable groups={companyMaterialSchedule.groups} year={cmYear} month={cmMonth} />
           </div>
         </Card>
 
@@ -451,15 +449,14 @@ export default async function AdjustmentPage({
             <ExportExcelButton containerId="fixed-asset-section" filename={`Fixed_Asset_${faYear}.xlsx`} />
           </CardHeader>
 
-          <div className="overflow-x-auto" data-sheet-name="Fixed Asset">
-            <div className="max-h-[75vh] overflow-y-auto">
-              <table className="w-full min-w-[1600px] border-collapse text-xs">
-                <thead className="sticky top-0 z-20">
+          <div className="max-h-[75vh] overflow-auto" data-sheet-name="Fixed Asset">
+            <table className="w-full min-w-[1600px] border-collapse text-xs">
+              <thead className="sticky top-0 z-20">
                   <tr className="bg-brand-950 text-white">
-                    <th rowSpan={2} className="sticky left-0 z-30 border-r border-brand-900 bg-brand-950 px-2 py-2 text-left">
+                    <th rowSpan={2} className="sticky will-change-transform left-0 z-30 border-r border-brand-900 bg-brand-950 px-2 py-2 text-left">
                       No
                     </th>
-                    <th rowSpan={2} className="sticky left-8 z-30 min-w-[220px] border-r border-brand-900 bg-brand-950 px-3 py-2 text-left">
+                    <th rowSpan={2} className="sticky will-change-transform left-8 z-30 min-w-[220px] border-r border-brand-900 bg-brand-950 px-3 py-2 text-left">
                       Asset Description
                     </th>
                     <th rowSpan={2} className="min-w-[130px] border-r border-brand-900 px-3 py-2 text-right">
@@ -510,7 +507,7 @@ export default async function AdjustmentPage({
                 {faGroups.length > 0 && (
                   <tfoot>
                     <tr className="bg-brand-900 font-bold text-white">
-                      <td colSpan={2} className="sticky left-0 z-10 bg-brand-900 px-3 py-2">
+                      <td colSpan={2} className="sticky will-change-transform left-0 z-10 bg-brand-900 px-3 py-2">
                         TOTAL
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{currency.format(faGrandTotal.acquisitionAmount)}</td>
@@ -528,8 +525,7 @@ export default async function AdjustmentPage({
                     </tr>
                   </tfoot>
                 )}
-              </table>
-            </div>
+            </table>
           </div>
         </Card>
       </section>
@@ -660,10 +656,9 @@ export default async function AdjustmentPage({
             </CardTitle>
             <ExportExcelButton containerId="receivable-detail-section" filename={`Piutang_${MONTH_LABELS_ID[arMonth - 1]}_${arYear}.xlsx`} />
           </CardHeader>
-          <div className="overflow-x-auto" data-sheet-name="Piutang">
-            <div className="max-h-[70vh] overflow-y-auto">
-              <table className="w-full min-w-[1100px] border-collapse text-xs">
-                <thead className="sticky top-0 z-20 bg-slate-50">
+          <div className="max-h-[70vh] overflow-auto" data-sheet-name="Piutang">
+            <table className="w-full min-w-[1100px] border-collapse text-xs">
+              <thead className="sticky top-0 z-20 bg-slate-50">
                   <tr>
                     <th className="border-b border-slate-200 px-2 py-2 text-left font-bold uppercase text-slate-500">Date</th>
                     <th className="border-b border-slate-200 px-2 py-2 text-left font-bold uppercase text-slate-500">Mitra Code</th>
@@ -696,8 +691,7 @@ export default async function AdjustmentPage({
                     </tr>
                   )}
                 </tbody>
-              </table>
-            </div>
+            </table>
           </div>
         </Card>
 
@@ -786,7 +780,7 @@ export default async function AdjustmentPage({
             <table className="w-full min-w-[1300px] border-collapse text-xs">
               <thead>
                 <tr className="bg-brand-950 text-white">
-                  <th className="sticky left-0 z-10 border-r border-brand-900 bg-brand-950 px-3 py-2 text-left">Keterangan</th>
+                  <th className="sticky will-change-transform left-0 z-10 border-r border-brand-900 bg-brand-950 px-3 py-2 text-left">Keterangan</th>
                   {salaryRecap.columns.map((c) => (
                     <th key={c.department} className="border-r border-brand-900 px-3 py-2 text-right">
                       {c.label}
@@ -798,7 +792,7 @@ export default async function AdjustmentPage({
               <tbody>
                 {(Object.keys(SALARY_RECAP_LINE_LABELS) as (keyof typeof SALARY_RECAP_LINE_LABELS)[]).map((key) => (
                   <tr key={key} className="border-b border-slate-100 odd:bg-white even:bg-slate-50/60">
-                    <td className="sticky left-0 z-10 bg-inherit px-3 py-1.5 font-medium text-slate-900">{SALARY_RECAP_LINE_LABELS[key]}</td>
+                    <td className="sticky will-change-transform left-0 z-10 bg-white px-3 py-1.5 font-medium text-slate-900">{SALARY_RECAP_LINE_LABELS[key]}</td>
                     {salaryRecap.columns.map((c) => (
                       <td key={c.department} className="px-3 py-1.5 text-right tabular-nums">
                         {c.values[key] > 0 ? currency.format(c.values[key]) : "-"}
@@ -810,7 +804,7 @@ export default async function AdjustmentPage({
                   </tr>
                 ))}
                 <tr className="bg-brand-900 font-bold text-white">
-                  <td className="sticky left-0 z-10 bg-brand-900 px-3 py-2">TOTAL (aktual)</td>
+                  <td className="sticky will-change-transform left-0 z-10 bg-brand-900 px-3 py-2">TOTAL (aktual)</td>
                   {salaryRecap.columns.map((c) => (
                     <td key={c.department} className="px-3 py-2 text-right tabular-nums">
                       {currency.format(c.total)}
@@ -842,9 +836,9 @@ function FixedAssetGroupRows({
         </td>
       </tr>
       {group.rows.map((r) => (
-        <tr key={r.id} className="border-b border-slate-100 odd:bg-white even:bg-slate-50/60 hover:bg-gold-50/40">
-          <td className="sticky left-0 z-10 bg-inherit px-2 py-1.5 tabular-nums text-slate-400">{r.no ?? "-"}</td>
-          <td className="sticky left-8 z-10 bg-inherit px-3 py-1.5 font-medium text-slate-900">{r.description}</td>
+        <tr key={r.id} className="group border-b border-slate-100 odd:bg-white even:bg-slate-50/60 hover:bg-gold-50/40">
+          <td className="sticky will-change-transform left-0 z-10 bg-white px-2 py-1.5 tabular-nums text-slate-400 group-hover:bg-gold-50">{r.no ?? "-"}</td>
+          <td className="sticky will-change-transform left-8 z-10 bg-white px-3 py-1.5 font-medium text-slate-900 group-hover:bg-gold-50">{r.description}</td>
           <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(r.acquisitionAmount)}</td>
           <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(r.depreciableBase)}</td>
           <td className="px-3 py-1.5 text-right tabular-nums">{r.yearToDateTotal > 0 ? currency.format(r.yearToDateTotal) : "-"}</td>
@@ -865,7 +859,7 @@ function FixedAssetGroupRows({
         </tr>
       ))}
       <tr className="bg-gold-50 font-bold text-brand-900">
-        <td colSpan={2} className="sticky left-0 z-10 bg-gold-50 px-3 py-1.5">
+        <td colSpan={2} className="sticky will-change-transform left-0 z-10 bg-gold-50 px-3 py-1.5">
           TOTAL {group.label}
         </td>
         <td className="px-3 py-1.5 text-right tabular-nums">{currency.format(group.totals.acquisitionAmount)}</td>

@@ -43,7 +43,7 @@ export function PivotLedgerTable({
         <table className="w-full min-w-max border-collapse text-sm">
           <thead>
             <tr>
-              <th className="sticky left-0 z-10 min-w-[160px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              <th className="sticky will-change-transform left-0 z-10 min-w-[160px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
                 Detail
               </th>
               {days.map((d, i) => (
@@ -57,7 +57,7 @@ export function PivotLedgerTable({
           <tbody>
             {rows.map((row, ri) => (
               <tr key={ri} className="border-b border-slate-100">
-                <td className="sticky left-0 z-10 min-w-[160px] border-r border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">
+                <td className="sticky will-change-transform left-0 z-10 min-w-[160px] border-r border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">
                   {row.label}
                 </td>
                 {row.values.map((v, ci) => (

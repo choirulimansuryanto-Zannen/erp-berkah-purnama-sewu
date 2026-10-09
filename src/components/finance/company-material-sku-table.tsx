@@ -64,12 +64,22 @@ function SkuRow({ row, year, month }: { row: CompanyMaterialRow; year: number; m
   const inputClass =
     "w-full min-w-0 border-0 bg-transparent px-1 py-0.5 text-right tabular-nums text-slate-900 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50";
 
+  // Explicit (not `bg-inherit`) opaque background on the frozen cells —
+  // `background: inherit` on a sticky table cell is a known trigger for a
+  // Chromium repaint bug where old column content "ghosts" through behind
+  // the frozen column while scrolling. A plain `:nth-child`-based odd/even
+  // can't be mirrored here (a <td>'s nth-child position is its fixed
+  // column index, not its row's), so the 4 frozen columns intentionally
+  // give up the zebra stripe and stay solid white, with `group-hover`
+  // standing in for the row hover highlight they'd otherwise inherit.
+  const stickyCellClass = "bg-white group-hover:bg-gold-50";
+
   return (
-    <tr className="border-b border-slate-100 odd:bg-white even:bg-slate-50/60 hover:bg-gold-50/40">
-      <td className={`sticky ${LEFT_KODE} ${COL_KODE_W} z-10 bg-inherit px-2 py-1.5 text-slate-500`}>{row.code}</td>
-      <td className={`sticky ${LEFT_NAMA} ${COL_NAMA_W} z-10 bg-inherit px-3 py-1.5 font-medium text-slate-900`}>{row.name}</td>
-      <td className={`sticky ${LEFT_SATUAN} ${COL_SATUAN_W} z-10 bg-inherit px-2 py-1.5 text-slate-500`}>{row.unit}</td>
-      <td className={`sticky ${LEFT_HARGA} ${COL_HARGA_W} z-10 border-r border-slate-200 bg-inherit px-2 py-1.5 text-right tabular-nums`}>
+    <tr className="group border-b border-slate-100 odd:bg-white even:bg-slate-50/60 hover:bg-gold-50/40">
+      <td className={`sticky will-change-transform ${LEFT_KODE} ${COL_KODE_W} z-10 ${stickyCellClass} px-2 py-1.5 text-slate-500`}>{row.code}</td>
+      <td className={`sticky will-change-transform ${LEFT_NAMA} ${COL_NAMA_W} z-10 ${stickyCellClass} px-3 py-1.5 font-medium text-slate-900`}>{row.name}</td>
+      <td className={`sticky will-change-transform ${LEFT_SATUAN} ${COL_SATUAN_W} z-10 ${stickyCellClass} px-2 py-1.5 text-slate-500`}>{row.unit}</td>
+      <td className={`sticky will-change-transform ${LEFT_HARGA} ${COL_HARGA_W} z-10 border-r border-slate-200 ${stickyCellClass} px-2 py-1.5 text-right tabular-nums`}>
         {row.costPerUnit > 0 ? currency.format(row.costPerUnit) : "-"}
       </td>
       <td className={`bg-rose-50/40 py-1.5 ${failed ? "ring-1 ring-inset ring-red-500" : ""}`} title={failed ? "Gagal menyimpan — coba lagi" : undefined}>
@@ -124,10 +134,10 @@ export function CompanyMaterialSkuTable({ groups, year, month }: { groups: Compa
     <table className="w-full min-w-[1700px] border-collapse text-xs">
       <thead className="sticky top-0 z-20">
         <tr className="bg-brand-950 text-white">
-          <th className={`sticky ${LEFT_KODE} ${COL_KODE_W} z-30 border-r border-brand-900 bg-brand-950 px-2 py-2 text-left`}>Kode</th>
-          <th className={`sticky ${LEFT_NAMA} ${COL_NAMA_W} z-30 border-r border-brand-900 bg-brand-950 px-3 py-2 text-left`}>Nama Barang</th>
-          <th className={`sticky ${LEFT_SATUAN} ${COL_SATUAN_W} z-30 border-r border-brand-900 bg-brand-950 px-2 py-2 text-left`}>Satuan</th>
-          <th className={`sticky ${LEFT_HARGA} ${COL_HARGA_W} z-30 border-r border-brand-900 bg-brand-950 px-2 py-2 text-right`}>Harga / Cost</th>
+          <th className={`sticky will-change-transform ${LEFT_KODE} ${COL_KODE_W} z-30 border-r border-brand-900 bg-brand-950 px-2 py-2 text-left`}>Kode</th>
+          <th className={`sticky will-change-transform ${LEFT_NAMA} ${COL_NAMA_W} z-30 border-r border-brand-900 bg-brand-950 px-3 py-2 text-left`}>Nama Barang</th>
+          <th className={`sticky will-change-transform ${LEFT_SATUAN} ${COL_SATUAN_W} z-30 border-r border-brand-900 bg-brand-950 px-2 py-2 text-left`}>Satuan</th>
+          <th className={`sticky will-change-transform ${LEFT_HARGA} ${COL_HARGA_W} z-30 border-r border-brand-900 bg-brand-950 px-2 py-2 text-right`}>Harga / Cost</th>
           <th className="border-r border-rose-700 bg-rose-600 px-2 py-2 text-right">Qty Saldo Awal</th>
           <th className="border-r border-brand-900 bg-rose-600 px-2 py-2 text-right">Nominal Saldo Awal</th>
           <th className="border-r border-rose-800 bg-rose-700 px-2 py-2 text-right">Qty Saldo Akhir</th>
@@ -169,7 +179,7 @@ export function CompanyMaterialSkuTable({ groups, year, month }: { groups: Compa
                 <SkuRow key={r.id} row={r} year={year} month={month} />
               ))}
               <tr className="bg-gold-50 font-bold text-brand-900">
-                <td colSpan={4} className={`sticky ${LEFT_KODE} z-10 bg-gold-50 px-3 py-1.5`}>
+                <td colSpan={4} className={`sticky will-change-transform ${LEFT_KODE} z-10 bg-gold-50 px-3 py-1.5`}>
                   TOTAL NOMINAL {g.label}
                 </td>
                 <td />

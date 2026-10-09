@@ -42,6 +42,14 @@ const ROW_STYLE: Record<string, string> = {
   subtotal: "bg-slate-50 font-bold text-brand-900",
   total: "bg-gold-400 font-bold text-brand-950",
 };
+// Explicit (not `bg-inherit`) per-style background for the sticky first
+// column — `background: inherit` on a sticky cell is a known trigger for
+// a Chromium repaint bug where other columns' content "ghosts" through
+// behind it while scrolling.
+const ROW_STICKY_BG: Record<string, string> = {
+  subtotal: "bg-slate-50",
+  total: "bg-gold-400",
+};
 
 // Perbandingan Tahunan — HPP/Laba Rugi/Neraca headline figures side by
 // side across years, all sourced from getAnnualFinancialSummary (which
@@ -67,7 +75,7 @@ export default async function AnnualComparisonPage() {
           <table className="w-full min-w-max border-collapse text-xs">
             <thead>
               <tr>
-                <th className="sticky left-0 z-10 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                <th className="sticky will-change-transform left-0 z-10 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
                   Metrik
                 </th>
                 {years.map((y) => (
@@ -87,7 +95,7 @@ export default async function AnnualComparisonPage() {
                 const prior = values[values.length - 2];
                 return (
                   <tr key={r.key} className={cn("border-b border-slate-100", r.style ? ROW_STYLE[r.style] : "text-slate-700")}>
-                    <td className="sticky left-0 z-10 border-r border-slate-200 bg-inherit px-3 py-1.5">{r.label}</td>
+                    <td className={cn("sticky will-change-transform left-0 z-10 border-r border-slate-200 px-3 py-1.5", r.style ? ROW_STICKY_BG[r.style] : "bg-white")}>{r.label}</td>
                     {values.map((v, i) => (
                       <td key={years[i]} className="px-3 py-1.5 text-right tabular-nums">
                         {r.negative ? cell(-Math.abs(v)) : cell(v)}

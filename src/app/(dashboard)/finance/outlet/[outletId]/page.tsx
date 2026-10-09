@@ -192,7 +192,7 @@ export default async function OutletDetailReportPage({
           <Table data-sheet-name="Omset" wrapperClassName="max-h-[70vh] overflow-auto">
             <Thead className="sticky top-0 z-20 bg-slate-50">
               <tr>
-                <Th className="sticky left-0 z-10 bg-slate-50">Tanggal</Th>
+                <Th className="sticky will-change-transform left-0 z-10 bg-slate-50">Tanggal</Th>
                 <Th className="text-right">Total Omset</Th>
                 {omset.items.map((it) => (
                   <Th key={it.key} className={`text-right ${it.usesDagingKetul ? "bg-yellow-100" : ""}`}>
@@ -205,7 +205,7 @@ export default async function OutletDetailReportPage({
             <tbody>
               {omset.days.map((d, i) => (
                 <Tr key={i}>
-                  <Td className="sticky left-0 z-10 bg-white font-medium text-slate-900">{d.date.getUTCDate()}</Td>
+                  <Td className="sticky will-change-transform left-0 z-10 bg-white font-medium text-slate-900">{d.date.getUTCDate()}</Td>
                   <Td className="text-right font-semibold tabular-nums">{currency.format(d.totalOmset)}</Td>
                   {omset.items.map((it) => (
                     <Td key={it.key} className={`text-right tabular-nums ${it.usesDagingKetul ? "bg-yellow-50" : ""}`}>
@@ -218,7 +218,7 @@ export default async function OutletDetailReportPage({
                 <EmptyRow colSpan={omset.items.length + 2}>Belum ada penjualan tercatat bulan ini.</EmptyRow>
               )}
               <Tr className="bg-gold-50 font-bold text-brand-900">
-                <Td className="sticky left-0 z-10 bg-gold-50">TOTAL</Td>
+                <Td className="sticky will-change-transform left-0 z-10 bg-gold-50">TOTAL</Td>
                 <Td className="text-right tabular-nums">{currency.format(omset.totalOmset)}</Td>
                 {omset.items.map((it) => (
                   <Td key={it.key} className="text-right tabular-nums">
@@ -319,9 +319,9 @@ export default async function OutletDetailReportPage({
           <table className="w-full min-w-max border-collapse text-xs" data-sheet-name="Purchase">
             <thead>
               <tr>
-                <th rowSpan={4} className="sticky left-0 top-0 z-30 min-w-[64px] border-b border-r border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-[11px] font-bold uppercase text-slate-500">Hari</th>
-                <th rowSpan={4} className="sticky left-[64px] top-0 z-30 min-w-[80px] border-b border-r border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-[11px] font-bold uppercase text-slate-500">Tanggal</th>
-                <th rowSpan={4} className="sticky left-[144px] top-0 z-30 min-w-[130px] border-b border-r-2 border-slate-300 bg-slate-50 px-2 py-1.5 text-right text-[11px] font-bold uppercase text-slate-500">Total Pembelian (Rp.)</th>
+                <th rowSpan={4} className="sticky will-change-transform left-0 top-0 z-30 min-w-[64px] border-b border-r border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-[11px] font-bold uppercase text-slate-500">Hari</th>
+                <th rowSpan={4} className="sticky will-change-transform left-[64px] top-0 z-30 min-w-[80px] border-b border-r border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-[11px] font-bold uppercase text-slate-500">Tanggal</th>
+                <th rowSpan={4} className="sticky will-change-transform left-[144px] top-0 z-30 min-w-[130px] border-b border-r-2 border-slate-300 bg-slate-50 px-2 py-1.5 text-right text-[11px] font-bold uppercase text-slate-500">Total Pembelian (Rp.)</th>
                 {purchase.materials.map((m, i) => (
                   <th key={m.id} className="sticky top-0 z-20 h-8 min-w-[92px] border-b border-l border-slate-200 bg-slate-50 px-1.5 py-1 text-center text-[10px] font-bold text-slate-400">
                     {i + 1}
@@ -355,9 +355,9 @@ export default async function OutletDetailReportPage({
                 const isMonday = d.date.getUTCDay() === 1;
                 return (
                   <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/60">
-                    <td className={`sticky left-0 z-10 px-2 py-1.5 font-medium text-slate-900 ${isMonday ? "bg-rose-50" : "bg-white"}`}>{HARI_NAMES[d.date.getUTCDay()]}</td>
-                    <td className={`sticky left-[64px] z-10 border-r border-slate-200 px-2 py-1.5 text-slate-700 ${isMonday ? "bg-rose-50" : "bg-white"}`}>{d.date.getUTCDate().toString().padStart(2, "0")}-{MONTH_NAMES[month - 1].slice(0, 3)}-{String(year).slice(2)}</td>
-                    <td className={`sticky left-[144px] z-10 border-r-2 border-slate-300 px-2 py-1.5 text-right font-bold tabular-nums text-rose-700 ${isMonday ? "bg-rose-50" : "bg-white"}`}>
+                    <td className={`sticky will-change-transform left-0 z-10 px-2 py-1.5 font-medium text-slate-900 ${isMonday ? "bg-rose-50" : "bg-white"}`}>{HARI_NAMES[d.date.getUTCDay()]}</td>
+                    <td className={`sticky will-change-transform left-[64px] z-10 border-r border-slate-200 px-2 py-1.5 text-slate-700 ${isMonday ? "bg-rose-50" : "bg-white"}`}>{d.date.getUTCDate().toString().padStart(2, "0")}-{MONTH_NAMES[month - 1].slice(0, 3)}-{String(year).slice(2)}</td>
+                    <td className={`sticky will-change-transform left-[144px] z-10 border-r-2 border-slate-300 px-2 py-1.5 text-right font-bold tabular-nums text-rose-700 ${isMonday ? "bg-rose-50" : "bg-white"}`}>
                       {d.totalPembelian > 0 ? currency.format(d.totalPembelian) : "-"}
                     </td>
                     {purchase.materials.map((m) => (
@@ -369,8 +369,8 @@ export default async function OutletDetailReportPage({
                 );
               })}
               <tr className="border-t-2 border-slate-300 bg-gold-50 font-bold text-brand-900">
-                <td colSpan={2} className="sticky left-0 z-10 bg-gold-50 px-2 py-1.5">TOTAL ------&gt;&gt;&gt;</td>
-                <td className="sticky left-[144px] z-10 border-r-2 border-slate-300 bg-gold-50 px-2 py-1.5 text-right tabular-nums">{currency.format(purchase.total)}</td>
+                <td colSpan={2} className="sticky will-change-transform left-0 z-10 bg-gold-50 px-2 py-1.5">TOTAL ------&gt;&gt;&gt;</td>
+                <td className="sticky will-change-transform left-[144px] z-10 border-r-2 border-slate-300 bg-gold-50 px-2 py-1.5 text-right tabular-nums">{currency.format(purchase.total)}</td>
                 {purchase.materials.map((m) => (
                   <td key={m.id} className="border-l border-slate-200 px-1.5 py-1.5 text-center tabular-nums">
                     {purchase.totalQtyByMaterialId[m.id] ? number0.format(purchase.totalQtyByMaterialId[m.id]) : "-"}
@@ -378,8 +378,8 @@ export default async function OutletDetailReportPage({
                 ))}
               </tr>
               <tr className="bg-slate-100 font-semibold text-slate-600">
-                <td colSpan={2} className="sticky left-0 z-10 bg-slate-100 px-2 py-1.5">CTRL PRICE</td>
-                <td className="sticky left-[144px] z-10 border-r-2 border-slate-300 bg-slate-100 px-2 py-1.5 text-right tabular-nums">{currency.format(purchase.totalCtrlPrice)}</td>
+                <td colSpan={2} className="sticky will-change-transform left-0 z-10 bg-slate-100 px-2 py-1.5">CTRL PRICE</td>
+                <td className="sticky will-change-transform left-[144px] z-10 border-r-2 border-slate-300 bg-slate-100 px-2 py-1.5 text-right tabular-nums">{currency.format(purchase.totalCtrlPrice)}</td>
                 {purchase.materials.map((m) => (
                   <td key={m.id} className="border-l border-slate-200 px-1.5 py-1.5 text-center text-[10px] tabular-nums">
                     {purchase.ctrlPriceByMaterialId[m.id] ? number0.format(purchase.ctrlPriceByMaterialId[m.id]) : "-"}
@@ -686,8 +686,8 @@ export default async function OutletDetailReportPage({
             <table className="w-full min-w-max border-collapse text-xs">
               <thead>
                 <tr>
-                  <th rowSpan={2} className="sticky left-0 top-0 z-30 min-w-[70px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Hari</th>
-                  <th rowSpan={2} className="sticky left-[70px] top-0 z-30 min-w-[90px] border-b border-r-2 border-slate-300 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Tanggal</th>
+                  <th rowSpan={2} className="sticky will-change-transform left-0 top-0 z-30 min-w-[70px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Hari</th>
+                  <th rowSpan={2} className="sticky will-change-transform left-[70px] top-0 z-30 min-w-[90px] border-b border-r-2 border-slate-300 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Tanggal</th>
                   <th rowSpan={2} className="sticky top-0 z-20 min-w-[110px] border-b border-r-2 border-slate-300 bg-yellow-50 px-3 py-2 text-right text-[11px] font-bold uppercase text-slate-500">TOTAL OMSET (Rp.)</th>
                   {insentive.brackets.map((b) => (
                     <th key={b.id} colSpan={4} className="sticky top-0 z-20 h-9 border-b border-l-2 border-slate-300 bg-rose-50 px-2 py-1.5 text-center text-[11px] font-bold uppercase text-rose-900">
@@ -718,8 +718,8 @@ export default async function OutletDetailReportPage({
                   const crewSize = d.present.length;
                   return (
                     <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/60">
-                      <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-medium text-slate-900">{HARI_NAMES[d.date.getUTCDay()]}</td>
-                      <td className="sticky left-[70px] z-10 border-r-2 border-slate-300 bg-white px-3 py-1.5">{d.date.toLocaleDateString("id-ID")}</td>
+                      <td className="sticky will-change-transform left-0 z-10 bg-white px-3 py-1.5 font-medium text-slate-900">{HARI_NAMES[d.date.getUTCDay()]}</td>
+                      <td className="sticky will-change-transform left-[70px] z-10 border-r-2 border-slate-300 bg-white px-3 py-1.5">{d.date.toLocaleDateString("id-ID")}</td>
                       <td className="border-r-2 border-slate-300 bg-yellow-50 px-3 py-1.5 text-right font-bold tabular-nums text-rose-700">{number0.format(d.omset)}</td>
                       {insentive.brackets.map((b) => {
                         const inThisBracket = d.bracket?.label === b.label;
@@ -741,7 +741,7 @@ export default async function OutletDetailReportPage({
                 })}
                 {insentive.days.length === 0 && <EmptyRow colSpan={5 + insentive.brackets.length * 4}>Belum ada data.</EmptyRow>}
                 <tr className="border-t-2 border-slate-300 bg-gold-50 font-bold text-brand-900">
-                  <td colSpan={3} className="sticky left-0 z-10 bg-gold-50 px-3 py-2">TOTAL</td>
+                  <td colSpan={3} className="sticky will-change-transform left-0 z-10 bg-gold-50 px-3 py-2">TOTAL</td>
                   <td colSpan={insentive.brackets.length * 4} className="border-l-2 border-slate-300"></td>
                   <td className="border-l-2 border-slate-300 px-2 py-2 text-right tabular-nums">{number0.format(insentive.omsetBersih)}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{number0.format(insentive.totalInsentifHari)}</td>

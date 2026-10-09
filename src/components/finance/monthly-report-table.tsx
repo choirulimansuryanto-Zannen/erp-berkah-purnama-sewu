@@ -34,6 +34,16 @@ const ROW_STYLE: Record<NonNullable<MonthlyReportRow["style"]>, string> = {
   total: "bg-gold-400 font-bold text-brand-950",
   header: "bg-brand-950 font-bold text-white",
 };
+// Explicit (not `bg-inherit`) per-style background for the sticky first
+// column — `background: inherit` on a sticky cell is a known trigger for
+// a Chromium repaint bug where other columns' content "ghosts" through
+// behind it while scrolling.
+const ROW_STICKY_BG: Record<NonNullable<MonthlyReportRow["style"]>, string> = {
+  normal: "bg-white",
+  subtotal: "bg-slate-50",
+  total: "bg-gold-400",
+  header: "bg-brand-950",
+};
 
 // The Jan-Dec comparison grid every finance report in this module shares —
 // one row per account/line item, one column per month, a running "Total/
@@ -69,7 +79,7 @@ export function MonthlyReportTable({
       <table className="w-full min-w-max border-collapse text-xs">
         <thead>
           <tr>
-            <th className="sticky left-0 top-0 z-20 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <th className="sticky will-change-transform left-0 top-0 z-20 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
               Akun
             </th>
             {MONTH_LABELS.map((m, i) => (
@@ -98,8 +108,8 @@ export function MonthlyReportTable({
               <tr key={`${row.code ?? row.label}-${ri}`} className={cn("border-b border-slate-100", ROW_STYLE[style])}>
                 <td
                   className={cn(
-                    "sticky left-0 z-10 min-w-[220px] border-r border-slate-200 px-3 py-1.5",
-                    style === "header" || style === "total" ? "bg-inherit" : "bg-white",
+                    "sticky will-change-transform left-0 z-10 min-w-[220px] border-r border-slate-200 px-3 py-1.5",
+                    ROW_STICKY_BG[style],
                     row.indent && "pl-7",
                   )}
                 >

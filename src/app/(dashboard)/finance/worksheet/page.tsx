@@ -192,8 +192,8 @@ export default async function WorksheetPage({
           <table className="w-full min-w-max border-collapse text-xs">
             <thead>
               <tr>
-                <th rowSpan={2} className="sticky left-0 top-0 z-20 min-w-[70px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Kode</th>
-                <th rowSpan={2} className="sticky left-[70px] top-0 z-20 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Nama Akun</th>
+                <th rowSpan={2} className="sticky will-change-transform left-0 top-0 z-20 min-w-[70px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Kode</th>
+                <th rowSpan={2} className="sticky will-change-transform left-[70px] top-0 z-20 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-[11px] font-bold uppercase text-slate-500">Nama Akun</th>
                 {COLUMN_GROUPS.map((g) => (
                   <th key={g.label} colSpan={2} className={`sticky top-0 z-20 h-9 border-b border-l-2 border-slate-300 ${g.bg} px-2 py-1.5 text-center text-[11px] font-bold uppercase ${g.text}`}>
                     {g.label}
@@ -212,8 +212,8 @@ export default async function WorksheetPage({
             <tbody>
               {rows.map((r) => (
                 <tr key={r.code} className="border-b border-slate-100 hover:bg-slate-50/60">
-                  <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-mono text-[10px] text-slate-400">{r.code}</td>
-                  <td className="sticky left-[70px] z-10 border-r border-slate-200 bg-white px-3 py-1.5 text-slate-700">{r.name}</td>
+                  <td className="sticky will-change-transform left-0 z-10 bg-white px-3 py-1.5 font-mono text-[10px] text-slate-400">{r.code}</td>
+                  <td className="sticky will-change-transform left-[70px] z-10 border-r border-slate-200 bg-white px-3 py-1.5 text-slate-700">{r.name}</td>
                   <td className="border-l-2 border-slate-200 px-2 py-1.5 text-right tabular-nums">{cell(r.tsDebit)}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{cell(r.tsCredit)}</td>
                   <td className="border-l-2 border-slate-200 px-2 py-1.5 text-right tabular-nums text-violet-800">{cell(r.pyDebit)}</td>
@@ -234,7 +234,7 @@ export default async function WorksheetPage({
                 </tr>
               )}
               <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold text-brand-900">
-                <td colSpan={2} className="sticky left-0 z-10 bg-slate-50 px-3 py-2">Jumlah</td>
+                <td colSpan={2} className="sticky will-change-transform left-0 z-10 bg-slate-50 px-3 py-2">Jumlah</td>
                 <td className="border-l-2 border-slate-300 px-2 py-2 text-right tabular-nums">{cell(totals.tsDebit)}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{cell(totals.tsCredit)}</td>
                 <td className="border-l-2 border-slate-300 px-2 py-2 text-right tabular-nums text-violet-900">{cell(totals.pyDebit)}</td>
@@ -247,7 +247,7 @@ export default async function WorksheetPage({
                 <td className="px-2 py-2 text-right tabular-nums text-sky-900">{cell(totals.nrCredit)}</td>
               </tr>
               <tr className="border-t border-slate-200 bg-gold-50 font-bold text-brand-900">
-                <td colSpan={2} className="sticky left-0 z-10 bg-gold-50 px-3 py-2">
+                <td colSpan={2} className="sticky will-change-transform left-0 z-10 bg-gold-50 px-3 py-2">
                   {netIncome >= 0 ? "Laba Bersih" : "Rugi Bersih"} (penyeimbang)
                 </td>
                 <td className="border-l-2 border-slate-300 px-2 py-2 text-right tabular-nums">-</td>
@@ -262,7 +262,7 @@ export default async function WorksheetPage({
                 <td className="px-2 py-2 text-right tabular-nums text-sky-900">{netIncome >= 0 ? cell(plugValue) : ""}</td>
               </tr>
               <tr className="border-t-2 border-brand-900 bg-brand-950 font-bold text-white">
-                <td colSpan={2} className="sticky left-0 z-10 bg-brand-950 px-3 py-2">Jumlah Akhir</td>
+                <td colSpan={2} className="sticky will-change-transform left-0 z-10 bg-brand-950 px-3 py-2">Jumlah Akhir</td>
                 <td className="border-l-2 border-white/20 px-2 py-2 text-right tabular-nums">{cell(totals.tsDebit)}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{cell(totals.tsCredit)}</td>
                 <td className="border-l-2 border-white/20 px-2 py-2 text-right tabular-nums">{cell(totals.pyDebit)}</td>

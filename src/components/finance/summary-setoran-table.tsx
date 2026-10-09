@@ -101,7 +101,7 @@ export function SummarySetoranTable({
       <table className="w-full min-w-max border-collapse text-sm">
         <thead>
           <tr>
-            <th rowSpan={2} className="sticky left-0 top-0 z-30 border-b border-r border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <th rowSpan={2} className="sticky will-change-transform left-0 top-0 z-30 border-b border-r border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               Outlet
             </th>
             <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-5 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -149,7 +149,7 @@ export function SummarySetoranTable({
             return (
               <Fragment key={r.id}>
                 <Tr className={isOpen ? "bg-accent-50/40" : ""}>
-                  <Td className="sticky left-0 z-10 bg-white">
+                  <Td className="sticky will-change-transform left-0 z-10 bg-white">
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
@@ -253,7 +253,7 @@ export function SummarySetoranTable({
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold text-brand-900">
-            <td className="sticky left-0 z-10 bg-slate-50 px-5 py-2.5" colSpan={2}>
+            <td className="sticky will-change-transform left-0 z-10 bg-slate-50 px-5 py-2.5" colSpan={2}>
               Total
             </td>
             <td className="px-5 py-2.5">{currency.format(totals.omset)}</td>
