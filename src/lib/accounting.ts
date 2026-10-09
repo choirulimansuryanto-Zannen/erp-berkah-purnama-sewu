@@ -62,6 +62,166 @@ export async function generateAdjustingEntryNumber(date: Date): Promise<string> 
   return `JU-${year}-${String(count + 1).padStart(6, "0")}`;
 }
 
+// Jurnal Penyesuaian grid (Adjustment page) — spreadsheet-style, one row
+// per JournalEntryLine, grouped visually by transaction (always exactly
+// 2 lines: debit + credit). Tanggal and TRX_BOOKS are never hand-typed —
+// both are derived purely from the selected Tahun/Bulan: every adjusting
+// entry for a period is dated that period's last day (standard month-end
+// close) and labeled with the same "{year}-ADJ{month}" batch code for
+// display, matching the business's own spreadsheet. Each JournalEntry
+// still gets its own real unique entryNumber under the hood (kept for
+// Buku Besar's "No. Voucher" column) — TRX_BOOKS is a display label, not
+// the stored key, so this never collides with the @unique constraint.
+function monthEndDate(year: number, month: number): Date {
+  return new Date(Date.UTC(year, month, 0));
+}
+export function adjustingPeriodLabel(year: number, month: number): string {
+  return `${year}-ADJ${String(month).padStart(2, "0")}`;
+}
+
+export type AdjustingGridLine = {
+  id: string;
+  journalEntryId: string;
+  trxBooks: string;
+  date: Date;
+  lineNo: 1 | 2;
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  debit: number;
+  credit: number;
+  remark: string;
+  costDescription: string;
+  costCentre: string;
+};
+
+export async function getAdjustingEntryGrid(year: number, month: number): Promise<AdjustingGridLine[]> {
+  const from = new Date(Date.UTC(year, month - 1, 1));
+  const to = new Date(Date.UTC(year, month, 1));
+  const entries = await prisma.journalEntry.findMany({
+    where: { entryType: "JURNAL_PENYESUAIAN", status: "POSTED", date: { gte: from, lt: to } },
+    include: { lines: { include: { account: true } } },
+    orderBy: [{ createdAt: "asc" }],
+  });
+  const trxBooks = adjustingPeriodLabel(year, month);
+  const rows: AdjustingGridLine[] = [];
+  for (const e of entries) {
+    for (const l of e.lines) {
+      rows.push({
+        id: l.id,
+        journalEntryId: e.id,
+        trxBooks,
+        date: e.date,
+        lineNo: l.isDebitSide ? 1 : 2,
+        accountId: l.accountId,
+        accountCode: l.account.code,
+        accountName: l.account.name,
+        debit: Number(l.debit),
+        credit: Number(l.credit),
+        remark: l.remark ?? e.description,
+        costDescription: l.costDescription ?? "",
+        costCentre: l.costCentre ?? "",
+      });
+    }
+  }
+  return rows;
+}
+
+/** Bootstraps a new balanced (0/0) transaction pair for the grid — the user then fills in amounts and the other fields inline. */
+export async function createBlankAdjustingEntry(params: {
+  year: number;
+  month: number;
+  debitAccountId: string;
+  creditAccountId: string;
+  createdById: string;
+}) {
+  const { year, month, debitAccountId, creditAccountId, createdById } = params;
+  if (debitAccountId === creditAccountId) throw new Error("Akun debit dan kredit tidak boleh sama");
+  const [debitAccount, creditAccount] = await Promise.all([
+    prisma.chartOfAccount.findUnique({ where: { id: debitAccountId } }),
+    prisma.chartOfAccount.findUnique({ where: { id: creditAccountId } }),
+  ]);
+  if (!debitAccount || !creditAccount) throw new Error("Akun tidak ditemukan");
+  if (debitAccount.cashBook || creditAccount.cashBook) {
+    throw new Error("Jurnal Penyesuaian tidak boleh menyentuh akun buku kas — gunakan Jurnal (6 Buku Kas) untuk transaksi yang melibatkan kas.");
+  }
+
+  const date = monthEndDate(year, month);
+  const entryNumber = await generateAdjustingEntryNumber(date);
+  const description = `Jurnal Penyesuaian ${adjustingPeriodLabel(year, month)}`;
+
+  return prisma.journalEntry.create({
+    data: {
+      entryNumber,
+      date,
+      cashBook: null,
+      entryType: "JURNAL_PENYESUAIAN",
+      description,
+      createdById,
+      lines: {
+        create: [
+          { accountId: debitAccountId, debit: 0, credit: 0, remark: description, isDebitSide: true },
+          { accountId: creditAccountId, debit: 0, credit: 0, remark: description, isDebitSide: false },
+        ],
+      },
+    },
+    include: { lines: true },
+  });
+}
+
+/**
+ * Updates one line of a Jurnal Penyesuaian transaction. Changing this
+ * line's debit/credit amount automatically mirrors the new amount onto
+ * the OTHER line's opposite side, so the pair can never go out of
+ * balance — account, remark, cost description and cost centre are
+ * independent per line and never mirrored.
+ */
+export async function updateAdjustingEntryLine(params: {
+  lineId: string;
+  accountId?: string;
+  amount?: number; // this line's own debit-or-credit magnitude
+  remark?: string;
+  costDescription?: string;
+  costCentre?: string;
+}) {
+  const { lineId, accountId, amount, remark, costDescription, costCentre } = params;
+  const line = await prisma.journalEntryLine.findUnique({ where: { id: lineId } });
+  if (!line) throw new Error("Baris jurnal tidak ditemukan");
+
+  if (accountId) {
+    const account = await prisma.chartOfAccount.findUnique({ where: { id: accountId } });
+    if (!account) throw new Error("Akun tidak ditemukan");
+    if (account.cashBook) {
+      throw new Error("Jurnal Penyesuaian tidak boleh menyentuh akun buku kas.");
+    }
+  }
+
+  const updated = await prisma.journalEntryLine.update({
+    where: { id: lineId },
+    data: {
+      ...(accountId ? { accountId } : {}),
+      ...(amount !== undefined ? { debit: line.isDebitSide ? amount : 0, credit: line.isDebitSide ? 0 : amount } : {}),
+      ...(remark !== undefined ? { remark } : {}),
+      ...(costDescription !== undefined ? { costDescription } : {}),
+      ...(costCentre !== undefined ? { costCentre } : {}),
+    },
+  });
+
+  if (amount !== undefined) {
+    const otherLine = await prisma.journalEntryLine.findFirst({
+      where: { journalEntryId: line.journalEntryId, id: { not: lineId } },
+    });
+    if (otherLine) {
+      await prisma.journalEntryLine.update({
+        where: { id: otherLine.id },
+        data: { debit: otherLine.isDebitSide ? amount : 0, credit: otherLine.isDebitSide ? 0 : amount },
+      });
+    }
+  }
+
+  return updated;
+}
+
 /**
  * Posts a non-cash adjusting entry — depresiasi, akrual beban/pendapatan,
  * amortisasi biaya dibayar-di-muka, koreksi, dan sejenisnya. This is the

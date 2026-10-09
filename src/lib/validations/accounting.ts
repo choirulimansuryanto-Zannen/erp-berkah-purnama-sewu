@@ -55,3 +55,23 @@ export const adjustingEntrySchema = z
     message: "Akun debit dan kredit tidak boleh sama",
     path: ["creditAccountId"],
   });
+
+export const createBlankAdjustingEntrySchema = z
+  .object({
+    year: z.number().int().min(2020).max(2100),
+    month: z.number().int().min(1).max(12),
+    debitAccountId: z.string().uuid(),
+    creditAccountId: z.string().uuid(),
+  })
+  .refine((data) => data.debitAccountId !== data.creditAccountId, {
+    message: "Akun debit dan kredit tidak boleh sama",
+    path: ["creditAccountId"],
+  });
+
+export const updateAdjustingEntryLineSchema = z.object({
+  accountId: z.string().uuid().optional(),
+  amount: z.number().min(0).optional(),
+  remark: z.string().max(500).optional(),
+  costDescription: z.string().max(200).optional(),
+  costCentre: z.string().max(100).optional(),
+});

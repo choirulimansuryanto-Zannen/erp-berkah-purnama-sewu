@@ -1351,6 +1351,22 @@ model JournalEntryLine {
   debit          Decimal  @default(0) @db.Decimal(16, 2)
   credit         Decimal  @default(0) @db.Decimal(16, 2)
 
+  // Per-line fields for the Jurnal Penyesuaian spreadsheet-style grid —
+  // independent per line (the debit and credit leg of the same
+  // transaction can carry different cost centres, e.g. one side billed
+  // to Company Office, the other to Pabrik Produksi). `remark` defaults
+  // to the parent JournalEntry's own `description` at creation but can
+  // then diverge; `description` itself stays the single value every
+  // other report (Buku Besar, etc.) already reads per transaction.
+  remark          String?
+  costDescription String?
+  costCentre      String?
+  // Which side of the pair this line conceptually IS — set once at
+  // creation and never inferred from debit/credit being nonzero, since
+  // a freshly created line (or one mid-edit) can briefly be 0/0 on both,
+  // which would make inferring the side from amount alone ambiguous.
+  isDebitSide     Boolean @default(true)
+
   @@index([journalEntryId])
   @@index([accountId])
 }

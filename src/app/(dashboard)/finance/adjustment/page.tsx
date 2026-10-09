@@ -4,15 +4,15 @@ import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label, Select, Input } from "@/components/ui/input";
+import { Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/ui/stat-card";
 import { ExportExcelButton } from "@/components/ui/export-excel-button";
 import { Wallet, TrendingDown, TrendingUp, Banknote, Landmark } from "lucide-react";
 import { getCompanyMaterialSchedule } from "@/lib/company-material";
 import { CompanyMaterialSkuTable } from "@/components/finance/company-material-sku-table";
-import { AdjustingEntryForm } from "@/components/finance/adjusting-entry-form";
-import { JournalEntryList, type JournalEntryRow } from "@/components/finance/journal-entry-list";
+import { getAdjustingEntryGrid } from "@/lib/accounting";
+import { JurnalPenyesuaianGrid } from "@/components/finance/jurnal-penyesuaian-grid";
 import { getFixedAssetSchedule } from "@/lib/fixed-asset";
 import { CreateFixedAssetForm } from "@/components/finance/create-fixed-asset-form";
 import { DisposeFixedAssetButton } from "@/components/finance/dispose-fixed-asset-button";
@@ -28,19 +28,12 @@ const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "
 const vendorDateFormat = new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
 const receivableDateFormat = new Intl.DateTimeFormat("id-ID", { weekday: "long", day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
 
-function localDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 type AllParams = {
   pYear: number;
   cmYear: number;
   cmMonth: number;
-  jpFrom: string;
-  jpTo: string;
+  jpYear: number;
+  jpMonth: number;
   faYear: number;
   arYear: number;
   arMonth: number;
@@ -76,8 +69,8 @@ export default async function AdjustmentPage({
     pYear?: string;
     cmYear?: string;
     cmMonth?: string;
-    jpFrom?: string;
-    jpTo?: string;
+    jpYear?: string;
+    jpMonth?: string;
     faYear?: string;
     arYear?: string;
     arMonth?: string;
@@ -108,33 +101,18 @@ export default async function AdjustmentPage({
   }
 
   // ── Jurnal Penyesuaian ──────────────────────────────────────────────
-  let jpRangeFrom: Date;
-  let jpRangeTo: Date;
-  if (sp.jpFrom || sp.jpTo) {
-    const fallback90 = new Date();
-    fallback90.setDate(fallback90.getDate() - 89);
-    jpRangeFrom = sp.jpFrom ? new Date(`${sp.jpFrom}T00:00:00`) : fallback90;
-    jpRangeTo = sp.jpTo ? new Date(`${sp.jpTo}T00:00:00`) : new Date();
+  let jpYear: number;
+  let jpMonth: number;
+  if (sp.jpYear && sp.jpMonth) {
+    jpYear = Number(sp.jpYear);
+    jpMonth = Number(sp.jpMonth);
   } else {
-    const last90Start = new Date();
-    last90Start.setDate(last90Start.getDate() - 89);
-    const recentCount = await prisma.journalEntry.count({
-      where: { entryType: "JURNAL_PENYESUAIAN", date: { gte: last90Start, lte: now } },
+    const latestJp = await prisma.journalEntry.findFirst({
+      where: { entryType: "JURNAL_PENYESUAIAN" },
+      orderBy: { date: "desc" },
     });
-    if (recentCount > 0) {
-      jpRangeFrom = last90Start;
-      jpRangeTo = now;
-    } else {
-      const latest = await prisma.journalEntry.findFirst({ where: { entryType: "JURNAL_PENYESUAIAN" }, orderBy: { date: "desc" } });
-      if (latest) {
-        jpRangeTo = latest.date;
-        jpRangeFrom = new Date(latest.date);
-        jpRangeFrom.setDate(jpRangeFrom.getDate() - 89);
-      } else {
-        jpRangeFrom = last90Start;
-        jpRangeTo = now;
-      }
-    }
+    jpYear = latestJp?.date.getUTCFullYear() ?? now.getFullYear();
+    jpMonth = latestJp ? latestJp.date.getUTCMonth() + 1 : now.getMonth() + 1;
   }
 
   // ── Fixed Asset ─────────────────────────────────────────────────────
@@ -155,13 +133,13 @@ export default async function AdjustmentPage({
   const srMonth = sp.srMonth ? Number(sp.srMonth) : 9;
 
   const allParams: AllParams = {
-    pYear, cmYear, cmMonth, jpFrom: localDateStr(jpRangeFrom), jpTo: localDateStr(jpRangeTo), faYear, arYear, arMonth, srYear, srMonth,
+    pYear, cmYear, cmMonth, jpYear, jpMonth, faYear, arYear, arMonth, srYear, srMonth,
   };
 
   const [
     companyMaterialSchedule,
     accounts,
-    jpEntries,
+    jpLines,
     fixedAssetSchedule,
     vendorLedgers,
     vendors,
@@ -170,12 +148,7 @@ export default async function AdjustmentPage({
   ] = await Promise.all([
     getCompanyMaterialSchedule(cmYear, cmMonth),
     prisma.chartOfAccount.findMany({ where: { status: "ACTIVE" }, orderBy: { code: "asc" } }),
-    prisma.journalEntry.findMany({
-      where: { entryType: "JURNAL_PENYESUAIAN", date: { gte: jpRangeFrom, lte: jpRangeTo } },
-      include: { lines: { include: { account: true } } },
-      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-      take: 300,
-    }),
+    getAdjustingEntryGrid(jpYear, jpMonth),
     getFixedAssetSchedule(faYear, faAsOfMonth),
     getVendorLedgers(),
     prisma.vendor.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { sortOrder: "asc" } }),
@@ -183,27 +156,8 @@ export default async function AdjustmentPage({
     getSalaryRecap(srYear, srMonth),
   ]);
 
-  // ── Jurnal Penyesuaian rows ─────────────────────────────────────────
-  const jpRows: JournalEntryRow[] = jpEntries.map((e) => {
-    const debitLine = e.lines.find((l) => Number(l.debit) > 0);
-    const creditLine = e.lines.find((l) => Number(l.credit) > 0);
-    const amount = e.lines.reduce((sum, l) => sum + Number(l.debit), 0);
-    return {
-      id: e.id,
-      entryNumber: e.entryNumber,
-      date: e.date.toISOString(),
-      cashBook: e.cashBook,
-      entryType: e.entryType,
-      description: e.description,
-      reference: e.reference,
-      status: e.status,
-      outletName: null,
-      amount,
-      cashLine: debitLine ? `${debitLine.account.code} ${debitLine.account.name}` : "-",
-      contraLine: creditLine ? `${creditLine.account.code} ${creditLine.account.name}` : "-",
-    };
-  });
-  const jpActiveCount = jpEntries.filter((e) => e.status === "POSTED").length;
+  // ── Jurnal Penyesuaian ──────────────────────────────────────────────
+  const jpTransactionCount = new Set(jpLines.map((l) => l.journalEntryId)).size;
 
   // ── Fixed Asset ─────────────────────────────────────────────────────
   const { groups: faGroups, grandTotal: faGrandTotal, monthCount: faMonthCount } = fixedAssetSchedule;
@@ -757,20 +711,34 @@ export default async function AdjustmentPage({
       <section id="adj-jurnal-penyesuaian" className="scroll-mt-32 space-y-6 border-t border-slate-200 pt-8">
         <h2 className="text-lg font-bold text-brand-900">Jurnal Penyesuaian</h2>
         <p className="-mt-4 text-xs text-slate-500">
-          Entri non-kas akhir periode — depresiasi, akrual, amortisasi dibayar-di-muka, koreksi. Tidak menyentuh akun buku kas manapun.
+          Entri non-kas akhir periode — depresiasi, akrual, amortisasi dibayar-di-muka, koreksi. Tidak menyentuh akun buku kas manapun. Tgl dan TRX_BOOKS
+          otomatis mengikuti Bulan/Tahun yang dipilih (bukan diketik manual) — COA, Debit/Credit, Remarks, Cost Description, dan Cost Centre bisa diedit
+          langsung di tabel.
         </p>
 
         <Card>
-          <form className="flex flex-wrap items-end gap-2 p-5">
+          <form className="flex flex-wrap items-end gap-3 p-5">
             <div>
-              <Label htmlFor="jpFrom">Dari Tanggal</Label>
-              <Input id="jpFrom" type="date" name="jpFrom" defaultValue={allParams.jpFrom} max={todayStr()} className="mt-1" />
+              <Label className="text-[11px]">Bulan</Label>
+              <Select name="jpMonth" defaultValue={String(jpMonth)} className="mt-1">
+                {MONTH_LABELS_ID.map((m, i) => (
+                  <option key={m} value={i + 1}>
+                    {m}
+                  </option>
+                ))}
+              </Select>
             </div>
             <div>
-              <Label htmlFor="jpTo">Sampai Tanggal</Label>
-              <Input id="jpTo" type="date" name="jpTo" defaultValue={allParams.jpTo} max={todayStr()} className="mt-1" />
+              <Label className="text-[11px]">Tahun</Label>
+              <Select name="jpYear" defaultValue={String(jpYear)} className="mt-1">
+                {years.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </Select>
             </div>
-            <PreserveParams all={allParams} except={["jpFrom", "jpTo"]} />
+            <PreserveParams all={allParams} except={["jpYear", "jpMonth"]} />
             <Button type="submit" variant="secondary">
               Tampilkan
             </Button>
@@ -778,17 +746,25 @@ export default async function AdjustmentPage({
         </Card>
 
         <div className="rounded-xl border border-slate-200/70 bg-white p-4 shadow-[var(--shadow-card)]">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Jurnal Penyesuaian Aktif (periode ini)</p>
-          <p className="mt-1 text-2xl font-bold text-brand-900">{jpActiveCount}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Jumlah Transaksi — {MONTH_LABELS_ID[jpMonth - 1]} {jpYear}</p>
+          <p className="mt-1 text-2xl font-bold text-brand-900">{jpTransactionCount}</p>
         </div>
 
-        <AdjustingEntryForm accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, type: a.type, cashBook: a.cashBook }))} />
-
-        <Card className="p-0">
+        <Card className="p-0" id="jurnal-penyesuaian-section">
           <CardHeader className="sticky top-32 z-30 h-14 bg-white">
-            <CardTitle>Riwayat Jurnal Penyesuaian ({jpRows.length})</CardTitle>
+            <CardTitle>
+              Jurnal Penyesuaian — {MONTH_LABELS_ID[jpMonth - 1]} {jpYear}
+            </CardTitle>
+            <ExportExcelButton containerId="jurnal-penyesuaian-section" filename={`Jurnal_Penyesuaian_${MONTH_LABELS_ID[jpMonth - 1]}_${jpYear}.xlsx`} />
           </CardHeader>
-          <JournalEntryList entries={jpRows} />
+          <div data-sheet-name="Jurnal Penyesuaian">
+            <JurnalPenyesuaianGrid
+              lines={jpLines}
+              accounts={accounts.filter((a) => !a.cashBook).map((a) => ({ id: a.id, code: a.code, name: a.name }))}
+              year={jpYear}
+              month={jpMonth}
+            />
+          </div>
         </Card>
       </section>
     </div>
