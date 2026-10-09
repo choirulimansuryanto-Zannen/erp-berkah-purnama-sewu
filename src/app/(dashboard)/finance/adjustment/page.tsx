@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/ui/stat-card";
 import { ExportExcelButton } from "@/components/ui/export-excel-button";
 import { Wallet, TrendingDown, TrendingUp, Banknote, Landmark } from "lucide-react";
-import { InventoryClosingForm } from "@/components/finance/inventory-closing-form";
 import { getCompanyMaterialSchedule } from "@/lib/company-material";
 import { CompanyMaterialSkuTable } from "@/components/finance/company-material-sku-table";
 import { AdjustingEntryForm } from "@/components/finance/adjusting-entry-form";
@@ -245,8 +244,6 @@ export default async function AdjustmentPage({
       {/* ══════════════════════ PERSEDIAAN ══════════════════════ */}
       <section id="adj-persediaan" className="scroll-mt-32 space-y-6">
         <h2 className="text-lg font-bold text-brand-900">Persediaan</h2>
-
-        <InventoryClosingForm />
 
         <Card>
           <p className="px-5 pt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
