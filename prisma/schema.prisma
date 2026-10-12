@@ -178,6 +178,7 @@ model Outlet {
   adjustments             OutletAdjustment[]
   ledgerEntries           OutletLedgerEntry[]
   payrolls                OutletPayroll[]
+  monthlyBenefits         OutletMonthlyBenefit[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -279,6 +280,7 @@ model User {
   outletLedgerEntriesCreated OutletLedgerEntry[]
   outletPayrollsAsEmployee   OutletPayroll[] @relation("OutletPayrollUser")
   outletPayrollsRecorded     OutletPayroll[] @relation("OutletPayrollRecordedBy")
+  outletMonthlyBenefitsRecorded OutletMonthlyBenefit[] @relation("OutletMonthlyBenefitRecordedBy")
   companyMaterialClosingBalancesRecorded CompanyMaterialClosingBalance[] @relation("CompanyMaterialClosingRecordedBy")
   vendorLedgerEntriesRecorded VendorLedgerEntry[] @relation("VendorLedgerRecordedBy")
   receivableEntriesRecorded   ReceivableEntry[]   @relation("ReceivableEntryRecordedBy")
@@ -2053,11 +2055,54 @@ model OutletPayroll {
   laborCost    Decimal  @default(0) @db.Decimal(14, 2)
   salary       Decimal  @default(0) @db.Decimal(14, 2)
   note         String?
+
+  // Added for the "Summary Gaji & Tunjangan" panel (finance/outlet/[id]
+  // page, above Inventory Sheet) — Absen Sheet's own Total Absen stays the
+  // automatic days-in-month figure; this is THAT panel's own editable
+  // override (nullable — null means "use days-in-month", same as every
+  // row before this field existed). refMultiplier weights this person's
+  // share of the outlet's Tunjangan Tahunan pool relative to their peers
+  // (Share Value = (qtySales × refMultiplier) ÷ Σ(qtySales × refMultiplier)
+  // of the pool) — defaults to 1 (equal weight) until a Super Admin sets
+  // otherwise.
+  totalAbsenOverride Int?
+  refMultiplier      Decimal @default(1) @db.Decimal(6, 3)
+
   recordedById String
   recordedBy   User     @relation("OutletPayrollRecordedBy", fields: [recordedById], references: [id])
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@unique([outletId, userId, year, month])
+  @@index([outletId, year, month])
+}
+
+// The 4 flat, per-outlet-per-month figures on the "Summary Gaji &
+// Tunjangan" panel (BIAYA section) that have no other computed source in
+// this system yet — Super Admin / Finance enters them directly each
+// month, same upsert-per-period convention as OutletPayroll. Tunjangan
+// Tahunan (2%) is NOT stored here — it's always derived live as 2% of
+// that period's Laba Operasional, same "never store what can be derived"
+// rule as every other Nominal figure in this app.
+model OutletMonthlyBenefit {
+  id          String  @id @default(uuid())
+  outletId    String
+  outlet      Outlet  @relation(fields: [outletId], references: [id])
+  year        Int
+  month       Int
+  tunjanganOutlet   Decimal @default(0) @db.Decimal(14, 2)
+  gajiPengelola     Decimal @default(0) @db.Decimal(14, 2)
+  fullshiftAmount   Decimal @default(0) @db.Decimal(14, 2)
+  // Insentive Operator's real formula hasn't been specified yet (as of
+  // 2026-10-12) — entered manually here as a placeholder until the
+  // business gives the actual calculation to replace this with.
+  insentiveOperatorAmount Decimal @default(0) @db.Decimal(14, 2)
+
+  recordedById String
+  recordedBy   User    @relation("OutletMonthlyBenefitRecordedBy", fields: [recordedById], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([outletId, year, month])
   @@index([outletId, year, month])
 }

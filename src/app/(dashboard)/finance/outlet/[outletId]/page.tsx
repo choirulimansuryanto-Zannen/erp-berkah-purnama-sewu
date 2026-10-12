@@ -14,6 +14,8 @@ import { OutletAdjustmentForm, OutletAdjustmentDeleteButton } from "@/components
 import { OutletMaterialAkhirInput } from "@/components/finance/outlet-material-akhir-input";
 import { OutletLedgerEntryForm, OutletLedgerEntryDeleteButton } from "@/components/finance/outlet-ledger-entry-form";
 import { OutletPayrollInput } from "@/components/finance/outlet-payroll-input";
+import { GajiTunjanganRowInput } from "@/components/finance/gaji-tunjangan-row-input";
+import { OutletMonthlyBenefitInput } from "@/components/finance/outlet-monthly-benefit-input";
 import { OutletReportSelector } from "@/components/finance/outlet-report-selector";
 import { ExportExcelButton } from "@/components/ui/export-excel-button";
 import {
@@ -26,6 +28,7 @@ import {
   getAbsenSheet,
   getInsentiveSheet,
   getInventorySheet,
+  getGajiTunjanganSummary,
   HARI_NAMES,
 } from "@/lib/outlet-report";
 import { Wallet, ShoppingBag, AlertTriangle, Sparkles, FileBarChart } from "lucide-react";
@@ -126,6 +129,7 @@ export default async function OutletDetailReportPage({
   const report = await getReportSheet(outletId, year, month, inventory);
   const absen = await getAbsenSheet(outletId, year, month, omset);
   const insentive = await getInsentiveSheet(outletId, year, month, jpd, report, absen);
+  const gajiTunjangan = await getGajiTunjanganSummary(outletId, outlet.name, year, month, absen, insentive, jpd, report.labaBersih);
 
   const materialsForForms = materials.map((m) => ({ id: m.id, code: m.code, name: m.name, unit: m.unit }));
   const materialsByCategory = new Map<string, typeof inventory.rows>();
@@ -813,6 +817,150 @@ export default async function OutletDetailReportPage({
           Belum termasuk: tabel &quot;KALKULASI Insentive Controller&quot; (skema insentif berbasis Qty untuk role Controller) dari spreadsheet asli — belum
           ada peran/skema itu di sistem ini. Beri tahu kami detailnya agar bisa ditambahkan.
         </p>
+      </Card>
+
+      {/* Summary Gaji & Tunjangan — a compact rollup of Absen/Insentive/
+          Report Sheet figures already computed above, in the business's
+          own one-page format. See getGajiTunjanganSummary for what's
+          reused vs. genuinely new here (Total Absen/Ref/Share Value, and
+          the 4 flat BIAYA figures). */}
+      <Card id="gaji-tunjangan-section">
+        <CardHeader className="sticky top-16 z-30 h-14 bg-white">
+          <div className="min-w-0">
+            <CardTitle>SUMMARY GAJI & TUNJANGAN</CardTitle>
+            <p className="truncate text-xs text-slate-400">
+              {outlet.name} — Periode {MONTH_NAMES[month - 1]} {year}
+            </p>
+          </div>
+          <ExportExcelButton containerId="gaji-tunjangan-section" filename={`Gaji_Tunjangan_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
+        </CardHeader>
+
+        <div className="grid grid-cols-2 gap-4 border-b border-slate-100 p-5 sm:grid-cols-5">
+          <div>
+            <p className="text-xs text-slate-400">Omset</p>
+            <p className="font-bold text-brand-900">{number0.format(gajiTunjangan.omsetQty)} pcs</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">AVG Sales</p>
+            <p className="font-bold text-brand-900">{Math.round(gajiTunjangan.avgSales)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">AVG Used Beef</p>
+            <p className="font-bold text-brand-900">{number2.format(gajiTunjangan.avgBeef)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">Laba Operasional</p>
+            <p className="font-bold text-rose-700">{currency.format(gajiTunjangan.labaOperasional)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">Sharing Profit 2%</p>
+            <p className="font-bold text-rose-700">{currency.format(gajiTunjangan.tunjanganTahunan)}</p>
+          </div>
+        </div>
+
+        <Table data-sheet-name="Gaji_Tunjangan">
+          <Thead>
+            <tr>
+              <Th>No.</Th>
+              <Th>Nama</Th>
+              <Th>Outlet</Th>
+              <Th className="text-right">Qty Sales</Th>
+              <Th className="text-right">Labor Cost</Th>
+              <Th>Total Absen</Th>
+              <Th>Salary</Th>
+              <Th>Ref</Th>
+              <Th className="text-right">Share Value</Th>
+            </tr>
+          </Thead>
+          <tbody>
+            {gajiTunjangan.rows.map((r, idx) => (
+              <Tr key={r.rosterKey}>
+                <Td>{idx + 1}</Td>
+                <Td className="font-medium text-slate-900">{r.name}</Td>
+                <Td>{outlet.name}</Td>
+                <Td className="text-right tabular-nums">{number0.format(r.qtySales)}</Td>
+                <Td className="text-right tabular-nums">{currency.format(r.laborCost)}</Td>
+                <Td colSpan={3}>
+                  <GajiTunjanganRowInput
+                    outletId={outletId}
+                    userId={r.userId}
+                    year={year}
+                    month={month}
+                    defaultLaborCost={r.laborCost}
+                    defaultTotalAbsen={r.totalAbsen}
+                    defaultSalary={r.salary}
+                    defaultRef={r.ref}
+                  />
+                </Td>
+                <Td className="text-right font-semibold tabular-nums">{currency.format(r.shareValue)}</Td>
+              </Tr>
+            ))}
+            {gajiTunjangan.rows.length === 0 && <EmptyRow colSpan={9}>Belum ada data absensi/omset harian bulan ini.</EmptyRow>}
+            <Tr className="bg-gold-50 font-bold text-brand-900">
+              <Td colSpan={3}>TOTAL</Td>
+              <Td className="text-right tabular-nums">{number0.format(gajiTunjangan.totalQtySales)}</Td>
+              <Td className="text-right tabular-nums">{currency.format(gajiTunjangan.totalLaborCost)}</Td>
+              <Td colSpan={3}></Td>
+              <Td className="text-right tabular-nums">{currency.format(gajiTunjangan.totalShareValue)}</Td>
+            </Tr>
+          </tbody>
+        </Table>
+        <p className="px-5 py-3 text-xs text-slate-400">
+          Sel berlatar kuning (Total Absen, Salary, Ref) diisi manual lalu otomatis tersimpan saat kolom ditinggalkan (blur) — Salary memakai field yang sama
+          dengan Gaji Pokok di Absen Sheet. Share Value = (Qty Sales × Ref) ÷ Σ(Qty Sales × Ref seluruh pramuniaga) × Sharing Profit 2% (Tunjangan Tahunan).
+        </p>
+
+        <div className="grid grid-cols-1 gap-6 border-t border-slate-100 p-5 sm:grid-cols-2">
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-rose-700">Biaya</p>
+            <dl className="divide-y divide-slate-100 text-sm">
+              {[
+                ["Royalti", gajiTunjangan.biaya.royalti],
+                ["Gaji Operator", gajiTunjangan.biaya.gajiOperator],
+                ["Insentive Operator", gajiTunjangan.biaya.insentiveOperator],
+                ["Insentive Officer", gajiTunjangan.biaya.insentiveOfficer],
+                ["Insentive Head", gajiTunjangan.biaya.insentiveHead],
+                ["Tunjangan Outlet", gajiTunjangan.biaya.tunjanganOutlet],
+                ["Tunjangan Tahunan (2%)", gajiTunjangan.biaya.tunjanganTahunan],
+                ["Gaji Pengelola", gajiTunjangan.biaya.gajiPengelola],
+                ["Fullshift", gajiTunjangan.biaya.fullshift],
+              ].map(([label, value]) => (
+                <div key={label as string} className="flex items-center justify-between py-1.5">
+                  <dt className="text-slate-500">{label}</dt>
+                  <dd className="font-semibold tabular-nums text-slate-800">{currency.format(value as number)}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-3">
+              <OutletMonthlyBenefitInput
+                outletId={outletId}
+                year={year}
+                month={month}
+                defaultTunjanganOutlet={gajiTunjangan.biaya.tunjanganOutlet}
+                defaultGajiPengelola={gajiTunjangan.biaya.gajiPengelola}
+                defaultFullshiftAmount={gajiTunjangan.biaya.fullshift}
+                defaultInsentiveOperatorAmount={gajiTunjangan.biaya.insentiveOperator}
+              />
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-rose-700">Syarat Tunjangan</p>
+            <ul className="space-y-2 text-sm text-slate-600">
+              <li>
+                AVG sales/hari {">"} 50 porsi · JPD {">"} 75.{" "}
+                <span className={gajiTunjangan.syaratTunjangan.avgSalesOk && gajiTunjangan.syaratTunjangan.jpdOk ? "font-semibold text-emerald-600" : "font-semibold text-rose-600"}>
+                  ({number0.format(gajiTunjangan.syaratTunjangan.avgSales)} / {number0.format(gajiTunjangan.syaratTunjangan.jpd)})
+                </span>
+              </li>
+              <li>
+                Target penjualan {gajiTunjangan.syaratTunjangan.targetTercapai ? "sudah tercapai" : "belum tercapai"} ({currency.format(gajiTunjangan.syaratTunjangan.monthlyAchieved)} /{" "}
+                {currency.format(gajiTunjangan.syaratTunjangan.monthlyTarget)}).
+              </li>
+              <li>Sel kuning: Total Absen, Salary, dan Ref — isi lalu simpan.</li>
+              <li>Labor Cost diisi manual di Absen Sheet (hari jaga/check-in tercatat ÷ Total Absen × Salary — belum ada data wage-rate otomatis).</li>
+            </ul>
+          </div>
+        </div>
       </Card>
 
       {/* g. Inventory Sheet */}

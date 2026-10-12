@@ -30,12 +30,23 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const { outletId, userId, year, month, laborCost, salary, note } = parsed.data;
+  const { outletId, userId, year, month, laborCost, salary, totalAbsenOverride, refMultiplier, note } = parsed.data;
 
   const row = await prisma.outletPayroll.upsert({
     where: { outletId_userId_year_month: { outletId, userId, year, month } },
-    create: { outletId, userId, year, month, laborCost, salary, note, recordedById: user.id },
-    update: { laborCost, salary, note, recordedById: user.id },
+    create: { outletId, userId, year, month, laborCost, salary, totalAbsenOverride, refMultiplier, note, recordedById: user.id },
+    // totalAbsenOverride/refMultiplier only overwritten when the caller
+    // actually sent them — OutletPayrollInput (Absen Sheet) never sends
+    // either, and must not silently reset a value the Summary Gaji &
+    // Tunjangan panel already set.
+    update: {
+      laborCost,
+      salary,
+      ...(totalAbsenOverride !== undefined ? { totalAbsenOverride } : {}),
+      ...(refMultiplier !== undefined ? { refMultiplier } : {}),
+      note,
+      recordedById: user.id,
+    },
   });
   return NextResponse.json({ success: true, id: row.id });
 }

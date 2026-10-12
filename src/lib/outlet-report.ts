@@ -1002,3 +1002,107 @@ export async function getCompanyDailyIncentiveBreakdown(year: number, month: num
 
   return perOutlet.flat().sort((a, b) => a.date.getTime() - b.date.getTime() || a.outletName.localeCompare(b.outletName));
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// "Summary Gaji & Tunjangan" — a compact rollup of figures already
+// computed by the Absen/Insentive/Report sheets above, reshaped into the
+// business's own one-page format (stat cards + per-pramuniaga table +
+// BIAYA/SYARAT TUNJANGAN panels). Deliberately does NOT recompute Qty
+// Sales, Labor Cost, Royalti, Insentive Officer/Head, AVG Sales/Beef, or
+// Laba — those stay sourced from absen/insentive/report so this panel can
+// never drift from the Absen/Insentive/Report Sheets' own numbers. Only
+// genuinely new here: Total Absen override, REF weight, Share Value (the
+// Tunjangan Tahunan pool split by qtySales × ref), and the 4 flat BIAYA
+// figures with no other source yet (OutletMonthlyBenefit).
+//
+// Laba Operasional is taken as Report Sheet's LABA/RUGI BERSIH (after all
+// overhead) — adjust here if the business means something narrower by
+// "Operasional" (e.g. gross margin before overhead).
+// ═══════════════════════════════════════════════════════════════════════
+export type GajiTunjanganRow = {
+  userId: string;
+  rosterKey: string;
+  name: string;
+  qtySales: number;
+  laborCost: number;
+  totalAbsen: number;
+  totalAbsenIsOverride: boolean;
+  salary: number;
+  ref: number;
+  shareValue: number;
+};
+
+export async function getGajiTunjanganSummary(
+  outletId: string,
+  outletName: string,
+  year: number,
+  month: number,
+  absen: Awaited<ReturnType<typeof getAbsenSheet>>,
+  insentive: Awaited<ReturnType<typeof getInsentiveSheet>>,
+  jpd: Awaited<ReturnType<typeof getJpdSheet>>,
+  labaOperasional: number,
+) {
+  const [payrolls, benefit] = await Promise.all([
+    prisma.outletPayroll.findMany({ where: { outletId, year, month } }),
+    prisma.outletMonthlyBenefit.findUnique({ where: { outletId_year_month: { outletId, year, month } } }),
+  ]);
+  const payrollByUserId = new Map(payrolls.map((p) => [p.userId, p]));
+
+  const tunjanganTahunan = labaOperasional * 0.02;
+  const weighted = absen.rows.map((r) => {
+    const payroll = payrollByUserId.get(r.userId);
+    const totalAbsenIsOverride = payroll?.totalAbsenOverride != null;
+    const totalAbsen = totalAbsenIsOverride ? payroll!.totalAbsenOverride! : absen.nDays;
+    const ref = payroll ? Number(payroll.refMultiplier) : 1;
+    return { r, totalAbsen, totalAbsenIsOverride, ref, weight: r.qtySales * ref };
+  });
+  const totalWeight = weighted.reduce((s, w) => s + w.weight, 0);
+
+  const rows: GajiTunjanganRow[] = weighted.map(({ r, totalAbsen, totalAbsenIsOverride, ref, weight }) => ({
+    userId: r.userId,
+    rosterKey: r.rosterKey,
+    name: r.name,
+    qtySales: r.qtySales,
+    laborCost: r.laborCost,
+    totalAbsen,
+    totalAbsenIsOverride,
+    salary: r.baseSalary,
+    ref,
+    shareValue: totalWeight > 0 ? (weight / totalWeight) * tunjanganTahunan : 0,
+  }));
+
+  return {
+    outletName,
+    omsetQty: absen.totalQtySales,
+    avgSales: absen.avgSalesPerAbsen,
+    avgBeef: insentive.avgBeef,
+    labaOperasional,
+    tunjanganTahunan,
+    rows,
+    totalQtySales: absen.totalQtySales,
+    totalLaborCost: rows.reduce((s, r) => s + r.laborCost, 0),
+    totalShareValue: rows.reduce((s, r) => s + r.shareValue, 0),
+    biaya: {
+      royalti: insentive.royalti,
+      gajiOperator: rows.reduce((s, r) => s + r.laborCost, 0),
+      insentiveOperator: Number(benefit?.insentiveOperatorAmount ?? 0),
+      insentiveOfficer: insentive.insentiveOfficer,
+      insentiveHead: insentive.insentiveHead,
+      tunjanganOutlet: Number(benefit?.tunjanganOutlet ?? 0),
+      tunjanganTahunan,
+      gajiPengelola: Number(benefit?.gajiPengelola ?? 0),
+      fullshift: Number(benefit?.fullshiftAmount ?? 0),
+    },
+    syaratTunjangan: {
+      avgSalesPerHariMin: 50,
+      jpdMin: 75,
+      avgSales: absen.avgSalesPerAbsen,
+      avgSalesOk: absen.avgSalesPerAbsen > 50,
+      jpd: jpd.finalAvgYield,
+      jpdOk: jpd.finalAvgYield > 75,
+      targetTercapai: insentive.monthlyAchieved >= insentive.monthlyTarget && insentive.monthlyTarget > 0,
+      monthlyAchieved: insentive.monthlyAchieved,
+      monthlyTarget: insentive.monthlyTarget,
+    },
+  };
+}
