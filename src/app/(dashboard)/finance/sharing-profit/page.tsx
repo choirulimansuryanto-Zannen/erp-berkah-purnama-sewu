@@ -11,40 +11,59 @@ import { Button } from "@/components/ui/button";
 import { Table, Thead, Th, Tr, Td, EmptyRow } from "@/components/ui/table";
 import { StatCard } from "@/components/ui/stat-card";
 import { RunCalculationButton } from "@/components/finance/run-calculation-button";
+import { AddOutletInvestorShareForm } from "@/components/finance/add-outlet-investor-share-form";
+import { getInvestorPLRekap } from "@/lib/outlet-investor";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 const percent = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 3 });
 const MONTH_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
-// Laporan Sharing Profit — the investor pool (poolRate% of company Laba
-// Bersih this month) split across each active Investor by ownership %.
-// Figures come from SharingProfitDistribution rows (src/lib/incentive.ts);
-// "Hitung Ulang" re-runs it against the current rate + investor list.
+// Laporan Sharing Profit — two SEPARATE concepts on one page:
+// 1. The existing company-wide pool (poolRate% of company Laba Bersih)
+//    split across each active Investor by fixed ownership%.
+// 2. Outlet-level investor MoU shares + their rolling Profit/Loss ledger
+//    (Rekap Akumulasi) — see lib/outlet-investor.ts. Confirmed with the
+//    business 2026-10-12 as a distinct arrangement, not an extension of #1.
 export default async function SharingProfitPage({
   searchParams,
 }: {
-  searchParams: Promise<{ year?: string; month?: string }>;
+  searchParams: Promise<{ year?: string; month?: string; rekapYear?: string; rekapMonth?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) return null;
   if (!can(user.role, "finance:view_ledger")) redirect("/dashboard");
 
   const now = new Date();
-  const { year: yearParam, month: monthParam } = await searchParams;
-  const year = yearParam ? Number(yearParam) : now.getFullYear();
-  const month = monthParam ? Number(monthParam) : now.getMonth() + 1;
+  const sp = await searchParams;
+  const year = sp.year ? Number(sp.year) : now.getFullYear();
+  const month = sp.month ? Number(sp.month) : now.getMonth() + 1;
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i);
 
-  const distributions = await prisma.sharingProfitDistribution.findMany({
-    where: { year, month },
-    include: { investor: true },
-    orderBy: { investor: { name: "asc" } },
-  });
+  const rekapYear = sp.rekapYear ? Number(sp.rekapYear) : now.getFullYear();
+  // "Semua bulan" = rekapMonth param "0" — shows December's (year-end
+  // cumulative) state; a specific month shows that month's own state.
+  const rekapMonthParam = sp.rekapMonth ? Number(sp.rekapMonth) : 0;
+  const rekapMonth = rekapMonthParam === 0 ? 12 : rekapMonthParam;
+  const rekapPeriodLabel = rekapMonthParam === 0 ? `Januari – Desember ${rekapYear}` : `${MONTH_NAMES[rekapMonth - 1]} ${rekapYear}`;
+
+  const [distributions, outlets, investorRows] = await Promise.all([
+    prisma.sharingProfitDistribution.findMany({
+      where: { year, month },
+      include: { investor: true },
+      orderBy: { investor: { name: "asc" } },
+    }),
+    prisma.outlet.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    getInvestorPLRekap(rekapYear, rekapMonth),
+  ]);
 
   const labaBersih = Number(distributions[0]?.labaBersih ?? 0);
   const poolRate = Number(distributions[0]?.poolRate ?? 0);
   const poolAmount = Number(distributions[0]?.poolAmount ?? 0);
   const totalDistributed = distributions.reduce((s, d) => s + Number(d.amount), 0);
+
+  const totalShareValue = investorRows.reduce((s, r) => s + r.shareValue, 0);
+  const totalAccum = investorRows.reduce((s, r) => s + r.accum, 0);
+  const totalTransferShared = investorRows.reduce((s, r) => s + r.transferShared, 0);
 
   return (
     <div className="space-y-6">
@@ -87,6 +106,7 @@ export default async function SharingProfitPage({
             <RunCalculationButton endpoint="/api/finance/sharing-profit" year={year} month={month} />
           </div>
         </form>
+        <AddOutletInvestorShareForm outlets={outlets} />
       </Card>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -127,6 +147,85 @@ export default async function SharingProfitPage({
             )}
           </tbody>
         </Table>
+      </Card>
+
+      {/* Rekap Akumulasi Profit & Loss Investor — outlet-level MoU ledger,
+          see lib/outlet-investor.ts for the recurrence. Read-only for now:
+          Adj./lock-override editing exists at the data layer (per-month
+          OutletInvestorMonthlyLedger) but isn't wired into this view yet. */}
+      <Card>
+        <form className="flex flex-wrap items-end gap-3 p-5">
+          <div>
+            <Label className="text-[11px]">Tahun</Label>
+            <Select name="rekapYear" defaultValue={String(rekapYear)} className="mt-1">
+              {years.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label className="text-[11px]">Bulan</Label>
+            <Select name="rekapMonth" defaultValue={String(rekapMonthParam)} className="mt-1">
+              <option value={0}>Semua bulan</option>
+              {MONTH_NAMES.map((m, i) => (
+                <option key={m} value={i + 1}>
+                  {m}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <Button type="submit" variant="secondary">
+            Terapkan
+          </Button>
+        </form>
+      </Card>
+
+      <Card className="p-0" id="investor-pl-rekap-section">
+        <CardHeader>
+          <CardTitle>Rekap Akumulasi Profit and Loss Investor</CardTitle>
+          <p className="text-xs font-bold uppercase tracking-wide text-accent-700">Periode {rekapPeriodLabel}</p>
+        </CardHeader>
+        <Table data-sheet-name="Rekap_PL_Investor" wrapperClassName="max-h-[75vh] overflow-auto">
+          <Thead className="sticky top-0 z-20 bg-slate-50">
+            <tr>
+              <Th>Nama Investor</Th>
+              <Th>Outlet</Th>
+              <Th className="text-right">Share Value</Th>
+              <Th className="text-right">Accum.</Th>
+              <Th className="text-right">Adj.</Th>
+              <Th className="text-right">Transfer/Shared</Th>
+            </tr>
+          </Thead>
+          <tbody>
+            {investorRows.map((r) => (
+              <Tr key={r.investorId}>
+                <Td className="font-bold text-slate-900 underline decoration-slate-300">{r.investorName}</Td>
+                <Td>{r.outletNames.join(" · ")}</Td>
+                <Td className="text-right tabular-nums">{currency.format(r.shareValue)}</Td>
+                <Td className="text-right tabular-nums">{currency.format(r.accum)}</Td>
+                <Td className="text-right tabular-nums text-slate-400">{r.adj !== 0 ? currency.format(r.adj) : "—"}</Td>
+                <Td className="text-right font-bold tabular-nums">{currency.format(r.transferShared)}</Td>
+              </Tr>
+            ))}
+            {investorRows.length === 0 && <EmptyRow colSpan={6}>Belum ada investor outlet dengan MoU aktif pada periode ini.</EmptyRow>}
+            {investorRows.length > 0 && (
+              <Tr className="bg-gold-50 font-bold text-brand-900">
+                <Td colSpan={2}>Total</Td>
+                <Td className="text-right tabular-nums">{currency.format(totalShareValue)}</Td>
+                <Td className="text-right tabular-nums">{currency.format(totalAccum)}</Td>
+                <Td>—</Td>
+                <Td className="text-right tabular-nums">{currency.format(totalTransferShared)}</Td>
+              </Tr>
+            )}
+          </tbody>
+        </Table>
+        <p className="px-5 py-3 text-xs text-slate-400">
+          <strong>Share Value</strong> = share MoU × laba bersih outlet (dijumlah dari setiap outlet investor tsb). <strong>Accum.</strong> = Share Value −
+          Transfer/Shared bulan lalu − Adj.; bulan lalu hanya terakumulasi kalau bulan itu tidak profit. <strong>Transfer/Shared</strong> = hitungan bersih
+          dari Accum., dipakai sebagai Saldo Share Profit Investor. Nilai negatif tetap ditampilkan dan tetap diperhitungkan di akumulasi bulan berikutnya.
+        </p>
       </Card>
     </div>
   );

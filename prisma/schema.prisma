@@ -179,6 +179,7 @@ model Outlet {
   ledgerEntries           OutletLedgerEntry[]
   payrolls                OutletPayroll[]
   monthlyBenefits         OutletMonthlyBenefit[]
+  investorShares          OutletInvestorShare[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -281,6 +282,9 @@ model User {
   outletPayrollsAsEmployee   OutletPayroll[] @relation("OutletPayrollUser")
   outletPayrollsRecorded     OutletPayroll[] @relation("OutletPayrollRecordedBy")
   outletMonthlyBenefitsRecorded OutletMonthlyBenefit[] @relation("OutletMonthlyBenefitRecordedBy")
+  outletInvestorProfilesCreated OutletInvestorProfile[] @relation("OutletInvestorProfileCreatedBy")
+  outletInvestorSharesCreated   OutletInvestorShare[] @relation("OutletInvestorShareCreatedBy")
+  outletInvestorLedgersUpdated  OutletInvestorMonthlyLedger[] @relation("OutletInvestorLedgerUpdatedBy")
   companyMaterialClosingBalancesRecorded CompanyMaterialClosingBalance[] @relation("CompanyMaterialClosingRecordedBy")
   vendorLedgerEntriesRecorded VendorLedgerEntry[] @relation("VendorLedgerRecordedBy")
   receivableEntriesRecorded   ReceivableEntry[]   @relation("ReceivableEntryRecordedBy")
@@ -1617,6 +1621,96 @@ model SharingProfitDistribution {
 
   @@unique([year, month, investorId])
   @@index([year, month])
+}
+
+// ── Outlet-level investor MoU & rolling Profit/Loss ledger ─────────────
+// A SEPARATE concept from Investor/SharingProfitDistribution above (that
+// pair models ONE company-wide pool split by fixed ownership%). This
+// models per-OUTLET MoU shares — a named investor can hold a share
+// (percent of that outlet's Laba Bersih, or a flat Rupiah amount) in one
+// or more specific outlets, up to 5 investors per outlet (slotNumber).
+// Confirmed with the business 2026-10-12.
+enum OutletInvestorShareType {
+  PERSEN
+  NOMINAL
+}
+
+model OutletInvestorProfile {
+  id   String @id @default(uuid())
+  name String
+
+  // Saldo Accum./Transfer-Shared from before this system tracked it —
+  // seeded once, read as "last month's Transfer/Shared" by the very first
+  // month this investor's ledger is computed for. 0 for an investor with
+  // no pre-existing history.
+  openingBalance Decimal       @default(0) @db.Decimal(16, 2)
+  status         AccountStatus @default(ACTIVE)
+
+  createdById String
+  createdBy   User     @relation("OutletInvestorProfileCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  shares  OutletInvestorShare[]
+  ledgers OutletInvestorMonthlyLedger[]
+}
+
+// One MoU assignment — this investor's share of ONE outlet. An investor
+// with shares in 3 outlets has 3 of these rows; that outlet's Share Value
+// each month is the sum across all of them (confirmed 2026-10-12).
+model OutletInvestorShare {
+  id         String                @id @default(uuid())
+  investorId String
+  investor   OutletInvestorProfile @relation(fields: [investorId], references: [id])
+  outletId   String
+  outlet     Outlet                @relation(fields: [outletId], references: [id])
+
+  // 1-5 — which of that outlet's (at most 5) investor slots this fills.
+  // A label for bookkeeping only, doesn't affect any calculation.
+  slotNumber Int
+
+  shareType OutletInvestorShareType
+  // Percent (0-100) of the outlet's Laba Bersih when PERSEN; a flat
+  // Rupiah amount, paid every month regardless of profit, when NOMINAL.
+  shareValue Decimal @db.Decimal(14, 3)
+
+  status      AccountStatus @default(ACTIVE)
+  createdById String
+  createdBy   User          @relation("OutletInvestorShareCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([outletId, slotNumber])
+  @@index([investorId])
+}
+
+// One row per (investor, year, month) — the materialized, editable state
+// of the rolling ledger (see lib/outlet-investor.ts for the recurrence).
+// adj is always a direct manual entry. accumOverride/transferSharedOverride
+// are nullable "locks" — null means "use the computed value", a number
+// means the business typed one in to override it (the source
+// spreadsheet's "kosongkan sel untuk memakai nilai hitungan, isi untuk
+// mengunci angka lain"). Computing month M always reads month M-1's row
+// here (or the investor's openingBalance if this is their first tracked
+// month) rather than recursing through all history every time.
+model OutletInvestorMonthlyLedger {
+  id         String                @id @default(uuid())
+  investorId String
+  investor   OutletInvestorProfile @relation(fields: [investorId], references: [id])
+  year       Int
+  month      Int
+
+  adj                    Decimal  @default(0) @db.Decimal(16, 2)
+  accumOverride          Decimal? @db.Decimal(16, 2)
+  transferSharedOverride Decimal? @db.Decimal(16, 2)
+
+  updatedById String?
+  updatedBy   User?    @relation("OutletInvestorLedgerUpdatedBy", fields: [updatedById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([investorId, year, month])
+  @@index([investorId, year, month])
 }
 
 // Direct/local outlet purchases (fresh produce from a nearby market, a
