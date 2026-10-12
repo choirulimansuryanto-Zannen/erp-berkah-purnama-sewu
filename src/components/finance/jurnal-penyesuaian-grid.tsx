@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AdjustingGridLine } from "@/lib/accounting";
 
@@ -36,7 +36,13 @@ const stickyHeaderClass = "sticky will-change-transform z-20 bg-brand-950";
 // editable directly in the grid, auto-saving onBlur/change via PATCH
 // /api/finance/adjusting-entries/line/[lineId] (which keeps the pair
 // balanced server-side — see updateAdjustingEntryLine).
-function GridRow({ line, accounts, isFirstOfPair }: { line: AdjustingGridLine; accounts: Account[]; isFirstOfPair: boolean }) {
+// Memoized with a value-based comparator — `line` is a brand-new object
+// every render after router.refresh() even for the ~120+ lines that
+// didn't change, since the whole lines array comes fresh from the
+// server. Skipping re-render for every line except the one actually
+// edited cuts the post-save re-render cost substantially on a table
+// this size.
+const GridRow = memo(function GridRow({ line, accounts, isFirstOfPair }: { line: AdjustingGridLine; accounts: Account[]; isFirstOfPair: boolean }) {
   const router = useRouter();
   const [accountId, setAccountId] = useState(line.accountId);
   const [amount, setAmount] = useState(String(line.debit > 0 ? line.debit : line.credit));
@@ -158,7 +164,18 @@ function GridRow({ line, accounts, isFirstOfPair }: { line: AdjustingGridLine; a
       </td>
     </tr>
   );
-}
+},
+(prev, next) =>
+  prev.isFirstOfPair === next.isFirstOfPair &&
+  prev.accounts === next.accounts &&
+  prev.line.id === next.line.id &&
+  prev.line.accountId === next.line.accountId &&
+  prev.line.debit === next.line.debit &&
+  prev.line.credit === next.line.credit &&
+  prev.line.remark === next.line.remark &&
+  prev.line.costDescription === next.line.costDescription &&
+  prev.line.costCentre === next.line.costCentre,
+);
 
 function AddTransactionRow({ accounts, year, month }: { accounts: Account[]; year: number; month: number }) {
   const router = useRouter();

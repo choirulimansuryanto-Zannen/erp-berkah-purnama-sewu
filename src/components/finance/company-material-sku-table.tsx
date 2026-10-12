@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, memo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CompanyMaterialCategoryGroup, CompanyMaterialRow } from "@/lib/company-material";
 
@@ -24,7 +24,13 @@ const LEFT_HARGA = "left-[344px]"; // 64 + 200 + 80
 // same upsert endpoint the entry form below uses, then refreshes the
 // page so Nominal/Total Bahan Baku/subtotals recompute server-side.
 // Harga/Cost stays display-only here (edited via the form below).
-function SkuRow({ row, year, month }: { row: CompanyMaterialRow; year: number; month: number }) {
+// Memoized with a value-based comparator (not React.memo's default
+// identity check) — `row` is a brand-new object every render after
+// router.refresh() even for the ~290+ rows that didn't change, since
+// the whole groups array comes fresh from the server. Skipping
+// re-render for every row except the one actually edited cuts the
+// post-save re-render cost substantially on a table this size.
+const SkuRow = memo(function SkuRow({ row, year, month }: { row: CompanyMaterialRow; year: number; month: number }) {
   const router = useRouter();
   const [saldoAwalQty, setSaldoAwalQty] = useState(String(row.saldoAwalQty));
   const [qtyOpname, setQtyOpname] = useState(String(row.qtyOpname));
@@ -142,7 +148,17 @@ function SkuRow({ row, year, month }: { row: CompanyMaterialRow; year: number; m
       </td>
     </tr>
   );
-}
+},
+(prev, next) =>
+  prev.year === next.year &&
+  prev.month === next.month &&
+  prev.row.id === next.row.id &&
+  prev.row.costPerUnit === next.row.costPerUnit &&
+  prev.row.saldoAwalQty === next.row.saldoAwalQty &&
+  prev.row.qtyOpname === next.row.qtyOpname &&
+  prev.row.fakturOutletQty === next.row.fakturOutletQty &&
+  prev.row.adjustmentQty === next.row.adjustmentQty,
+);
 
 export function CompanyMaterialSkuTable({ groups, year, month }: { groups: CompanyMaterialCategoryGroup[]; year: number; month: number }) {
   return (
