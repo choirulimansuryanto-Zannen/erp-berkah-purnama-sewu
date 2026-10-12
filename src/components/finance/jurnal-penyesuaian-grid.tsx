@@ -6,6 +6,25 @@ import type { AdjustingGridLine } from "@/lib/accounting";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 const dateFormat = new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
+const number2 = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 });
+
+// id-ID number formatting for the Debit/Credit cells — "." thousands,
+// "," decimals — so a manually-typed amount reads the same as every
+// other formatted figure in the app instead of a bare unpunctuated
+// number. Plain type="number" can't show thousand separators, so this
+// cell is a text input that reformats on blur and parses id-ID
+// punctuation back to a plain number for the save payload. Same fix as
+// Rekap Salary's manual cells.
+function formatIdNumber(raw: string): string {
+  if (raw.trim() === "") return "0";
+  const n = parseIdNumber(raw);
+  return isFinite(n) ? number2.format(n) : raw;
+}
+function parseIdNumber(formatted: string): number {
+  const cleaned = formatted.replace(/\./g, "").replace(",", ".");
+  const n = Number(cleaned);
+  return isFinite(n) ? n : 0;
+}
 
 type Account = { id: string; code: string; name: string };
 
@@ -50,7 +69,7 @@ const stickyHeaderClass = "sticky will-change-transform z-30 bg-brand-950";
 const GridRow = memo(function GridRow({ line, accounts, isFirstOfPair }: { line: AdjustingGridLine; accounts: Account[]; isFirstOfPair: boolean }) {
   const router = useRouter();
   const [accountId, setAccountId] = useState(line.accountId);
-  const [amount, setAmount] = useState(String(line.debit > 0 ? line.debit : line.credit));
+  const [amount, setAmount] = useState(number2.format(line.debit > 0 ? line.debit : line.credit));
   const [remark, setRemark] = useState(line.remark);
   const [costDescription, setCostDescription] = useState(line.costDescription);
   const [costCentre, setCostCentre] = useState(line.costCentre);
@@ -104,13 +123,15 @@ const GridRow = memo(function GridRow({ line, accounts, isFirstOfPair }: { line:
         {line.lineNo === 1 ? (
           <input
             className={`${cellInputClass} text-right tabular-nums`}
-            type="number"
-            step="any"
-            min="0"
+            type="text"
+            inputMode="decimal"
             value={amount}
             disabled={saving}
             onChange={(e) => setAmount(e.target.value)}
-            onBlur={() => save({ amount: Number(amount || 0) })}
+            onBlur={(e) => {
+              setAmount(formatIdNumber(e.target.value));
+              save({ amount: parseIdNumber(e.target.value) });
+            }}
             onKeyDown={onKeyDown}
           />
         ) : (
@@ -121,13 +142,15 @@ const GridRow = memo(function GridRow({ line, accounts, isFirstOfPair }: { line:
         {line.lineNo === 2 ? (
           <input
             className={`${cellInputClass} text-right tabular-nums`}
-            type="number"
-            step="any"
-            min="0"
+            type="text"
+            inputMode="decimal"
             value={amount}
             disabled={saving}
             onChange={(e) => setAmount(e.target.value)}
-            onBlur={() => save({ amount: Number(amount || 0) })}
+            onBlur={(e) => {
+              setAmount(formatIdNumber(e.target.value));
+              save({ amount: parseIdNumber(e.target.value) });
+            }}
             onKeyDown={onKeyDown}
           />
         ) : (
