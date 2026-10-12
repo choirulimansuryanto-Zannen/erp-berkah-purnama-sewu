@@ -19,7 +19,26 @@ const SALARY_RECAP_LINE_LABELS: Record<SalaryRecapLineItem, string> = {
   insentifTjOutlet: "Insentive&Tj.Outlet",
 };
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
+const number2 = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 });
 const LINE_ITEM_KEYS = Object.keys(SALARY_RECAP_LINE_LABELS) as SalaryRecapLineItem[];
+
+// id-ID number formatting — "." for thousands, "," for decimals (e.g.
+// 364207.54 -> "364.207,54") — so the manually-typed cells read the same
+// way as every already-formatted figure in this app (TOTAL row, etc.),
+// instead of a bare unpunctuated number. Plain `type="number"` can't
+// display thousand separators (browsers reject non-digit characters), so
+// these are text inputs that format on blur and parse id-ID punctuation
+// back to a plain number on save.
+function formatIdNumber(raw: string): string {
+  if (raw.trim() === "") return "0";
+  const n = parseIdNumber(raw);
+  return isFinite(n) ? number2.format(n) : raw;
+}
+function parseIdNumber(formatted: string): number {
+  const cleaned = formatted.replace(/\./g, "").replace(",", ".");
+  const n = Number(cleaned);
+  return isFinite(n) ? n : 0;
+}
 
 // Every figure is editable directly in the grid — one column per
 // department, auto-saving the whole department's row onBlur/Enter (the
@@ -42,7 +61,7 @@ export function SalaryRecapTable({
 }) {
   const router = useRouter();
   const [values, setValues] = useState<Record<string, Record<string, string>>>(() =>
-    Object.fromEntries(columns.map((c) => [c.department, Object.fromEntries(LINE_ITEM_KEYS.map((k) => [k, String(c.values[k])]))])),
+    Object.fromEntries(columns.map((c) => [c.department, Object.fromEntries(LINE_ITEM_KEYS.map((k) => [k, number2.format(c.values[k])]))])),
   );
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [failed, setFailed] = useState<Record<string, boolean>>({});
@@ -58,7 +77,7 @@ export function SalaryRecapTable({
         year,
         month,
         department: dept,
-        ...Object.fromEntries(LINE_ITEM_KEYS.map((k) => [k, Number(values[dept]?.[k] || 0)])),
+        ...Object.fromEntries(LINE_ITEM_KEYS.map((k) => [k, parseIdNumber(values[dept]?.[k] || "0")])),
       };
       const res = await fetch("/api/finance/salary-recap", {
         method: "POST",
@@ -99,12 +118,15 @@ export function SalaryRecapTable({
               <td key={c.department} className={`px-1 py-1 ${failed[c.department] ? "ring-1 ring-inset ring-red-500" : ""}`} title={failed[c.department] ? "Gagal menyimpan — coba lagi" : undefined}>
                 <input
                   className="w-full min-w-0 border-0 bg-transparent px-2 py-1 text-right tabular-nums text-slate-900 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50"
-                  type="number"
-                  step="any"
+                  type="text"
+                  inputMode="decimal"
                   value={values[c.department]?.[key] ?? "0"}
                   disabled={saving[c.department]}
                   onChange={(e) => setCell(c.department, key, e.target.value)}
-                  onBlur={() => save(c.department)}
+                  onBlur={(e) => {
+                    setCell(c.department, key, formatIdNumber(e.target.value));
+                    save(c.department);
+                  }}
                   onKeyDown={onKeyDown}
                 />
               </td>
