@@ -1331,13 +1331,29 @@ export async function getFullshiftReport(params: {
   const months = monthsBetween(start, end);
   const annualTargetYear = start.getUTCFullYear();
 
-  const [outlets, catalog, brackets, annualTargets, periodTargets] = await Promise.all([
+  // Transaction items for the whole period, every outlet, fetched ONCE and
+  // sliced per outlet (getOmsetSheet's preload hook) — same batching
+  // convention as getCompanyDailyIncentiveBreakdown/getInsentiveRekapitulasi.
+  // Outlets themselves are then processed in PARALLEL (was a fully
+  // sequential outlet x month loop — ~40s for 60+ outlets; this cut it
+  // down the same way the Rekapitulasi Insentive fix did).
+  const [outlets, catalog, brackets, annualTargets, periodTargets, allTxItems] = await Promise.all([
     prisma.outlet.findMany({ where: { status: "ACTIVE", ...(outletId ? { id: outletId } : {}) }, include: { region: true }, orderBy: { name: "asc" } }),
     loadOmsetCatalog(),
     prisma.incentiveBracket.findMany({ where: { status: "ACTIVE" }, orderBy: { sortOrder: "asc" } }),
     prisma.outletMonthlyTarget.findMany({ where: { year: annualTargetYear } }),
     prisma.outletMonthlyTarget.findMany({ where: { OR: months.map((m) => ({ year: m.year, month: m.month })) } }),
+    prisma.transactionItem.findMany({
+      where: { transaction: { status: "COMPLETED", createdAt: { gte: start, lte: end } } },
+      select: TX_ITEM_SELECT,
+    }),
   ]);
+  const txItemsByOutlet = new Map<string, TxItemRow[]>();
+  for (const item of allTxItems) {
+    const list = txItemsByOutlet.get(item.transaction.outletId) ?? [];
+    list.push(item);
+    txItemsByOutlet.set(item.transaction.outletId, list);
+  }
 
   const annualTargetByOutlet = new Map<string, number>();
   for (const o of outlets) {
@@ -1357,52 +1373,54 @@ export async function getFullshiftReport(params: {
     return fullshiftDailyTarget(outlet, start.getUTCFullYear(), start.getUTCMonth() + 1);
   }
 
-  const rowsByPerson = new Map<string, FullshiftReportRow>();
+  const perOutlet = await Promise.all(
+    outlets.map(async (outlet) => {
+      const dailyTarget = startMonthFullshiftDailyTarget(outlet);
+      const annualTarget = annualTargetByOutlet.get(outlet.id) ?? 0;
+      const targetFullshift = dailyTarget > 0 ? (annualTarget / dailyTarget) * 0.75 : 0;
 
-  for (const outlet of outlets) {
-    const dailyTarget = startMonthFullshiftDailyTarget(outlet);
-    const annualTarget = annualTargetByOutlet.get(outlet.id) ?? 0;
-    const targetFullshift = dailyTarget > 0 ? (annualTarget / dailyTarget) * 0.75 : 0;
+      const rowsByPerson = new Map<string, FullshiftReportRow>();
+      for (const { year, month } of months) {
+        const omset = await getOmsetSheet(outlet.id, year, month, catalog, txItemsByOutlet.get(outlet.id) ?? []);
+        const roster = await getDailyRoster(outlet.id, year, month, omset, brackets);
+        const dayTarget = fullshiftDailyTarget(outlet, year, month);
 
-    for (const { year, month } of months) {
-      const omset = await getOmsetSheet(outlet.id, year, month, catalog);
-      const roster = await getDailyRoster(outlet.id, year, month, omset, brackets);
-      const dayTarget = fullshiftDailyTarget(outlet, year, month);
-
-      for (const day of roster.days) {
-        if (day.date < start || day.date > end) continue;
-        const achievedToday = dayTarget > 0 && day.omset >= dayTarget;
-        for (const person of day.present) {
-          if (pramuniagaId && person.userId !== pramuniagaId) continue;
-          const key = `${outlet.id}:${person.rosterKey ?? person.userId}`;
-          // Row created on PRESENCE, not achievement — every pramuniaga who
-          // was on duty any day this period appears, even with 0 achieve
-          // days, so the report reads as a complete roster against quota,
-          // not just a list of who happened to hit target.
-          const row =
-            rowsByPerson.get(key) ??
-            ({
-              outletId: outlet.id,
-              outletName: outlet.name,
-              area: outlet.region.name,
-              userId: person.userId,
-              pramuniagaKey: person.rosterKey ?? person.userId,
-              pramuniagaName: person.name,
-              targetFullshift,
-              jumlahAchieve: 0,
-              nominalFullshift: 0,
-            } satisfies FullshiftReportRow);
-          if (achievedToday) {
-            row.jumlahAchieve += 1;
-            row.nominalFullshift = row.jumlahAchieve * FULLSHIFT_RATE;
+        for (const day of roster.days) {
+          if (day.date < start || day.date > end) continue;
+          const achievedToday = dayTarget > 0 && day.omset >= dayTarget;
+          for (const person of day.present) {
+            if (pramuniagaId && person.userId !== pramuniagaId) continue;
+            const key = person.rosterKey ?? person.userId;
+            // Row created on PRESENCE, not achievement — every pramuniaga
+            // who was on duty any day this period appears, even with 0
+            // achieve days, so the report reads as a complete roster
+            // against quota, not just a list of who happened to hit target.
+            const row =
+              rowsByPerson.get(key) ??
+              ({
+                outletId: outlet.id,
+                outletName: outlet.name,
+                area: outlet.region.name,
+                userId: person.userId,
+                pramuniagaKey: key,
+                pramuniagaName: person.name,
+                targetFullshift,
+                jumlahAchieve: 0,
+                nominalFullshift: 0,
+              } satisfies FullshiftReportRow);
+            if (achievedToday) {
+              row.jumlahAchieve += 1;
+              row.nominalFullshift = row.jumlahAchieve * FULLSHIFT_RATE;
+            }
+            rowsByPerson.set(key, row);
           }
-          rowsByPerson.set(key, row);
         }
       }
-    }
-  }
+      return [...rowsByPerson.values()];
+    }),
+  );
 
-  return [...rowsByPerson.values()].sort((a, b) => a.outletName.localeCompare(b.outletName) || a.pramuniagaName.localeCompare(b.pramuniagaName));
+  return perOutlet.flat().sort((a, b) => a.outletName.localeCompare(b.outletName) || a.pramuniagaName.localeCompare(b.pramuniagaName));
 }
 
 // ═══════════════════════════════════════════════════════════════════════
