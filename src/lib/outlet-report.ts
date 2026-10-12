@@ -611,7 +611,12 @@ export type RosterDay = {
   present: { userId: string; name: string; shift: string; rosterKey?: string }[];
   bracket: { label: string; rangeMin: number; rangeMax: number | null; rateSinglePic: number; rateMultiPic: number } | null;
   rateUsed: number;
+  // The actual payout — 0 on every day the month's gate (omset AND JPD)
+  // didn't clear. totalInsentifHariRaw is what the bracket math alone
+  // would have produced, kept so a report can show "Rp X calculated, Rp 0
+  // paid" rather than losing the pre-gate figure entirely.
   totalInsentifHari: number;
+  totalInsentifHariRaw: number;
 };
 
 // Same reasoning as OmsetCatalog above — the active bracket table is global,
@@ -632,6 +637,13 @@ export async function getDailyRoster(
   omset: Awaited<ReturnType<typeof getOmsetSheet>>,
   preloadedBrackets?: BracketList,
   preloadedAttendance?: AttendanceRow[],
+  // JPD (Jumlah Produk per Daging — the yield KPI, same figure the JPD
+  // Sheet shows as "Rata-rata Penggunaan Daging/Ketul") for this
+  // outlet/month. Omitted by callers that don't need the JPD gate
+  // (Fullshift's own achievement rule is independent of this) — in that
+  // case the JPD condition is treated as passed, same "no data = don't
+  // block" convention already used for the omset target above.
+  jpdAvgYield?: number,
 ) {
   const { start, end } = monthRange(year, month);
   const [attendance, brackets, monthlyTargetRow] = await Promise.all([
@@ -673,7 +685,7 @@ export async function getDailyRoster(
     const present = presentByDay.get(dateKey) ?? [];
     const bracketRow = d.totalOmset > 0 ? bracketFor(d.totalOmset) : undefined;
     const rateUsed = bracketRow ? (present.length > 1 ? Number(bracketRow.rateMultiPic) : Number(bracketRow.rateSinglePic)) : 0;
-    const totalInsentifHari = bracketRow && present.length > 0 ? (d.totalOmset * rateUsed) / 100 : 0;
+    const totalInsentifHariRaw = bracketRow && present.length > 0 ? (d.totalOmset * rateUsed) / 100 : 0;
     return {
       date: d.date,
       omset: d.totalOmset,
@@ -689,28 +701,45 @@ export async function getDailyRoster(
           }
         : null,
       rateUsed,
-      totalInsentifHari,
+      totalInsentifHari: totalInsentifHariRaw, // zeroed below if the gate doesn't clear
+      totalInsentifHariRaw,
     };
   });
 
   // Plafond gate: insentif is only actually paid out once the outlet clears
-  // 80% of its monthly target — insentifMonthlyTarget already IS that 80%
+  // BOTH conditions the business set (confirmed 2026-10-12): (1) 80% of its
+  // monthly Omset target — insentifMonthlyTarget already IS that 80%
   // threshold (see OutletMonthlyTarget: it's derived as monthlyTarget × 0.8
   // when targets are set), so this is a direct comparison, not a second
-  // 0.8 multiply here. Bracket/rate matching stays visible on each day (so
-  // a report can still show "this day would have matched Tier 2 at 4%")
-  // but the actual payout is zeroed out whenever the gate isn't cleared —
-  // no target configured for the outlet/month defaults to "gate passed" so
-  // outlets without a target set (yet) aren't silently zeroed.
+  // 0.8 multiply here — and (2) JPD >= 75. Bracket/rate matching stays
+  // visible on each day, and totalInsentifHariRaw keeps what the bracket
+  // math alone would have produced, but totalInsentifHari (the actual
+  // payout) is zeroed out whenever either gate doesn't clear. No target
+  // configured for the outlet/month defaults that condition to "passed" so
+  // outlets without a target (or without JPD data) set yet aren't silently
+  // zeroed on a condition that was never meant to apply to them.
   const monthlyAchieved = days.reduce((s, d) => s + d.omset, 0);
   const monthlyTarget = monthlyTargetRow ? Number(monthlyTargetRow.insentifMonthlyTarget) : 0;
-  const gatePassed = monthlyTarget > 0 ? monthlyAchieved >= monthlyTarget : true;
+  const omsetGatePassed = monthlyTarget > 0 ? monthlyAchieved >= monthlyTarget : true;
+  const jpdGatePassed = jpdAvgYield === undefined ? true : jpdAvgYield >= 75;
+  const gatePassed = omsetGatePassed && jpdGatePassed;
   const achievementPct = monthlyTarget > 0 ? (monthlyAchieved / monthlyTarget) * 100 : null;
   if (!gatePassed) {
     for (const day of days) day.totalInsentifHari = 0;
   }
 
-  return { days, bracketsConfigured: brackets.length > 0, brackets, monthlyTarget, monthlyAchieved, gatePassed, achievementPct };
+  return {
+    days,
+    bracketsConfigured: brackets.length > 0,
+    brackets,
+    monthlyTarget,
+    monthlyAchieved,
+    gatePassed,
+    omsetGatePassed,
+    jpdGatePassed,
+    jpdAvgYield: jpdAvgYield ?? null,
+    achievementPct,
+  };
 }
 
 // A day's insentif pot isn't split evenly per head — it's split per "slot",
@@ -734,6 +763,13 @@ function incentiveTotalSlots(present: RosterDay["present"]): number {
 function incentiveValuePerSlot(day: RosterDay): number {
   const slots = incentiveTotalSlots(day.present);
   return slots > 0 ? day.totalInsentifHari / slots : 0;
+}
+/** Same split, but against the RAW (pre-gate) pot — what this person would
+ * have earned that day if the month's gate had cleared. Used by Laporan
+ * Rekapitulasi Insentive's "Tidak Diberikan" view (CALCULATED column). */
+function incentiveValuePerSlotRaw(day: RosterDay): number {
+  const slots = incentiveTotalSlots(day.present);
+  return slots > 0 ? day.totalInsentifHariRaw / slots : 0;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -761,6 +797,11 @@ export type AbsenSheetRow = {
   attendance: boolean[]; // length = days in month
   qtySales: number;
   insentiveValue: number;
+  // What insentiveValue would be if the month's gate (JPD>=75 AND omset
+  // >=80% target) hadn't zeroed it — equal to insentiveValue whenever the
+  // gate passed. Used by Laporan Rekapitulasi Insentive's "Tidak Diberikan"
+  // view to show what was calculated vs. what was actually paid (0).
+  insentiveValueRaw: number;
   totalStandby: number;
   totalNonInsentif: number;
   laborCost: number;
@@ -769,9 +810,15 @@ export type AbsenSheetRow = {
   payrollRecorded: boolean;
 };
 
-export async function getAbsenSheet(outletId: string, year: number, month: number, omset: Awaited<ReturnType<typeof getOmsetSheet>>) {
+export async function getAbsenSheet(
+  outletId: string,
+  year: number,
+  month: number,
+  omset: Awaited<ReturnType<typeof getOmsetSheet>>,
+  jpdAvgYield?: number,
+) {
   const [roster, payrolls] = await Promise.all([
-    getDailyRoster(outletId, year, month, omset),
+    getDailyRoster(outletId, year, month, omset, undefined, undefined, jpdAvgYield),
     prisma.outletPayroll.findMany({ where: { outletId, year, month } }),
   ]);
   const nDays = daysInMonth(year, month);
@@ -788,6 +835,7 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
     const day = roster.days[i];
     const perPersonQty = day.present.length > 0 ? day.qtyAllProducts / day.present.length : 0;
     const insentifPerSlot = incentiveValuePerSlot(day);
+    const insentifPerSlotRaw = incentiveValuePerSlotRaw(day);
     for (const p of day.present) {
       const identityKey = p.rosterKey ?? p.userId;
       const payroll = payrollByUserId.get(p.userId);
@@ -798,6 +846,7 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
         attendance: new Array(nDays).fill(false),
         qtySales: 0,
         insentiveValue: 0,
+        insentiveValueRaw: 0,
         totalStandby: 0,
         totalNonInsentif: 0,
         laborCost: Number(payroll?.laborCost ?? 0),
@@ -806,7 +855,9 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
       };
       row.attendance[i] = true;
       row.qtySales += perPersonQty;
-      row.insentiveValue += insentifPerSlot * incentiveSlotWeight(day.present, p);
+      const weight = incentiveSlotWeight(day.present, p);
+      row.insentiveValue += insentifPerSlot * weight;
+      row.insentiveValueRaw += insentifPerSlotRaw * weight;
       row.totalStandby += 1;
       if (!day.bracket || day.omset <= 0) row.totalNonInsentif += 1;
       byEmployee.set(identityKey, row);
@@ -841,6 +892,9 @@ export async function getAbsenSheet(outletId: string, year: number, month: numbe
     monthlyTarget: roster.monthlyTarget,
     monthlyAchieved: roster.monthlyAchieved,
     gatePassed: roster.gatePassed,
+    omsetGatePassed: roster.omsetGatePassed,
+    jpdGatePassed: roster.jpdGatePassed,
+    jpdAvgYield: roster.jpdAvgYield,
     achievementPct: roster.achievementPct,
   };
 }
@@ -892,6 +946,7 @@ export async function getInsentiveSheet(
     bracketsConfigured: absen.bracketsConfigured,
     absenRows: absen.rows,
     totalInsentifHari: absen.rosterDays.reduce((s, d) => s + d.totalInsentifHari, 0),
+    totalInsentifHariRaw: absen.rosterDays.reduce((s, d) => s + d.totalInsentifHariRaw, 0),
     openingDay: absen.nDays,
     royalti,
     insentiveOfficer,
@@ -902,6 +957,9 @@ export async function getInsentiveSheet(
     monthlyTarget: absen.monthlyTarget,
     monthlyAchieved: absen.monthlyAchieved,
     gatePassed: absen.gatePassed,
+    omsetGatePassed: absen.omsetGatePassed,
+    jpdGatePassed: absen.jpdGatePassed,
+    jpdAvgYield: absen.jpdAvgYield,
     achievementPct: absen.achievementPct,
   };
 }
@@ -1046,6 +1104,169 @@ export async function getOutletTargetAchievement(year: number, month: number): P
     const kategori: OutletTargetAchievementRow["kategori"] = pct >= 100 ? "ACHV_TARGET" : pct >= 80 ? "DAPAT_INSENTIVE" : "TIDAK_DAPAT_INSENTIVE";
     return { outletId: o.id, outletName: o.name, area: o.region.name, target, actual, pct, kategori };
   });
+}
+
+// Same short-code scheme as the outlet detail page's own outletShortCode
+// (consonants-only, first 4 letters) — duplicated here rather than
+// imported since it's a tiny pure helper and this module shouldn't import
+// FROM a page.
+function shortCode(name: string): string {
+  const consonantsOnly = name.replace(/[aiueoAIUEO]/g, "").replace(/[^A-Za-z]/g, "");
+  return (consonantsOnly || name.replace(/[^A-Za-z]/g, "")).slice(0, 4).toUpperCase();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// "Laporan Rekapitulasi Insentive" — company-wide, one month, 4 views over
+// the exact same gated pramuniaga-bracket incentive the Insentive Sheet
+// computes per outlet (see getDailyRoster's JPD+omset gate): Per Outlet
+// (one row per outlet), Per Pramuniaga (one row per person per outlet,
+// since the same person can work more than one outlet in a month), and
+// Diberikan/Tidak Diberikan — the same per-person-per-outlet rows split by
+// whether that outlet's gate passed that month, with Tidak Diberikan
+// additionally showing what was CALCULATED (pre-gate) vs. what's actually
+// paid (always 0 there) and why (ALASAN).
+// ═══════════════════════════════════════════════════════════════════════
+export type InsentiveRekapOutletRow = {
+  outletId: string;
+  outletName: string;
+  kode: string;
+  area: string;
+  omsetQty: number;
+  avgSales: number;
+  avgBeefUsed: number;
+  insentiveOperator: number;
+  gatePassed: boolean;
+};
+export type InsentiveRekapPramuniagaRow = {
+  outletId: string;
+  outletName: string;
+  kode: string;
+  rosterKey: string;
+  userId: string;
+  pramuniagaName: string;
+  qty: number;
+  insentive: number;
+  gatePassed: boolean;
+};
+export type InsentiveRekapTidakDiberikanRow = InsentiveRekapPramuniagaRow & {
+  calculated: number;
+  alasan: string;
+};
+
+export async function getInsentiveRekapitulasi(year: number, month: number) {
+  const { start, end } = monthRange(year, month);
+  // Every active outlet computed in PARALLEL (not one-at-a-time) — same
+  // batching convention as getCompanyDailyIncentiveBreakdown, needed here
+  // too since this loops every outlet instead of one (sequential was
+  // timing out past 40s for 60+ outlets). Transaction items are fetched
+  // ONCE company-wide and sliced per outlet (getOmsetSheet's own preload
+  // hook); getAbsenSheet's attendance/payroll queries stay per-outlet —
+  // still fine run in parallel, this report just isn't on the hot path
+  // the adjustment page is.
+  const [outlets, catalog, allTxItems] = await Promise.all([
+    prisma.outlet.findMany({ where: { status: "ACTIVE" }, include: { region: true }, orderBy: { name: "asc" } }),
+    loadOmsetCatalog(),
+    prisma.transactionItem.findMany({
+      where: { transaction: { status: "COMPLETED", createdAt: { gte: start, lte: end } } },
+      select: TX_ITEM_SELECT,
+    }),
+  ]);
+
+  const txItemsByOutlet = new Map<string, TxItemRow[]>();
+  for (const item of allTxItems) {
+    const list = txItemsByOutlet.get(item.transaction.outletId) ?? [];
+    list.push(item);
+    txItemsByOutlet.set(item.transaction.outletId, list);
+  }
+
+  const perOutlet = await Promise.all(
+    outlets.map(async (outlet) => {
+      const omset = await getOmsetSheet(outlet.id, year, month, catalog, txItemsByOutlet.get(outlet.id) ?? []);
+      if (omset.days.every((d) => d.totalOmset === 0)) return null; // no activity — skip, not "zero"
+
+      const jpd = await getJpdSheet(outlet.id, year, month, omset);
+      // getAbsenSheet already runs getDailyRoster internally and exposes
+      // everything needed (rosterDays, the gate breakdown, per-person
+      // insentiveValue/insentiveValueRaw) — no need for a second, separate
+      // getDailyRoster call here.
+      const absen = await getAbsenSheet(outlet.id, year, month, omset, jpd.finalAvgYield);
+      const kode = shortCode(outlet.name);
+
+      const insentiveOperator = absen.rosterDays.reduce((s, d) => s + d.totalInsentifHari, 0);
+      const outletRow: InsentiveRekapOutletRow = {
+        outletId: outlet.id,
+        outletName: outlet.name,
+        kode,
+        area: outlet.region.name,
+        omsetQty: absen.totalQtySales,
+        avgSales: absen.avgSalesPerAbsen,
+        avgBeefUsed: absen.totalStandbyAll > 0 ? jpd.totalDagingKg / absen.totalStandbyAll : 0,
+        insentiveOperator,
+        gatePassed: absen.gatePassed,
+      };
+
+      const alasanParts: string[] = [];
+      if (absen.jpdAvgYield !== null) {
+        alasanParts.push(`JPD ${absen.jpdAvgYield.toFixed(3).replace(/\.?0+$/, "").replace(".", ",")} ${absen.jpdGatePassed ? "mencapai" : "belum mencapai"} target 75`);
+      }
+      if (absen.monthlyTarget > 0) {
+        const pct = absen.achievementPct ?? 0;
+        alasanParts.push(`omset ${pct.toFixed(0)}% ${absen.omsetGatePassed ? "sudah melewati" : "belum melewati"} 80% target`);
+      }
+      const alasan = alasanParts.join("; ") || "-";
+
+      const pramRows: InsentiveRekapPramuniagaRow[] = [];
+      const tidakRows: InsentiveRekapTidakDiberikanRow[] = [];
+      for (const r of absen.rows) {
+        pramRows.push({
+          outletId: outlet.id,
+          outletName: outlet.name,
+          kode,
+          rosterKey: r.rosterKey,
+          userId: r.userId,
+          pramuniagaName: r.name,
+          qty: r.qtySales,
+          insentive: r.insentiveValue,
+          gatePassed: absen.gatePassed,
+        });
+        if (!absen.gatePassed) {
+          tidakRows.push({
+            outletId: outlet.id,
+            outletName: outlet.name,
+            kode,
+            rosterKey: r.rosterKey,
+            userId: r.userId,
+            pramuniagaName: r.name,
+            qty: r.qtySales,
+            insentive: 0,
+            calculated: r.insentiveValueRaw,
+            gatePassed: false,
+            alasan,
+          });
+        }
+      }
+
+      return { outletRow, pramRows, tidakRows };
+    }),
+  );
+
+  const outletRows = perOutlet.filter((x) => x !== null).map((x) => x.outletRow);
+  const pramuniagaRows = perOutlet.filter((x) => x !== null).flatMap((x) => x.pramRows);
+  const tidakDiberikanRows = perOutlet.filter((x) => x !== null).flatMap((x) => x.tidakRows);
+
+  // Grouped (raw, not-yet-paid) total per PERSON across every outlet of
+  // theirs that didn't clear the gate this month — "Ditahan" in the
+  // business's own spreadsheet, i.e. what Diberikan would show as TOTAL
+  // if the gate had passed everywhere, kept visible so nothing silently
+  // disappears.
+  const groupedByPerson = new Map<string, number>();
+  for (const r of tidakDiberikanRows) groupedByPerson.set(r.rosterKey, (groupedByPerson.get(r.rosterKey) ?? 0) + r.calculated);
+
+  outletRows.sort((a, b) => a.outletName.localeCompare(b.outletName));
+  pramuniagaRows.sort((a, b) => a.pramuniagaName.localeCompare(b.pramuniagaName) || a.outletName.localeCompare(b.outletName));
+  tidakDiberikanRows.sort((a, b) => a.pramuniagaName.localeCompare(b.pramuniagaName) || a.outletName.localeCompare(b.outletName));
+
+  return { outletRows, pramuniagaRows, tidakDiberikanRows, groupedByPerson };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1266,7 +1487,13 @@ export async function getGajiTunjanganSummary(
     biaya: {
       royalti: insentive.royalti,
       gajiOperator: rows.reduce((s, r) => s + r.laborCost, 0),
-      insentiveOperator: Number(benefit?.insentiveOperatorAmount ?? 0),
+      // Now resolved — confirmed 2026-10-12 this is the pramuniaga bracket
+      // incentive total (same figure the Insentive Sheet shows as
+      // "Insentif Pramuniaga (Bracket)"), already gated by JPD>=75 AND
+      // omset achievement>=80% (see getDailyRoster). The OutletMonthlyBenefit
+      // field it used to read from stays in the schema as a manual override,
+      // just unused by this panel now that the real formula is known.
+      insentiveOperator: insentive.totalInsentifHari,
       insentiveOfficer: insentive.insentiveOfficer,
       insentiveHead: insentive.insentiveHead,
       tunjanganOutlet: Number(benefit?.tunjanganOutlet ?? 0),

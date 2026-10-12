@@ -127,7 +127,7 @@ export default async function OutletDetailReportPage({
     getAkunLedgerSheet(outletId, year, month),
   ]);
   const report = await getReportSheet(outletId, year, month, inventory);
-  const absen = await getAbsenSheet(outletId, year, month, omset);
+  const absen = await getAbsenSheet(outletId, year, month, omset, jpd.finalAvgYield);
   const insentive = await getInsentiveSheet(outletId, year, month, jpd, report, absen);
   const gajiTunjangan = await getGajiTunjanganSummary(outletId, outlet.name, year, month, absen, insentive, jpd, report.labaBersih);
 
@@ -939,7 +939,6 @@ export default async function OutletDetailReportPage({
                 defaultTunjanganOutlet={gajiTunjangan.biaya.tunjanganOutlet}
                 defaultGajiPengelola={gajiTunjangan.biaya.gajiPengelola}
                 defaultFullshiftAmount={gajiTunjangan.biaya.fullshift}
-                defaultInsentiveOperatorAmount={gajiTunjangan.biaya.insentiveOperator}
               />
             </div>
           </div>

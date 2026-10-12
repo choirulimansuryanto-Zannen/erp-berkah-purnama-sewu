@@ -18,8 +18,11 @@ export const outletPayrollSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
-// The 4 flat BIAYA figures on the Summary Gaji & Tunjangan panel — one
-// row per (outlet, year, month), upsert same as outletPayrollSchema.
+// The 3 flat BIAYA figures on the Summary Gaji & Tunjangan panel — one row
+// per (outlet, year, month), upsert same as outletPayrollSchema.
+// insentiveOperatorAmount is optional/unused by the current UI (that
+// figure is now computed, not manual — see getGajiTunjanganSummary) but
+// stays accepted so an existing stored value is never silently reset.
 export const outletMonthlyBenefitSchema = z.object({
   outletId: z.string().uuid(),
   year: z.number().int().min(2020).max(2100),
@@ -27,5 +30,5 @@ export const outletMonthlyBenefitSchema = z.object({
   tunjanganOutlet: z.number().min(0),
   gajiPengelola: z.number().min(0),
   fullshiftAmount: z.number().min(0),
-  insentiveOperatorAmount: z.number().min(0),
+  insentiveOperatorAmount: z.number().min(0).optional(),
 });

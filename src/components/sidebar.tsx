@@ -148,6 +148,7 @@ const NAV_SECTIONS: NavSection[] = [
           { href: "/finance/outlet-target-achievement", label: "Pencapaian Target Outlet", icon: Target, permission: "finance:view_ledger" },
           { href: "/finance/outlet", label: "Laporan Outlet", icon: FileText, permission: "finance:view_ledger" },
           { href: "/finance/insentif", label: "Laporan Insentif", icon: Percent, permission: "finance:view_ledger" },
+          { href: "/finance/insentif-rekapitulasi", label: "Rekapitulasi Insentive", icon: ClipboardList, permission: "finance:view_ledger" },
           { href: "/finance/outlet-fullshift", label: "Laporan Fullshift", icon: CalendarCheck, permission: "finance:view_ledger" },
           { href: "/finance/sharing-profit", label: "Laporan Sharing Profit", icon: HandCoins, permission: "finance:view_ledger" },
           { href: "/finance/pembanding-outlet", label: "Laporan Pembanding Outlet", icon: Columns3, permission: "finance:view_ledger" },
