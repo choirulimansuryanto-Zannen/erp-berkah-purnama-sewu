@@ -53,6 +53,8 @@ import {
   Layers,
   Building2,
   Landmark,
+  Target,
+  CalendarCheck,
 } from "lucide-react";
 import { can, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/cn";
@@ -143,8 +145,10 @@ const NAV_SECTIONS: NavSection[] = [
         permission: "finance:view_ledger",
         children: [
           { href: "/finance/kasbon", label: "Kasbon Pramuniaga", icon: HandCoins, permission: "finance:view_ledger" },
+          { href: "/finance/outlet-target-achievement", label: "Pencapaian Target Outlet", icon: Target, permission: "finance:view_ledger" },
           { href: "/finance/outlet", label: "Laporan Outlet", icon: FileText, permission: "finance:view_ledger" },
           { href: "/finance/insentif", label: "Laporan Insentif", icon: Percent, permission: "finance:view_ledger" },
+          { href: "/finance/outlet-fullshift", label: "Laporan Fullshift", icon: CalendarCheck, permission: "finance:view_ledger" },
           { href: "/finance/sharing-profit", label: "Laporan Sharing Profit", icon: HandCoins, permission: "finance:view_ledger" },
           { href: "/finance/pembanding-outlet", label: "Laporan Pembanding Outlet", icon: Columns3, permission: "finance:view_ledger" },
         ],

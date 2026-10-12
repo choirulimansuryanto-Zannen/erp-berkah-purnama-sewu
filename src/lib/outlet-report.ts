@@ -1004,6 +1004,187 @@ export async function getCompanyDailyIncentiveBreakdown(year: number, month: num
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// "Pencapaian Target Outlet" — every active outlet's monthly Omset target
+// vs. actual net sales, one row each, for the company-wide achievement
+// list (FA Outlet menu). Target = OutletMonthlyTarget.monthlyTarget for
+// the period (falls back to the outlet's static Outlet.monthlyTarget when
+// no monthly row exists yet, same fallback convention as everywhere else
+// this field is used). Actual = sum of COMPLETED transaction totals that
+// month — the same Omset figure the Insentive Sheet's own monthly gate
+// (monthlyAchieved) is built from, just aggregated across every outlet in
+// one query instead of one outlet at a time.
+// Kategori: >=100% "Achv Target", 80-99.99% "Dapat Insentive", <80%
+// "Tidak dapat Insentive" — the business only names the two endpoints
+// (100% and 80%) explicitly; the middle band is this report's own
+// completion of that same two-threshold scheme.
+// ═══════════════════════════════════════════════════════════════════════
+export type OutletTargetAchievementRow = {
+  outletId: string;
+  outletName: string;
+  area: string;
+  target: number;
+  actual: number;
+  pct: number;
+  kategori: "ACHV_TARGET" | "DAPAT_INSENTIVE" | "TIDAK_DAPAT_INSENTIVE";
+};
+
+export async function getOutletTargetAchievement(year: number, month: number): Promise<OutletTargetAchievementRow[]> {
+  const { start, end } = monthRange(year, month);
+  const [outlets, monthlyTargets, actualByOutlet] = await Promise.all([
+    prisma.outlet.findMany({ where: { status: "ACTIVE" }, include: { region: true }, orderBy: { name: "asc" } }),
+    prisma.outletMonthlyTarget.findMany({ where: { year, month } }),
+    prisma.transaction.groupBy({ by: ["outletId"], where: { status: "COMPLETED", createdAt: { gte: start, lte: end } }, _sum: { total: true } }),
+  ]);
+
+  const targetByOutletId = new Map(monthlyTargets.map((t) => [t.outletId, Number(t.monthlyTarget)]));
+  const actualMap = new Map(actualByOutlet.map((a) => [a.outletId, Number(a._sum.total ?? 0)]));
+
+  return outlets.map((o) => {
+    const target = targetByOutletId.get(o.id) ?? Number(o.monthlyTarget);
+    const actual = actualMap.get(o.id) ?? 0;
+    const pct = target > 0 ? (actual / target) * 100 : 0;
+    const kategori: OutletTargetAchievementRow["kategori"] = pct >= 100 ? "ACHV_TARGET" : pct >= 80 ? "DAPAT_INSENTIVE" : "TIDAK_DAPAT_INSENTIVE";
+    return { outletId: o.id, outletName: o.name, area: o.region.name, target, actual, pct, kategori };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// "Laporan Fullshift" — per pramuniaga, how many days in the selected
+// period their outlet's daily Omset reached the outlet's Fullshift Daily
+// Target while they were on duty, against an annual quota, paid at a flat
+// Rp50.000/day. See the 3 field definitions below for the exact formulas
+// (confirmed with the business 2026-10-12).
+//
+//   Target Fullshift = (annual Omset target ÷ Fullshift Daily Target) ×
+//     75% — a day-count quota for the YEAR containing the period's start
+//     date, independent of how long the selected period itself is.
+//     Annual target = Σ OutletMonthlyTarget.monthlyTarget for that
+//     outlet/year (falls back to Outlet.monthlyTarget × 12 for any month
+//     with no row). Fullshift Daily Target = OutletMonthlyTarget
+//     .fullshiftDailyTarget for the period's start month (falls back to
+//     Outlet.fullshiftTarget).
+//   Jumlah Achieve Fullshift = count of days within the selected period
+//     where that outlet's daily Omset >= that day's own month's
+//     Fullshift Daily Target, counted only for days the pramuniaga was
+//     present (PRESENT/LATE attendance) that day.
+//   Nominal Fullshift = Jumlah Achieve Fullshift × Rp50.000.
+// ═══════════════════════════════════════════════════════════════════════
+const FULLSHIFT_RATE = 50000;
+
+function monthsBetween(start: Date, end: Date): { year: number; month: number }[] {
+  const months: { year: number; month: number }[] = [];
+  let y = start.getUTCFullYear();
+  let m = start.getUTCMonth() + 1;
+  const endY = end.getUTCFullYear();
+  const endM = end.getUTCMonth() + 1;
+  while (y < endY || (y === endY && m <= endM)) {
+    months.push({ year: y, month: m });
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return months;
+}
+
+export type FullshiftReportRow = {
+  outletId: string;
+  outletName: string;
+  area: string;
+  userId: string;
+  pramuniagaKey: string;
+  pramuniagaName: string;
+  targetFullshift: number;
+  jumlahAchieve: number;
+  nominalFullshift: number;
+};
+
+export async function getFullshiftReport(params: {
+  start: Date;
+  end: Date;
+  outletId?: string;
+  pramuniagaId?: string;
+}): Promise<FullshiftReportRow[]> {
+  const { start, end, outletId, pramuniagaId } = params;
+  const months = monthsBetween(start, end);
+  const annualTargetYear = start.getUTCFullYear();
+
+  const [outlets, catalog, brackets, annualTargets, periodTargets] = await Promise.all([
+    prisma.outlet.findMany({ where: { status: "ACTIVE", ...(outletId ? { id: outletId } : {}) }, include: { region: true }, orderBy: { name: "asc" } }),
+    loadOmsetCatalog(),
+    prisma.incentiveBracket.findMany({ where: { status: "ACTIVE" }, orderBy: { sortOrder: "asc" } }),
+    prisma.outletMonthlyTarget.findMany({ where: { year: annualTargetYear } }),
+    prisma.outletMonthlyTarget.findMany({ where: { OR: months.map((m) => ({ year: m.year, month: m.month })) } }),
+  ]);
+
+  const annualTargetByOutlet = new Map<string, number>();
+  for (const o of outlets) {
+    let sum = 0;
+    for (let m = 1; m <= 12; m++) {
+      const row = annualTargets.find((t) => t.outletId === o.id && t.month === m);
+      sum += row ? Number(row.monthlyTarget) : Number(o.monthlyTarget);
+    }
+    annualTargetByOutlet.set(o.id, sum);
+  }
+  const fullshiftDailyTargetByOutletMonth = new Map<string, number>();
+  for (const t of periodTargets) fullshiftDailyTargetByOutletMonth.set(`${t.outletId}:${t.year}-${t.month}`, Number(t.fullshiftDailyTarget));
+  function fullshiftDailyTarget(outlet: (typeof outlets)[number], year: number, month: number): number {
+    return fullshiftDailyTargetByOutletMonth.get(`${outlet.id}:${year}-${month}`) || Number(outlet.fullshiftTarget);
+  }
+  function startMonthFullshiftDailyTarget(outlet: (typeof outlets)[number]): number {
+    return fullshiftDailyTarget(outlet, start.getUTCFullYear(), start.getUTCMonth() + 1);
+  }
+
+  const rowsByPerson = new Map<string, FullshiftReportRow>();
+
+  for (const outlet of outlets) {
+    const dailyTarget = startMonthFullshiftDailyTarget(outlet);
+    const annualTarget = annualTargetByOutlet.get(outlet.id) ?? 0;
+    const targetFullshift = dailyTarget > 0 ? (annualTarget / dailyTarget) * 0.75 : 0;
+
+    for (const { year, month } of months) {
+      const omset = await getOmsetSheet(outlet.id, year, month, catalog);
+      const roster = await getDailyRoster(outlet.id, year, month, omset, brackets);
+      const dayTarget = fullshiftDailyTarget(outlet, year, month);
+
+      for (const day of roster.days) {
+        if (day.date < start || day.date > end) continue;
+        const achievedToday = dayTarget > 0 && day.omset >= dayTarget;
+        for (const person of day.present) {
+          if (pramuniagaId && person.userId !== pramuniagaId) continue;
+          const key = `${outlet.id}:${person.rosterKey ?? person.userId}`;
+          // Row created on PRESENCE, not achievement — every pramuniaga who
+          // was on duty any day this period appears, even with 0 achieve
+          // days, so the report reads as a complete roster against quota,
+          // not just a list of who happened to hit target.
+          const row =
+            rowsByPerson.get(key) ??
+            ({
+              outletId: outlet.id,
+              outletName: outlet.name,
+              area: outlet.region.name,
+              userId: person.userId,
+              pramuniagaKey: person.rosterKey ?? person.userId,
+              pramuniagaName: person.name,
+              targetFullshift,
+              jumlahAchieve: 0,
+              nominalFullshift: 0,
+            } satisfies FullshiftReportRow);
+          if (achievedToday) {
+            row.jumlahAchieve += 1;
+            row.nominalFullshift = row.jumlahAchieve * FULLSHIFT_RATE;
+          }
+          rowsByPerson.set(key, row);
+        }
+      }
+    }
+  }
+
+  return [...rowsByPerson.values()].sort((a, b) => a.outletName.localeCompare(b.outletName) || a.pramuniagaName.localeCompare(b.pramuniagaName));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // "Summary Gaji & Tunjangan" — a compact rollup of figures already
 // computed by the Absen/Insentive/Report sheets above, reshaped into the
 // business's own one-page format (stat cards + per-pramuniaga table +
