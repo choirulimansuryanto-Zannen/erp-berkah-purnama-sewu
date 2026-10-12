@@ -78,9 +78,35 @@ export default async function FinanceJournalPage({
     }),
   ]);
 
+  // Every cash book a given entry actually MOVES money through — normally
+  // just its own tagged `cashBook`, but a Transfer Antar Buku entry is
+  // tagged under its SOURCE book only (postCashVoucher's convention: the
+  // tagged book is always the credited/decreased side, the contra account
+  // is the destination). Without this, "Buku Brankas" would never show a
+  // transfer INTO Brankas from another book — it'd only appear under the
+  // sending book, even though Brankas's own balance clearly moved. This
+  // computes the full set of books touched so each book's own page shows
+  // both directions, same as a real bank statement would.
+  function touchedCashBooks(e: (typeof entries)[number]): Set<string> {
+    const books = new Set<string>();
+    if (e.cashBook) books.add(e.cashBook);
+    if (e.entryType === "TRANSFER_ANTAR_BUKU") {
+      for (const l of e.lines) {
+        if (l.account.cashBook) books.add(l.account.cashBook);
+      }
+    }
+    return books;
+  }
+
   const rows: JournalEntryRow[] = entries.map((e) => {
-    const cashLine = e.lines.find((l) => l.account.cashBook);
-    const contraLine = e.lines.find((l) => !l.account.cashBook) ?? e.lines.find((l) => l.accountId !== cashLine?.accountId);
+    // Perspective-aware: when viewing one specific book, show ITS OWN
+    // line as "cashLine" and the other side as "contraLine" — otherwise
+    // (a Transfer Antar Buku has two cash-book-tagged lines) the generic
+    // "first cash-book line found" pick is arbitrary and can show the
+    // wrong side's account first when filtered to the receiving book.
+    const perspectiveBook = activeBook ?? e.cashBook;
+    const cashLine = (perspectiveBook && e.lines.find((l) => l.account.cashBook === perspectiveBook)) || e.lines.find((l) => l.account.cashBook);
+    const contraLine = e.lines.find((l) => l.accountId !== cashLine?.accountId);
     const amount = e.lines.reduce((sum, l) => sum + Number(l.debit), 0);
     return {
       id: e.id,
@@ -99,15 +125,17 @@ export default async function FinanceJournalPage({
   });
 
   const cashBookTotals = (Object.keys(CASH_BOOK_LABELS) as (keyof typeof CASH_BOOK_LABELS)[]).map((book) => {
-    const bookEntries = entries.filter((e) => e.cashBook === book && e.status === "POSTED");
+    const bookEntries = entries.filter((e) => e.status === "POSTED" && touchedCashBooks(e).has(book));
     return { book, label: CASH_BOOK_LABELS[book], count: bookEntries.length };
   });
 
   // Clicking a buku kas box filters "Riwayat Jurnal" below to just that
-  // book's entries — the box's own link (and the date range it carries)
-  // stays put, only `book` changes, so the period picked up top survives.
+  // book's entries (both directions — see touchedCashBooks) — the box's
+  // own link (and the date range it carries) stays put, only `book`
+  // changes, so the period picked up top survives.
   const dateQuery = `from=${localDateStr(rangeFrom)}&to=${localDateStr(rangeTo)}`;
-  const filteredRows = activeBook ? rows.filter((r) => r.cashBook === activeBook) : rows;
+  const touchedByEntryId = new Map(entries.map((e) => [e.id, touchedCashBooks(e)]));
+  const filteredRows = activeBook ? rows.filter((r) => touchedByEntryId.get(r.id)?.has(activeBook)) : rows;
 
   return (
     <div className="space-y-6">
