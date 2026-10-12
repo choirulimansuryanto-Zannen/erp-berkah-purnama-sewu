@@ -150,6 +150,15 @@ export default async function InsentiveRekapitulasiPage({
                 </Tr>
               ))}
               {outletRows.length === 0 && <EmptyRow colSpan={9}>Belum ada outlet dengan transaksi terverifikasi bulan ini.</EmptyRow>}
+              {outletRows.length > 0 && (
+                <Tr className="bg-gold-50 font-bold text-brand-900">
+                  <Td colSpan={3}>TOTAL</Td>
+                  <Td className="text-right tabular-nums">{number0.format(outletRows.reduce((s, r) => s + r.omsetQty, 0))}</Td>
+                  <Td colSpan={2}></Td>
+                  <Td className="text-right tabular-nums">{currency.format(outletRows.reduce((s, r) => s + r.insentiveOperator, 0))}</Td>
+                  <Td colSpan={2}></Td>
+                </Tr>
+              )}
             </tbody>
           </Table>
         </Card>
@@ -233,6 +242,14 @@ export default async function InsentiveRekapitulasiPage({
                 </Tr>
               ))}
               {diberikanRows.length === 0 && <EmptyRow colSpan={7}>Belum ada insentive yang diberikan bulan ini.</EmptyRow>}
+              {diberikanRows.length > 0 && (
+                <Tr className="bg-gold-50 font-bold text-brand-900">
+                  <Td colSpan={4}>TOTAL</Td>
+                  <Td className="text-right tabular-nums">{number0.format(diberikanRows.reduce((s, r) => s + r.qty, 0))}</Td>
+                  <Td className="text-right tabular-nums">{currency.format(diberikanRows.reduce((s, r) => s + r.insentive, 0))}</Td>
+                  <Td></Td>
+                </Tr>
+              )}
             </tbody>
           </Table>
         </Card>
@@ -290,6 +307,17 @@ export default async function InsentiveRekapitulasiPage({
                 });
               })()}
               {tidakDiberikanRows.length === 0 && <EmptyRow colSpan={9}>Tidak ada insentive yang ditahan bulan ini — semua outlet lolos gate.</EmptyRow>}
+              {tidakDiberikanRows.length > 0 && (
+                <Tr className="bg-gold-50 font-bold text-brand-900">
+                  <Td colSpan={4}>TOTAL</Td>
+                  <Td className="text-right tabular-nums">{number0.format(tidakDiberikanRows.reduce((s, r) => s + r.qty, 0))}</Td>
+                  <Td className="text-right tabular-nums">{currency.format(tidakDiberikanRows.reduce((s, r) => s + r.calculated, 0))}</Td>
+                  <Td className="text-right tabular-nums text-rose-700">
+                    {currency.format([...new Set(tidakDiberikanRows.map((r) => r.rosterKey))].reduce((s, key) => s + (groupedByPerson.get(key) ?? 0), 0))}
+                  </Td>
+                  <Td colSpan={2}></Td>
+                </Tr>
+              )}
             </tbody>
           </Table>
         </Card>

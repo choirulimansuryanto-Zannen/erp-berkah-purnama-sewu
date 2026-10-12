@@ -10,8 +10,10 @@ import { Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, Thead, Th, Tr, Td, EmptyRow } from "@/components/ui/table";
 import { StatCard } from "@/components/ui/stat-card";
+import { ExportExcelButton } from "@/components/ui/export-excel-button";
 import { RunCalculationButton } from "@/components/finance/run-calculation-button";
 import { AddOutletInvestorShareForm } from "@/components/finance/add-outlet-investor-share-form";
+import { InvestorLedgerCellInput } from "@/components/finance/investor-ledger-cell-input";
 import { getInvestorPLRekap } from "@/lib/outlet-investor";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
@@ -150,9 +152,11 @@ export default async function SharingProfitPage({
       </Card>
 
       {/* Rekap Akumulasi Profit & Loss Investor — outlet-level MoU ledger,
-          see lib/outlet-investor.ts for the recurrence. Read-only for now:
-          Adj./lock-override editing exists at the data layer (per-month
-          OutletInvestorMonthlyLedger) but isn't wired into this view yet. */}
+          see lib/outlet-investor.ts for the recurrence. Adj./lock-override
+          editing (InvestorLedgerCellInput) only applies when a specific
+          Bulan is selected, not "Semua bulan" — that view shows the
+          year-end cumulative state, which isn't any single month's own
+          cell to edit. */}
       <Card>
         <form className="flex flex-wrap items-end gap-3 p-5">
           <div>
@@ -184,8 +188,11 @@ export default async function SharingProfitPage({
 
       <Card className="p-0" id="investor-pl-rekap-section">
         <CardHeader>
-          <CardTitle>Rekap Akumulasi Profit and Loss Investor</CardTitle>
-          <p className="text-xs font-bold uppercase tracking-wide text-accent-700">Periode {rekapPeriodLabel}</p>
+          <div>
+            <CardTitle>Rekap Akumulasi Profit and Loss Investor</CardTitle>
+            <p className="text-xs font-bold uppercase tracking-wide text-accent-700">Periode {rekapPeriodLabel}</p>
+          </div>
+          <ExportExcelButton containerId="investor-pl-rekap-section" filename={`Rekap_PL_Investor_${rekapPeriodLabel.replace(/\s+/g, "_")}.xlsx`} />
         </CardHeader>
         <Table data-sheet-name="Rekap_PL_Investor" wrapperClassName="max-h-[75vh] overflow-auto">
           <Thead className="sticky top-0 z-20 bg-slate-50">
@@ -196,6 +203,7 @@ export default async function SharingProfitPage({
               <Th className="text-right">Accum.</Th>
               <Th className="text-right">Adj.</Th>
               <Th className="text-right">Transfer/Shared</Th>
+              <Th>Kunci Bulan Ini</Th>
             </tr>
           </Thead>
           <tbody>
@@ -204,12 +212,34 @@ export default async function SharingProfitPage({
                 <Td className="font-bold text-slate-900 underline decoration-slate-300">{r.investorName}</Td>
                 <Td>{r.outletNames.join(" · ")}</Td>
                 <Td className="text-right tabular-nums">{currency.format(r.shareValue)}</Td>
-                <Td className="text-right tabular-nums">{currency.format(r.accum)}</Td>
+                <Td className={`text-right tabular-nums ${r.accumIsOverride ? "font-semibold text-amber-700" : ""}`}>
+                  {currency.format(r.accum)}
+                  {r.accumIsOverride && <span title="Dikunci manual"> 🔒</span>}
+                </Td>
                 <Td className="text-right tabular-nums text-slate-400">{r.adj !== 0 ? currency.format(r.adj) : "—"}</Td>
-                <Td className="text-right font-bold tabular-nums">{currency.format(r.transferShared)}</Td>
+                <Td className={`text-right font-bold tabular-nums ${r.transferSharedIsOverride ? "text-amber-700" : ""}`}>
+                  {currency.format(r.transferShared)}
+                  {r.transferSharedIsOverride && <span title="Dikunci manual"> 🔒</span>}
+                </Td>
+                <Td>
+                  {rekapMonthParam === 0 ? (
+                    <span className="text-[10px] italic text-slate-400">pilih bulan spesifik</span>
+                  ) : (
+                    <InvestorLedgerCellInput
+                      investorId={r.investorId}
+                      year={r.year}
+                      month={r.month}
+                      defaultAdj={r.adj}
+                      defaultAccum={r.accum}
+                      defaultAccumIsOverride={r.accumIsOverride}
+                      defaultTransferShared={r.transferShared}
+                      defaultTransferSharedIsOverride={r.transferSharedIsOverride}
+                    />
+                  )}
+                </Td>
               </Tr>
             ))}
-            {investorRows.length === 0 && <EmptyRow colSpan={6}>Belum ada investor outlet dengan MoU aktif pada periode ini.</EmptyRow>}
+            {investorRows.length === 0 && <EmptyRow colSpan={7}>Belum ada investor outlet dengan MoU aktif pada periode ini.</EmptyRow>}
             {investorRows.length > 0 && (
               <Tr className="bg-gold-50 font-bold text-brand-900">
                 <Td colSpan={2}>Total</Td>
@@ -217,6 +247,7 @@ export default async function SharingProfitPage({
                 <Td className="text-right tabular-nums">{currency.format(totalAccum)}</Td>
                 <Td>—</Td>
                 <Td className="text-right tabular-nums">{currency.format(totalTransferShared)}</Td>
+                <Td></Td>
               </Tr>
             )}
           </tbody>
@@ -225,6 +256,8 @@ export default async function SharingProfitPage({
           <strong>Share Value</strong> = share MoU × laba bersih outlet (dijumlah dari setiap outlet investor tsb). <strong>Accum.</strong> = Share Value −
           Transfer/Shared bulan lalu − Adj.; bulan lalu hanya terakumulasi kalau bulan itu tidak profit. <strong>Transfer/Shared</strong> = hitungan bersih
           dari Accum., dipakai sebagai Saldo Share Profit Investor. Nilai negatif tetap ditampilkan dan tetap diperhitungkan di akumulasi bulan berikutnya.
+          Tanda 🔒 berarti Accum./Transfer-Shared bulan itu dikunci manual (tidak memakai hitungan otomatis) — klik &quot;Edit&quot; pada baris investor
+          (hanya muncul saat memilih Bulan spesifik, bukan &quot;Semua bulan&quot;) untuk mengunci atau membuka kuncinya.
         </p>
       </Card>
     </div>

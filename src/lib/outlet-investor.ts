@@ -124,10 +124,14 @@ export type InvestorPLRow = {
   investorId: string;
   investorName: string;
   outletNames: string[];
+  year: number;
+  month: number;
   shareValue: number;
   accum: number;
+  accumIsOverride: boolean;
   adj: number;
   transferShared: number;
+  transferSharedIsOverride: boolean;
 };
 
 /**
@@ -165,10 +169,14 @@ export async function getInvestorPLRekap(year: number, month: number): Promise<I
       investorId: inv.id,
       investorName: inv.name,
       outletNames: [...new Set(shares.map((s) => s.outletName))],
+      year: last.year,
+      month: last.month,
       shareValue: last.shareValue,
       accum: last.accum,
+      accumIsOverride: last.accumIsOverride,
       adj: last.adj,
       transferShared: last.transferShared,
+      transferSharedIsOverride: last.transferSharedIsOverride,
     });
   }
   return rows;
