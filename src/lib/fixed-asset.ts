@@ -95,6 +95,44 @@ function sumRows(rows: FixedAssetScheduleRow[]) {
 }
 
 /**
+ * The years worth showing in the Fixed Asset year picker — from the
+ * earliest asset's acquisition year through the latest asset's
+ * fully-depreciated year (acquisition + useful life), padded a couple
+ * years on each side so a newly-registered asset still has room to
+ * browse into the future before its schedule actually needs it, and
+ * historical corrections just before the earliest acquisition stay
+ * reachable too. This is computed from real data (not a fixed ±N-year
+ * window) so it grows automatically as assets are added — adding a
+ * 10-year asset next year, or backfilling one acquired years ago, just
+ * works without anyone needing to widen a hardcoded range again.
+ * Falls back to a plain window around today when there are no assets yet.
+ */
+export async function getFixedAssetYearRange(): Promise<{ minYear: number; maxYear: number }> {
+  const assets = await prisma.fixedAsset.findMany({
+    where: { status: "ACTIVE" },
+    select: { acquisitionDate: true, usefulLifeMonths: true },
+  });
+  const thisYear = new Date().getFullYear();
+  if (assets.length === 0) return { minYear: thisYear - 2, maxYear: thisYear + 2 };
+
+  let minYear = thisYear;
+  let maxYear = thisYear;
+  for (const a of assets) {
+    const acqYear = a.acquisitionDate.getUTCFullYear();
+    const endYear = acqYear + Math.ceil(a.usefulLifeMonths / 12);
+    if (acqYear < minYear) minYear = acqYear;
+    if (endYear > maxYear) maxYear = endYear;
+  }
+  // The future end is capped — one asset with an unusually long useful
+  // life (decades) shouldn't blow the picker out to a 50-year dropdown
+  // nobody will ever scroll through. thisYear+10 comfortably covers any
+  // normal asset's remaining schedule for day-to-day monitoring; an asset
+  // whose depreciation genuinely runs past that is still computed
+  // correctly, just not pre-listed that far out in the picker.
+  return { minYear: minYear - 2, maxYear: Math.min(maxYear + 3, thisYear + 10) };
+}
+
+/**
  * `asOfMonth` (1-12, or 0) cuts off the YTD/Accumulated/Economic-Value
  * summary figures — pass the current month for the current year, 12 for
  * a past year, 0 for a future year (see page.tsx). The monthly grid

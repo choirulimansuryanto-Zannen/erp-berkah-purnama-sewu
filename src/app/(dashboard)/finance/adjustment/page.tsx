@@ -13,7 +13,7 @@ import { getCompanyMaterialSchedule } from "@/lib/company-material";
 import { CompanyMaterialSkuTable } from "@/components/finance/company-material-sku-table";
 import { getAdjustingEntryGrid } from "@/lib/accounting";
 import { JurnalPenyesuaianGrid } from "@/components/finance/jurnal-penyesuaian-grid";
-import { getFixedAssetSchedule } from "@/lib/fixed-asset";
+import { getFixedAssetSchedule, getFixedAssetYearRange } from "@/lib/fixed-asset";
 import { CreateFixedAssetForm } from "@/components/finance/create-fixed-asset-form";
 import { DisposeFixedAssetButton } from "@/components/finance/dispose-fixed-asset-button";
 import { getVendorLedgers } from "@/lib/vendor-ledger";
@@ -141,6 +141,7 @@ export default async function AdjustmentPage({
     accounts,
     jpLines,
     fixedAssetSchedule,
+    faYearRange,
     vendorLedgers,
     vendors,
     receivableLedger,
@@ -150,11 +151,20 @@ export default async function AdjustmentPage({
     prisma.chartOfAccount.findMany({ where: { status: "ACTIVE" }, orderBy: { code: "asc" } }),
     getAdjustingEntryGrid(jpYear, jpMonth),
     getFixedAssetSchedule(faYear, faAsOfMonth),
+    getFixedAssetYearRange(),
     getVendorLedgers(),
     prisma.vendor.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { sortOrder: "asc" } }),
     getReceivableLedger(arYear, arMonth),
     getSalaryRecap(srYear, srMonth),
   ]);
+  // Fixed Asset's own year picker — data-driven range (see
+  // getFixedAssetYearRange), not the shared ±2-year `years` list used by
+  // the other period filters on this page. Also guaranteed to include
+  // faYear itself even if the user lands on a year outside the computed
+  // range via a stale/typed URL, so the picker never silently drops the
+  // year actually being viewed.
+  const faYearsRaw = Array.from({ length: faYearRange.maxYear - faYearRange.minYear + 1 }, (_, i) => faYearRange.minYear + i);
+  const faYears = faYearsRaw.includes(faYear) ? faYearsRaw : [...faYearsRaw, faYear].sort((a, b) => a - b);
 
   // ── Jurnal Penyesuaian ──────────────────────────────────────────────
   const jpTransactionCount = new Set(jpLines.map((l) => l.journalEntryId)).size;
@@ -213,7 +223,7 @@ export default async function AdjustmentPage({
             <div>
               <Label className="text-[11px]">Tahun</Label>
               <Select name="faYear" defaultValue={String(faYear)} className="mt-1">
-                {years.map((y) => (
+                {faYears.map((y) => (
                   <option key={y} value={y}>
                     {y}
                   </option>

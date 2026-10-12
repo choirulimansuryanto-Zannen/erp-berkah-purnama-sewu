@@ -28,7 +28,12 @@ const LEFT_TRX = "left-[90px]";
 const LEFT_LINE = "left-[180px]";
 const LEFT_COA = "left-[230px]";
 const stickyCellClass = "sticky will-change-transform z-10 bg-white";
-const stickyHeaderClass = "sticky will-change-transform z-20 bg-brand-950";
+// z-30 (not z-20) — these cells also need to stay above the rest of the
+// header row during horizontal scroll, and the row itself now sits in a
+// `sticky top-0 z-20` <thead> (see below), so the frozen-column cells
+// must outrank that to still read correctly at the Tgl/TRX_BOOKS/Line/
+// COA intersection. Same convention as Fixed Asset's frozen header cells.
+const stickyHeaderClass = "sticky will-change-transform z-30 bg-brand-950";
 
 // One row per JournalEntryLine — Tgl/TRX_BOOKS/line are always derived
 // from the selected period (see lib/accounting.ts), never typed by hand.
@@ -249,19 +254,25 @@ export function JurnalPenyesuaianGrid({ lines, accounts, year, month }: { lines:
 
   return (
     <div>
-      <div className="overflow-x-auto">
+      <div className="max-h-[70vh] overflow-auto">
         <table className="w-full min-w-[1400px] border-collapse text-xs">
+          {/* Sticky set on each <th> individually, not on <thead> — a
+              sticky <thead> combined with border-collapse is an unreliable
+              Chromium combo (header bleeds through with scrolled-under
+              content visible underneath); per-cell sticky is the same
+              proven-clean pattern already used for the left-frozen columns
+              and for every other table in this app. */}
           <thead>
             <tr className="bg-brand-950 text-white">
-              <th className={`${stickyHeaderClass} ${LEFT_TGL} ${COL_TGL_W} px-2 py-2 text-left`}>Tgl</th>
-              <th className={`${stickyHeaderClass} ${LEFT_TRX} ${COL_TRX_W} px-2 py-2 text-left`}>TRX_BOOKS</th>
-              <th className={`${stickyHeaderClass} ${LEFT_LINE} ${COL_LINE_W} px-2 py-2 text-center`}>Line</th>
-              <th className={`${stickyHeaderClass} ${LEFT_COA} ${COL_COA_W} border-r border-brand-800 px-2 py-2 text-left`}>COA / Akun</th>
-              <th className="px-2 py-2 text-right">Debit</th>
-              <th className="px-2 py-2 text-right">Credit</th>
-              <th className="min-w-[180px] px-2 py-2 text-left">Remarks</th>
-              <th className="min-w-[160px] px-2 py-2 text-left">Cost Description</th>
-              <th className="min-w-[130px] px-2 py-2 text-left">Cost Centre</th>
+              <th className={`${stickyHeaderClass} top-0 ${LEFT_TGL} ${COL_TGL_W} px-2 py-2 text-left`}>Tgl</th>
+              <th className={`${stickyHeaderClass} top-0 ${LEFT_TRX} ${COL_TRX_W} px-2 py-2 text-left`}>TRX_BOOKS</th>
+              <th className={`${stickyHeaderClass} top-0 ${LEFT_LINE} ${COL_LINE_W} px-2 py-2 text-center`}>Line</th>
+              <th className={`${stickyHeaderClass} top-0 ${LEFT_COA} ${COL_COA_W} border-r border-brand-800 px-2 py-2 text-left`}>COA / Akun</th>
+              <th className="sticky will-change-transform top-0 z-20 bg-brand-950 px-2 py-2 text-right">Debit</th>
+              <th className="sticky will-change-transform top-0 z-20 bg-brand-950 px-2 py-2 text-right">Credit</th>
+              <th className="sticky will-change-transform top-0 z-20 min-w-[180px] bg-brand-950 px-2 py-2 text-left">Remarks</th>
+              <th className="sticky will-change-transform top-0 z-20 min-w-[160px] bg-brand-950 px-2 py-2 text-left">Cost Description</th>
+              <th className="sticky will-change-transform top-0 z-20 min-w-[130px] bg-brand-950 px-2 py-2 text-left">Cost Centre</th>
             </tr>
           </thead>
           <tbody>
