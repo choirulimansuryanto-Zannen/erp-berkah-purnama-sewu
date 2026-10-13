@@ -15,10 +15,18 @@ export const journalImportRowSchema = z.object({
   amount: z.number().positive(),
 });
 
+// `rows` is capped per REQUEST, not per file — JournalImportForm splits a
+// large file into chunks well under this (see CHUNK_SIZE there) to stay
+// under Vercel's ~4.5MB request body limit, something a file-wide row cap
+// can't protect against on its own (confirmed 2026-10-13 against a real
+// Outlet statement bigger than the old 5000-row-per-file limit). This cap
+// just guards a single request from being absurdly large.
 export const journalImportPostSchema = z.object({
   cashBook: z.enum(["KASIR", "BRANKAS", "OUTLET", "PETTY_CASH", "BANK_BCA", "BANK_MANDIRI"]),
   fileName: z.string().max(255).optional(),
   targetYear: z.number().int().min(2020).max(2100),
   targetMonth: z.number().int().min(1).max(12),
-  rows: z.array(journalImportRowSchema).min(1).max(5000),
+  rows: z.array(journalImportRowSchema).min(1).max(2000),
+  // Set on every chunk after the first — see postJournalImportBatch.
+  existingBatchId: z.string().uuid().optional(),
 });

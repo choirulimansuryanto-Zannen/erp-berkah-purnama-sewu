@@ -39,6 +39,17 @@ export type JournalImportRowInput = {
 // Excel-parsing step that produces these) as real JournalEntry + 2 lines
 // each — a DB row debits the uploaded book's own account and credits its
 // Transitory account, a CR row the reverse.
+//
+// `existingBatchId`: a real file can have far more rows than safely fit
+// in one network request — Vercel hard-caps a Serverless Function's
+// request body around 4.5MB, something a mere zod `.max(5000)` can't
+// prevent (confirmed 2026-10-13 against a real Outlet statement bigger
+// than that). JournalImportForm now chunks a large file into several
+// POSTs instead: the first chunk creates the batch as before, every
+// later chunk passes that batch's id back in here so its entries land
+// in the SAME JournalImportBatch (one row count, one pair of totals, one
+// "Batalkan Import Ini" for the whole file regardless of how many
+// requests it took to post).
 export async function postJournalImportBatch(params: {
   cashBook: CashBook;
   rows: JournalImportRowInput[];
@@ -46,17 +57,20 @@ export async function postJournalImportBatch(params: {
   fileName?: string;
   targetYear: number;
   targetMonth: number;
+  existingBatchId?: string;
 }) {
-  const { cashBook, rows, createdById, fileName, targetYear, targetMonth } = params;
+  const { cashBook, rows, createdById, fileName, targetYear, targetMonth, existingBatchId } = params;
 
   // Created FIRST (totals filled in after the loop, via update) so every
   // entry below can be tagged with its batch id as it's created — see
   // JournalImportBatch: this is what lets a whole mis-targeted upload
   // (wrong period, wrong buku kas) be undone in one action instead of
   // voiding each entry by hand.
-  const batch = await prisma.journalImportBatch.create({
-    data: { cashBook, fileName, targetYear, targetMonth, rowCount: rows.length, totalDebitRows: 0, totalCreditRows: 0, createdById },
-  });
+  const batch = existingBatchId
+    ? await prisma.journalImportBatch.findUniqueOrThrow({ where: { id: existingBatchId } })
+    : await prisma.journalImportBatch.create({
+        data: { cashBook, fileName, targetYear, targetMonth, rowCount: 0, totalDebitRows: 0, totalCreditRows: 0, createdById },
+      });
 
   const [uploadedBookAccount, transitoryAccount, allExisting] = await Promise.all([
     prisma.chartOfAccount.findFirst({ where: { cashBook, status: "ACTIVE" } }),
@@ -179,12 +193,25 @@ export async function postJournalImportBatch(params: {
   }
   const created = entryRows.length;
 
-  await prisma.journalImportBatch.update({
+  // `increment` (not a plain set) so a later chunk adds onto the running
+  // totals from earlier chunks of the same file instead of overwriting
+  // them — the response's totals are the CUMULATIVE total for the whole
+  // batch so far, not just this chunk's.
+  const updatedBatch = await prisma.journalImportBatch.update({
     where: { id: batch.id },
-    data: { totalDebitRows, totalCreditRows },
+    data: {
+      rowCount: { increment: rows.length },
+      totalDebitRows: { increment: totalDebitRows },
+      totalCreditRows: { increment: totalCreditRows },
+    },
   });
 
-  return { created, totalDebitRows, totalCreditRows, batchId: batch.id };
+  return {
+    created,
+    totalDebitRows: Number(updatedBatch.totalDebitRows),
+    totalCreditRows: Number(updatedBatch.totalCreditRows),
+    batchId: batch.id,
+  };
 }
 
 // Deletes an entire import batch — every entry + line it created, then

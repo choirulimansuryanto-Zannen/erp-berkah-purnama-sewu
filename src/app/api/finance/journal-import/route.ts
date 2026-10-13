@@ -25,6 +25,7 @@ export async function POST(request: Request) {
       fileName: parsed.data.fileName,
       targetYear: parsed.data.targetYear,
       targetMonth: parsed.data.targetMonth,
+      existingBatchId: parsed.data.existingBatchId,
     });
     return NextResponse.json({ success: true, ...result });
   } catch (e) {

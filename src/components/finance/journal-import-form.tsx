@@ -214,6 +214,7 @@ export function JournalImportForm() {
 
   const [parseError, setParseError] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
+  const [postProgress, setPostProgress] = useState<string | null>(null);
   const [postResult, setPostResult] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
   const [lastBatchId, setLastBatchId] = useState<string | null>(null);
@@ -239,41 +240,79 @@ export function JournalImportForm() {
     await postImport(rows, file.name);
   }
 
+  // A real file can have far more rows than safely fit in one request —
+  // Vercel caps a Serverless Function's request body around 4.5MB, which
+  // a plain row-count limit can't prevent (a real Outlet statement hit
+  // this 2026-10-13). So a large file is split into chunks and posted
+  // sequentially, all into the SAME JournalImportBatch (see
+  // postJournalImportBatch's `existingBatchId`) — "Batalkan Import Ini"
+  // still undoes the whole file in one action no matter how many
+  // requests it took to post it.
+  const CHUNK_SIZE = 1500;
+
   async function postImport(rows: ParsedRow[], fileName: string) {
     setPosting(true);
     setPostResult(null);
     setPostError(null);
     try {
-      const payloadRows = rows.map((r) => ({
-        date: `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(r.day).padStart(2, "0")}`,
-        costCentre: r.costCentre || undefined,
-        subCost: r.subCost || undefined,
-        code: r.code || undefined,
-        keterangan: r.keterangan,
-        dbcr: r.dbcr,
-        amount: r.amount,
-      }));
-      const res = await fetch("/api/finance/journal-import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cashBook, fileName, targetYear: Number(targetYear), targetMonth: Number(targetMonth), rows: payloadRows }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setPostResult(
-          `${data.created} jurnal berhasil diposting ke ${CASH_BOOK_LABELS[cashBook]} — ${BULAN_NAMES_ID[Number(targetMonth) - 1][0].toUpperCase() + BULAN_NAMES_ID[Number(targetMonth) - 1].slice(1)} ${targetYear}. Total baris bertanda DB: ${currency.format(data.totalDebitRows)}, total baris bertanda CR: ${currency.format(data.totalCreditRows)}.`,
-        );
-        setLastBatchId(data.batchId);
-        setSelectedFile(null);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        router.refresh();
-      } else {
-        setPostError(typeof data.error === "string" ? data.error : JSON.stringify(data.error));
+      const chunks: ParsedRow[][] = [];
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) chunks.push(rows.slice(i, i + CHUNK_SIZE));
+
+      let batchId: string | undefined;
+      let totalDebitRows = 0;
+      let totalCreditRows = 0;
+      let createdTotal = 0;
+
+      for (let i = 0; i < chunks.length; i++) {
+        if (chunks.length > 1) {
+          setPostProgress(`Memposting... (${Math.min((i + 1) * CHUNK_SIZE, rows.length)} dari ${rows.length} baris)`);
+        }
+        const payloadRows = chunks[i].map((r) => ({
+          date: `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(r.day).padStart(2, "0")}`,
+          costCentre: r.costCentre || undefined,
+          subCost: r.subCost || undefined,
+          code: r.code || undefined,
+          keterangan: r.keterangan,
+          dbcr: r.dbcr,
+          amount: r.amount,
+        }));
+        const res = await fetch("/api/finance/journal-import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cashBook,
+            fileName,
+            targetYear: Number(targetYear),
+            targetMonth: Number(targetMonth),
+            rows: payloadRows,
+            existingBatchId: batchId,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          const already = batchId ? ` ${createdTotal} dari ${rows.length} baris sudah terlanjur terposting — pakai "Batalkan Import Ini" di bawah kalau mau mengulang dari awal.` : "";
+          setPostError((typeof data.error === "string" ? data.error : JSON.stringify(data.error)) + already);
+          if (batchId) setLastBatchId(batchId);
+          return;
+        }
+        batchId = data.batchId;
+        totalDebitRows = data.totalDebitRows;
+        totalCreditRows = data.totalCreditRows;
+        createdTotal += data.created;
       }
+
+      setPostResult(
+        `${createdTotal} jurnal berhasil diposting ke ${CASH_BOOK_LABELS[cashBook]} — ${BULAN_NAMES_ID[Number(targetMonth) - 1][0].toUpperCase() + BULAN_NAMES_ID[Number(targetMonth) - 1].slice(1)} ${targetYear}. Total baris bertanda DB: ${currency.format(totalDebitRows)}, total baris bertanda CR: ${currency.format(totalCreditRows)}.`,
+      );
+      setLastBatchId(batchId ?? null);
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      router.refresh();
     } catch {
       setPostError("Gagal mengirim data ke server.");
     } finally {
       setPosting(false);
+      setPostProgress(null);
     }
   }
 
@@ -357,11 +396,12 @@ export function JournalImportForm() {
       </div>
 
       <p className="text-[11px] text-slate-400">
-        Pilih Buku Kas dan periode tujuan, pilih file, lalu tekan Upload — jurnalnya langsung terposting. Akun lawan diambil otomatis dari akun
-        Transitory Buku Kas yang bersangkutan. Tanggal pada file hanya dipakai tanggal-nya (hari); bulan &amp; tahun selalu memakai pilihan di atas.
+        Pilih Buku Kas dan periode tujuan, pilih file, lalu tekan Upload — jurnalnya langsung terposting, berapa pun jumlah barisnya (file besar otomatis
+        dipecah jadi beberapa bagian saat dikirim). Akun lawan diambil otomatis dari akun Transitory Buku Kas yang bersangkutan. Tanggal pada file hanya
+        dipakai tanggal-nya (hari); bulan &amp; tahun selalu memakai pilihan di atas.
       </p>
 
-      {posting && <p className="text-xs font-semibold text-accent-700">Memposting...</p>}
+      {posting && <p className="text-xs font-semibold text-accent-700">{postProgress ?? "Memposting..."}</p>}
       {parseError && <p className="text-xs font-semibold text-rose-600 whitespace-pre-wrap">{parseError}</p>}
       {postError && <p className="text-xs font-semibold text-rose-600">{postError}</p>}
 
