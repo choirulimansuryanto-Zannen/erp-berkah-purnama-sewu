@@ -4,9 +4,6 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
 
-type Account = { id: string; code: string; name: string; cashBook: string | null };
-type ImportDefault = { defaultDbAccountId: string | null; defaultCrAccountId: string | null };
-
 const CASH_BOOKS = ["KASIR", "BRANKAS", "OUTLET", "PETTY_CASH", "BANK_BCA", "BANK_MANDIRI"] as const;
 const CASH_BOOK_LABELS: Record<string, string> = {
   KASIR: "Kasir",
@@ -196,49 +193,24 @@ async function parseFile(file: File): Promise<ParsedRow[]> {
   return rows;
 }
 
-// Minimal flow (simplified 2026-10-13 — the earlier preview/per-Keterangan
-// -mapping screen was "sangat merepotkan" for a real bank statement with
-// 1875 near-unique descriptions): set Buku Kas/Tahun/Bulan, pick the
-// file, press Upload, get one confirm() summarizing what's about to be
-// posted, and on OK it posts immediately — no in-page preview table.
-// "Batalkan Import Ini" / Riwayat Import below stay as the safety net
-// for a wrong period/buku kas, same as before.
-//
-// Akun lawan (DB/CR) (further simplified same day, per explicit request:
-// "akun lawan di hilangkan DALAM PROSES MENGUPLOAD" / "cukup mengupload
-// saja, diberikan button upload"): the contra-account pickers are now
-// fully OUT of the upload path. Each Buku Kas's akun lawan is configured
-// once via the separate, collapsed "Atur Akun Lawan Default" panel
-// (saved straight to JournalImportDefaultAccount, independent of any
-// import), and the upload row itself is just Buku Kas / Tahun / Bulan /
-// File / tombol Upload — pressing Upload silently reuses whatever's
-// already configured, no account UI in that path at all. If a book was
-// never configured yet, Upload is blocked with an error pointing at the
-// settings panel instead of showing the pickers inline.
-export function JournalImportForm({ accounts, importDefaults }: { accounts: Account[]; importDefaults: Record<string, ImportDefault> }) {
+// Minimal flow (simplified 2026-10-13, then simplified further the same
+// day per explicit, repeated request: "akun lawan di hilangkan DALAM
+// PROSES MENGUPLOAD", then "hilangkan allert dan akun lawan, hanya cukup
+// button upload saja"): set Buku Kas/Tahun/Bulan, pick the file, press
+// Upload — it parses and posts immediately, no confirm() dialog and no
+// account picker anywhere in this component at all. The akun lawan is
+// resolved entirely server-side (see postJournalImportBatch) from each
+// Buku Kas's own pre-existing "Transitory" suspense account in the Chart
+// of Account — confirmed against that exact account mapping. "Batalkan
+// Import Ini" / Riwayat Import below stay as the only safety net for a
+// wrong period/buku kas.
+export function JournalImportForm() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [cashBook, setCashBook] = useState<string>("BRANKAS");
   const [targetYear, setTargetYear] = useState(String(new Date().getFullYear()));
   const [targetMonth, setTargetMonth] = useState(String(new Date().getMonth() + 1));
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-
-  // What's actually configured per Buku Kas — seeded from the server,
-  // then kept in sync locally whenever the settings panel saves a change
-  // (so Upload sees it immediately, without a full page reload).
-  const [defaultsByBook, setDefaultsByBook] = useState<Record<string, ImportDefault>>(importDefaults);
-  const currentDefault = defaultsByBook[cashBook];
-  const defaultDbAccountId = currentDefault?.defaultDbAccountId ?? "";
-  const defaultCrAccountId = currentDefault?.defaultCrAccountId ?? "";
-
-  // The settings panel's own edit buffer — only touched while the panel
-  // is open, separate from `defaultsByBook` so typing in it doesn't
-  // affect Upload until "Simpan" is pressed.
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [editDbAccountId, setEditDbAccountId] = useState("");
-  const [editCrAccountId, setEditCrAccountId] = useState("");
-  const [savingSettings, setSavingSettings] = useState(false);
-  const [settingsSaved, setSettingsSaved] = useState(false);
 
   const [parseError, setParseError] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
@@ -248,45 +220,6 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
   const [undoing, setUndoing] = useState(false);
   const [undone, setUndone] = useState(false);
 
-  function handleCashBookChange(next: string) {
-    setCashBook(next);
-    const nextDefault = defaultsByBook[next];
-    setEditDbAccountId(nextDefault?.defaultDbAccountId ?? "");
-    setEditCrAccountId(nextDefault?.defaultCrAccountId ?? "");
-    setSettingsSaved(false);
-  }
-
-  function openSettings() {
-    setEditDbAccountId(defaultDbAccountId);
-    setEditCrAccountId(defaultCrAccountId);
-    setSettingsSaved(false);
-    setSettingsOpen(true);
-  }
-
-  async function saveSettings() {
-    setSavingSettings(true);
-    setSettingsSaved(false);
-    try {
-      const res = await fetch("/api/finance/journal-import/default-account", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cashBook, defaultDbAccountId: editDbAccountId || null, defaultCrAccountId: editCrAccountId || null }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setDefaultsByBook((prev) => ({ ...prev, [cashBook]: { defaultDbAccountId: data.defaultDbAccountId, defaultCrAccountId: data.defaultCrAccountId } }));
-        setSettingsSaved(true);
-        setParseError(null);
-      } else {
-        setPostError(typeof data.error === "string" ? data.error : "Gagal menyimpan akun lawan.");
-      }
-    } catch {
-      setPostError("Gagal menyimpan akun lawan.");
-    } finally {
-      setSavingSettings(false);
-    }
-  }
-
   async function handleUpload() {
     const file = selectedFile;
     if (!file) return;
@@ -295,11 +228,6 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
     setPostError(null);
     setUndone(false);
 
-    if (!defaultDbAccountId && !defaultCrAccountId) {
-      setParseError(`Akun lawan untuk ${CASH_BOOK_LABELS[cashBook]} belum diatur — buka "Atur Akun Lawan Default" di bawah, lalu ulangi Upload.`);
-      return;
-    }
-
     let rows: ParsedRow[];
     try {
       rows = await parseFile(file);
@@ -307,36 +235,6 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
       setParseError(e instanceof Error ? e.message : "Gagal membaca file.");
       return;
     }
-
-    const hasDbRows = rows.some((r) => r.dbcr === "DB");
-    const hasCrRows = rows.some((r) => r.dbcr === "CR");
-    if ((hasDbRows && !defaultDbAccountId) || (hasCrRows && !defaultCrAccountId)) {
-      setParseError(
-        `File ini punya baris ${hasDbRows && !defaultDbAccountId ? "DB" : "CR"} tapi akun lawan untuk itu belum diatur untuk ${CASH_BOOK_LABELS[cashBook]} — buka "Atur Akun Lawan Default" di bawah, lalu ulangi Upload.`,
-      );
-      return;
-    }
-
-    const totalDb = rows.filter((r) => r.dbcr === "DB").reduce((s, r) => s + r.amount, 0);
-    const totalCr = rows.filter((r) => r.dbcr === "CR").reduce((s, r) => s + r.amount, 0);
-    const bulanLabel = BULAN_NAMES_ID[Number(targetMonth) - 1][0].toUpperCase() + BULAN_NAMES_ID[Number(targetMonth) - 1].slice(1);
-    const dbAccountName = accounts.find((a) => a.id === defaultDbAccountId)?.name ?? "-";
-    const crAccountName = accounts.find((a) => a.id === defaultCrAccountId)?.name ?? "-";
-
-    const summary = [
-      `Import ${rows.length} jurnal dari "${file.name}"?`,
-      "",
-      `Buku Kas: ${CASH_BOOK_LABELS[cashBook]}`,
-      `Periode tujuan: ${bulanLabel} ${targetYear}`,
-      hasDbRows ? `Total DB: ${currency.format(totalDb)} -> akun lawan "${dbAccountName}"` : null,
-      hasCrRows ? `Total CR: ${currency.format(totalCr)} -> akun lawan "${crAccountName}"` : null,
-      "",
-      "Pastikan Buku Kas dan periode di atas sudah benar sebelum menekan OK — bisa dibatalkan sesudahnya lewat \"Batalkan Import Ini\" kalau ternyata salah.",
-    ]
-      .filter((l) => l !== null)
-      .join("\n");
-
-    if (!window.confirm(summary)) return;
 
     await postImport(rows, file.name);
   }
@@ -354,20 +252,11 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
         keterangan: r.keterangan,
         dbcr: r.dbcr,
         amount: r.amount,
-        contraAccountId: r.dbcr === "DB" ? defaultDbAccountId : defaultCrAccountId,
       }));
       const res = await fetch("/api/finance/journal-import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cashBook,
-          fileName,
-          targetYear: Number(targetYear),
-          targetMonth: Number(targetMonth),
-          rows: payloadRows,
-          defaultDbAccountId: defaultDbAccountId || undefined,
-          defaultCrAccountId: defaultCrAccountId || undefined,
-        }),
+        body: JSON.stringify({ cashBook, fileName, targetYear: Number(targetYear), targetMonth: Number(targetMonth), rows: payloadRows }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -415,7 +304,7 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div>
           <label className="mb-1 block text-[11px] font-semibold text-slate-500">Buku Kas</label>
-          <select value={cashBook} onChange={(e) => handleCashBookChange(e.target.value)} className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs">
+          <select value={cashBook} onChange={(e) => setCashBook(e.target.value)} className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs">
             {CASH_BOOKS.map((b) => (
               <option key={b} value={b}>
                 {CASH_BOOK_LABELS[b]}
@@ -465,69 +354,11 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
         >
           {posting ? "Memposting..." : "Upload"}
         </button>
-        <button type="button" onClick={openSettings} className="text-[11px] font-semibold text-slate-400 hover:text-accent-700">
-          Atur Akun Lawan Default
-        </button>
       </div>
 
-      {settingsOpen && (
-        <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-          <p className="col-span-2 text-[11px] font-semibold text-slate-500">Akun lawan default untuk {CASH_BOOK_LABELS[cashBook]}</p>
-          <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-500">Akun Lawan untuk baris DB</label>
-            <select
-              value={editDbAccountId}
-              onChange={(e) => setEditDbAccountId(e.target.value)}
-              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs"
-            >
-              <option value="">— pilih akun —</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  [{a.code}] {a.name}
-                  {a.cashBook ? ` (${CASH_BOOK_LABELS[a.cashBook]} — jadi Transfer Antar Buku)` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] font-semibold text-slate-500">Akun Lawan untuk baris CR</label>
-            <select
-              value={editCrAccountId}
-              onChange={(e) => setEditCrAccountId(e.target.value)}
-              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs"
-            >
-              <option value="">— pilih akun —</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  [{a.code}] {a.name}
-                  {a.cashBook ? ` (${CASH_BOOK_LABELS[a.cashBook]} — jadi Transfer Antar Buku)` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="col-span-2 flex items-center gap-3">
-            <button
-              type="button"
-              onClick={saveSettings}
-              disabled={savingSettings}
-              className="rounded-lg border border-accent-300 bg-white px-3 py-1.5 text-xs font-semibold text-accent-700 hover:bg-accent-50 disabled:opacity-50"
-            >
-              {savingSettings ? "Menyimpan..." : "Simpan"}
-            </button>
-            <button type="button" onClick={() => setSettingsOpen(false)} className="text-xs font-semibold text-slate-400 hover:text-slate-600">
-              Tutup
-            </button>
-            {settingsSaved && <span className="flex items-center gap-1 text-xs font-semibold text-emerald-700"><Check className="h-3.5 w-3.5" /> Tersimpan</span>}
-          </div>
-          <p className="col-span-2 text-[11px] text-slate-400">
-            Diatur sekali per Buku Kas — dipakai otomatis setiap kali Upload untuk {CASH_BOOK_LABELS[cashBook]}, tidak ditanyakan lagi di proses upload.
-          </p>
-        </div>
-      )}
-
       <p className="text-[11px] text-slate-400">
-        Pilih Buku Kas dan periode tujuan, pilih file, lalu tekan Upload — langsung muncul konfirmasi ringkas (jumlah baris, total DB/CR) dan setelah
-        di-OK jurnalnya otomatis terposting. Tanggal pada file hanya dipakai tanggal-nya (hari); bulan &amp; tahun selalu memakai pilihan di atas.
+        Pilih Buku Kas dan periode tujuan, pilih file, lalu tekan Upload — jurnalnya langsung terposting. Akun lawan diambil otomatis dari akun
+        Transitory Buku Kas yang bersangkutan. Tanggal pada file hanya dipakai tanggal-nya (hari); bulan &amp; tahun selalu memakai pilihan di atas.
       </p>
 
       {posting && <p className="text-xs font-semibold text-accent-700">Memposting...</p>}
