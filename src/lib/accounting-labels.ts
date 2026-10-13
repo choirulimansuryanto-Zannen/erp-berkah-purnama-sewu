@@ -29,6 +29,20 @@ export const CASH_BOOK_TRANSFER_DESTINATIONS: Record<CashBook, CashBook[]> = {
   BANK_MANDIRI: ["KASIR", "OUTLET", "BRANKAS", "PETTY_CASH", "BANK_BCA"],
 };
 
+/** Every Buku Kas's own "Transitory" (suspense/clearing) account in the
+ * Chart of Account — used automatically as the akun lawan for every row
+ * of a Jurnal Excel Import (see journal-import.ts), and the set of
+ * accounts the Reklasifikasi page (finance/journal/reklasifikasi) looks
+ * for to find entries still waiting to be assigned their real account. */
+export const TRANSITORY_ACCOUNT_CODE: Record<CashBook, string> = {
+  KASIR: "81100",
+  BRANKAS: "81200",
+  OUTLET: "81400",
+  PETTY_CASH: "81300",
+  BANK_BCA: "81600",
+  BANK_MANDIRI: "81700",
+};
+
 export const JOURNAL_ENTRY_TYPE_LABELS: Record<JournalEntryType, string> = {
   KAS_MASUK: "Kas Masuk",
   KAS_KELUAR: "Kas Keluar",

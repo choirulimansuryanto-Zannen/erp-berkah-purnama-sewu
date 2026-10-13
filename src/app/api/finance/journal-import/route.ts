@@ -3,12 +3,11 @@ import { requirePermission } from "@/lib/api-guard";
 import { journalImportPostSchema } from "@/lib/validations/journal-import";
 import { postJournalImportBatch } from "@/lib/journal-import";
 
-// Posts a batch of already-parsed, already-classified rows (see
-// JournalImportForm — the Excel file itself is parsed client-side with
-// exceljs, same as ExportExcelButton's export path) as real journal
-// entries. Every row must already carry a resolved contraAccountId; the
-// client's preview step is what makes sure none are left unmapped before
-// this is ever called.
+// Posts a batch of already-parsed rows (see JournalImportForm — the
+// Excel file itself is parsed client-side with exceljs, same as
+// ExportExcelButton's export path) as real journal entries. The akun
+// lawan is resolved server-side from each Buku Kas's own Transitory
+// account — the client never picks or sends one.
 export async function POST(request: Request) {
   const { user, response } = await requirePermission("finance:manage_journal");
   if (!user) return response!;
@@ -26,7 +25,7 @@ export async function POST(request: Request) {
       fileName: parsed.data.fileName,
       targetYear: parsed.data.targetYear,
       targetMonth: parsed.data.targetMonth,
-      learnedMappings: parsed.data.learnedMappings,
+      existingBatchId: parsed.data.existingBatchId,
     });
     return NextResponse.json({ success: true, ...result });
   } catch (e) {

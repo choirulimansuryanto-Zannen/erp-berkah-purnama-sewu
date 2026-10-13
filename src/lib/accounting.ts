@@ -11,6 +11,7 @@ export {
   CASH_BOOK_LABELS,
   JOURNAL_ENTRY_TYPE_LABELS,
   ACCOUNT_TYPE_LABELS,
+  TRANSITORY_ACCOUNT_CODE,
   isIncomeStatementType,
   signedBalance,
   typeNaturalValue,

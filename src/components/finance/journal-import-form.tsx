@@ -4,8 +4,6 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
 
-type Account = { id: string; code: string; name: string; cashBook: string | null };
-
 const CASH_BOOKS = ["KASIR", "BRANKAS", "OUTLET", "PETTY_CASH", "BANK_BCA", "BANK_MANDIRI"] as const;
 const CASH_BOOK_LABELS: Record<string, string> = {
   KASIR: "Kasir",
@@ -195,122 +193,126 @@ async function parseFile(file: File): Promise<ParsedRow[]> {
   return rows;
 }
 
-// Minimal flow (simplified 2026-10-13 — the earlier preview/per-Keterangan
-// -mapping screen was "sangat merepotkan" for a real bank statement with
-// 1875 near-unique descriptions): set Buku Kas/Tahun/Bulan/Akun Lawan
-// Default up front, pick the file, get one confirm() summarizing what's
-// about to be posted, and on OK it posts immediately — no in-page preview
-// table. "Batalkan Import Ini" / Riwayat Import below stay as the safety
-// net for a wrong period/buku kas, same as before.
-export function JournalImportForm({ accounts }: { accounts: Account[] }) {
+// Minimal flow (simplified 2026-10-13, then simplified further the same
+// day per explicit, repeated request: "akun lawan di hilangkan DALAM
+// PROSES MENGUPLOAD", then "hilangkan allert dan akun lawan, hanya cukup
+// button upload saja"): set Buku Kas/Tahun/Bulan, pick the file, press
+// Upload — it parses and posts immediately, no confirm() dialog and no
+// account picker anywhere in this component at all. The akun lawan is
+// resolved entirely server-side (see postJournalImportBatch) from each
+// Buku Kas's own pre-existing "Transitory" suspense account in the Chart
+// of Account — confirmed against that exact account mapping. "Batalkan
+// Import Ini" / Riwayat Import below stay as the only safety net for a
+// wrong period/buku kas.
+export function JournalImportForm() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [cashBook, setCashBook] = useState<string>("BRANKAS");
   const [targetYear, setTargetYear] = useState(String(new Date().getFullYear()));
   const [targetMonth, setTargetMonth] = useState(String(new Date().getMonth() + 1));
-  const [defaultDbAccountId, setDefaultDbAccountId] = useState("");
-  const [defaultCrAccountId, setDefaultCrAccountId] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
   const [parseError, setParseError] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
+  const [postProgress, setPostProgress] = useState<string | null>(null);
   const [postResult, setPostResult] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
   const [lastBatchId, setLastBatchId] = useState<string | null>(null);
   const [undoing, setUndoing] = useState(false);
   const [undone, setUndone] = useState(false);
 
-  async function handleFile(file: File) {
+  async function handleUpload() {
+    const file = selectedFile;
+    if (!file) return;
     setParseError(null);
     setPostResult(null);
     setPostError(null);
     setUndone(false);
-
-    if (!defaultDbAccountId && !defaultCrAccountId) {
-      setParseError("Pilih dulu Akun Lawan untuk DB dan CR di atas sebelum memilih file.");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
 
     let rows: ParsedRow[];
     try {
       rows = await parseFile(file);
     } catch (e) {
       setParseError(e instanceof Error ? e.message : "Gagal membaca file.");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-
-    const hasDbRows = rows.some((r) => r.dbcr === "DB");
-    const hasCrRows = rows.some((r) => r.dbcr === "CR");
-    if ((hasDbRows && !defaultDbAccountId) || (hasCrRows && !defaultCrAccountId)) {
-      setParseError(
-        `File ini punya baris ${hasDbRows && !defaultDbAccountId ? "DB" : "CR"} tapi Akun Lawan untuk itu belum dipilih — pilih dulu di atas, lalu ulangi memilih file.`,
-      );
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-
-    const totalDb = rows.filter((r) => r.dbcr === "DB").reduce((s, r) => s + r.amount, 0);
-    const totalCr = rows.filter((r) => r.dbcr === "CR").reduce((s, r) => s + r.amount, 0);
-    const bulanLabel = BULAN_NAMES_ID[Number(targetMonth) - 1][0].toUpperCase() + BULAN_NAMES_ID[Number(targetMonth) - 1].slice(1);
-    const dbAccountName = accounts.find((a) => a.id === defaultDbAccountId)?.name ?? "-";
-    const crAccountName = accounts.find((a) => a.id === defaultCrAccountId)?.name ?? "-";
-
-    const summary = [
-      `Import ${rows.length} jurnal dari "${file.name}"?`,
-      "",
-      `Buku Kas: ${CASH_BOOK_LABELS[cashBook]}`,
-      `Periode tujuan: ${bulanLabel} ${targetYear}`,
-      hasDbRows ? `Total DB: ${currency.format(totalDb)} -> akun lawan "${dbAccountName}"` : null,
-      hasCrRows ? `Total CR: ${currency.format(totalCr)} -> akun lawan "${crAccountName}"` : null,
-      "",
-      "Pastikan Buku Kas dan periode di atas sudah benar sebelum menekan OK — bisa dibatalkan sesudahnya lewat \"Batalkan Import Ini\" kalau ternyata salah.",
-    ]
-      .filter((l) => l !== null)
-      .join("\n");
-
-    if (!window.confirm(summary)) {
-      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
     await postImport(rows, file.name);
   }
 
+  // A real file can have far more rows than safely fit in one request —
+  // Vercel caps a Serverless Function's request body around 4.5MB, which
+  // a plain row-count limit can't prevent (a real Outlet statement hit
+  // this 2026-10-13). So a large file is split into chunks and posted
+  // sequentially, all into the SAME JournalImportBatch (see
+  // postJournalImportBatch's `existingBatchId`) — "Batalkan Import Ini"
+  // still undoes the whole file in one action no matter how many
+  // requests it took to post it.
+  const CHUNK_SIZE = 1500;
+
   async function postImport(rows: ParsedRow[], fileName: string) {
     setPosting(true);
     setPostResult(null);
     setPostError(null);
     try {
-      const payloadRows = rows.map((r) => ({
-        date: `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(r.day).padStart(2, "0")}`,
-        costCentre: r.costCentre || undefined,
-        subCost: r.subCost || undefined,
-        code: r.code || undefined,
-        keterangan: r.keterangan,
-        dbcr: r.dbcr,
-        amount: r.amount,
-        contraAccountId: r.dbcr === "DB" ? defaultDbAccountId : defaultCrAccountId,
-      }));
-      const res = await fetch("/api/finance/journal-import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cashBook, fileName, targetYear: Number(targetYear), targetMonth: Number(targetMonth), rows: payloadRows }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setPostResult(
-          `${data.created} jurnal berhasil diposting ke ${CASH_BOOK_LABELS[cashBook]} — ${BULAN_NAMES_ID[Number(targetMonth) - 1][0].toUpperCase() + BULAN_NAMES_ID[Number(targetMonth) - 1].slice(1)} ${targetYear}. Total baris bertanda DB: ${currency.format(data.totalDebitRows)}, total baris bertanda CR: ${currency.format(data.totalCreditRows)}.`,
-        );
-        setLastBatchId(data.batchId);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        router.refresh();
-      } else {
-        setPostError(typeof data.error === "string" ? data.error : JSON.stringify(data.error));
+      const chunks: ParsedRow[][] = [];
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) chunks.push(rows.slice(i, i + CHUNK_SIZE));
+
+      let batchId: string | undefined;
+      let totalDebitRows = 0;
+      let totalCreditRows = 0;
+      let createdTotal = 0;
+
+      for (let i = 0; i < chunks.length; i++) {
+        if (chunks.length > 1) {
+          setPostProgress(`Memposting... (${Math.min((i + 1) * CHUNK_SIZE, rows.length)} dari ${rows.length} baris)`);
+        }
+        const payloadRows = chunks[i].map((r) => ({
+          date: `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(r.day).padStart(2, "0")}`,
+          costCentre: r.costCentre || undefined,
+          subCost: r.subCost || undefined,
+          code: r.code || undefined,
+          keterangan: r.keterangan,
+          dbcr: r.dbcr,
+          amount: r.amount,
+        }));
+        const res = await fetch("/api/finance/journal-import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cashBook,
+            fileName,
+            targetYear: Number(targetYear),
+            targetMonth: Number(targetMonth),
+            rows: payloadRows,
+            existingBatchId: batchId,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          const already = batchId ? ` ${createdTotal} dari ${rows.length} baris sudah terlanjur terposting — pakai "Batalkan Import Ini" di bawah kalau mau mengulang dari awal.` : "";
+          setPostError((typeof data.error === "string" ? data.error : JSON.stringify(data.error)) + already);
+          if (batchId) setLastBatchId(batchId);
+          return;
+        }
+        batchId = data.batchId;
+        totalDebitRows = data.totalDebitRows;
+        totalCreditRows = data.totalCreditRows;
+        createdTotal += data.created;
       }
+
+      setPostResult(
+        `${createdTotal} jurnal berhasil diposting ke ${CASH_BOOK_LABELS[cashBook]} — ${BULAN_NAMES_ID[Number(targetMonth) - 1][0].toUpperCase() + BULAN_NAMES_ID[Number(targetMonth) - 1].slice(1)} ${targetYear}. Total baris bertanda DB: ${currency.format(totalDebitRows)}, total baris bertanda CR: ${currency.format(totalCreditRows)}.`,
+      );
+      setLastBatchId(batchId ?? null);
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      router.refresh();
     } catch {
       setPostError("Gagal mengirim data ke server.");
     } finally {
       setPosting(false);
+      setPostProgress(null);
     }
   }
 
@@ -338,7 +340,7 @@ export function JournalImportForm({ accounts }: { accounts: Account[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div>
           <label className="mb-1 block text-[11px] font-semibold text-slate-500">Buku Kas</label>
           <select value={cashBook} onChange={(e) => setCashBook(e.target.value)} className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs">
@@ -370,56 +372,36 @@ export function JournalImportForm({ accounts }: { accounts: Account[] }) {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-[11px] font-semibold text-slate-500">Akun Lawan untuk baris DB</label>
-          <select
-            value={defaultDbAccountId}
-            onChange={(e) => setDefaultDbAccountId(e.target.value)}
-            className={`w-full rounded-md border px-2 py-1.5 text-xs ${!defaultDbAccountId ? "border-amber-400 bg-amber-50" : "border-slate-300 bg-white"}`}
-          >
-            <option value="">— pilih akun —</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                [{a.code}] {a.name}
-                {a.cashBook ? ` (${CASH_BOOK_LABELS[a.cashBook]} — jadi Transfer Antar Buku)` : ""}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-semibold text-slate-500">Akun Lawan untuk baris CR</label>
-          <select
-            value={defaultCrAccountId}
-            onChange={(e) => setDefaultCrAccountId(e.target.value)}
-            className={`w-full rounded-md border px-2 py-1.5 text-xs ${!defaultCrAccountId ? "border-amber-400 bg-amber-50" : "border-slate-300 bg-white"}`}
-          >
-            <option value="">— pilih akun —</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                [{a.code}] {a.name}
-                {a.cashBook ? ` (${CASH_BOOK_LABELS[a.cashBook]} — jadi Transfer Antar Buku)` : ""}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
           <label className="mb-1 block text-[11px] font-semibold text-slate-500">File Excel (.xlsx)</label>
           <input
             ref={fileInputRef}
             type="file"
             accept=".xlsx"
             disabled={posting}
-            onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+            onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
             className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs disabled:opacity-50"
           />
         </div>
       </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleUpload}
+          disabled={!selectedFile || posting}
+          className="rounded-lg bg-accent-600 px-4 py-2 text-xs font-semibold text-white hover:bg-accent-700 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {posting ? "Memposting..." : "Upload"}
+        </button>
+      </div>
+
       <p className="text-[11px] text-slate-400">
-        Pilih Buku Kas, periode tujuan, dan akun lawan dulu, baru pilih file — begitu dipilih, langsung muncul konfirmasi ringkas (jumlah baris, total DB/CR)
-        dan setelah di-OK jurnalnya otomatis terposting. Tanggal pada file hanya dipakai tanggal-nya (hari); bulan &amp; tahun selalu memakai pilihan di
-        atas.
+        Pilih Buku Kas dan periode tujuan, pilih file, lalu tekan Upload — jurnalnya langsung terposting, berapa pun jumlah barisnya (file besar otomatis
+        dipecah jadi beberapa bagian saat dikirim). Akun lawan diambil otomatis dari akun Transitory Buku Kas yang bersangkutan. Tanggal pada file hanya
+        dipakai tanggal-nya (hari); bulan &amp; tahun selalu memakai pilihan di atas.
       </p>
 
-      {posting && <p className="text-xs font-semibold text-accent-700">Memposting...</p>}
+      {posting && <p className="text-xs font-semibold text-accent-700">{postProgress ?? "Memposting..."}</p>}
       {parseError && <p className="text-xs font-semibold text-rose-600 whitespace-pre-wrap">{parseError}</p>}
       {postError && <p className="text-xs font-semibold text-rose-600">{postError}</p>}
 

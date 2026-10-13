@@ -10,8 +10,10 @@ import { JournalVoucherForm } from "@/components/finance/journal-voucher-form";
 import { JournalImportForm } from "@/components/finance/journal-import-form";
 import { JournalImportHistory } from "@/components/finance/journal-import-history";
 import { JournalEntryList, type JournalEntryRow } from "@/components/finance/journal-entry-list";
-import { CASH_BOOK_LABELS } from "@/lib/accounting";
+import { CASH_BOOK_LABELS, TRANSITORY_ACCOUNT_CODE } from "@/lib/accounting";
 import { cn } from "@/lib/cn";
+
+const TRANSITORY_CODES = Object.values(TRANSITORY_ACCOUNT_CODE);
 
 function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -66,10 +68,14 @@ export default async function FinanceJournalPage({
     }
   }
 
-  const [accounts, outlets, importBatches, entries] = await Promise.all([
+  const [accounts, outlets, importBatches, pendingReklasifikasi, entries] = await Promise.all([
     prisma.chartOfAccount.findMany({ where: { status: "ACTIVE" }, orderBy: { code: "asc" } }),
     prisma.outlet.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.journalImportBatch.findMany({ orderBy: { createdAt: "desc" }, take: 20, include: { createdBy: { select: { name: true } } } }),
+    // Every row a Jurnal Excel Import posted lands against its Buku
+    // Kas's Transitory account — this count is what still needs a real
+    // account picked for it on the Reklasifikasi page.
+    prisma.journalEntryLine.count({ where: { account: { code: { in: TRANSITORY_CODES } }, journalEntry: { status: "POSTED" } } }),
     // Jurnal Penyesuaian entries live on their own dedicated page (they
     // don't belong to any of the six books, and this page's form can't
     // create them) — excluded here so "Riwayat Jurnal" stays cash-voucher-only.
@@ -187,9 +193,20 @@ export default async function FinanceJournalPage({
       <Card>
         <CardHeader>
           <CardTitle>Import Jurnal dari Excel</CardTitle>
+          <Link
+            href="/finance/journal/reklasifikasi"
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold",
+              pendingReklasifikasi > 0
+                ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                : "border-slate-200 text-slate-400 hover:bg-slate-50",
+            )}
+          >
+            Reklasifikasi Jurnal Import{pendingReklasifikasi > 0 ? ` (${pendingReklasifikasi} menunggu)` : ""}
+          </Link>
         </CardHeader>
         <div className="p-5 pt-0">
-          <JournalImportForm accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, cashBook: a.cashBook }))} />
+          <JournalImportForm />
         </div>
       </Card>
 
