@@ -285,6 +285,7 @@ model User {
   outletInvestorProfilesCreated OutletInvestorProfile[] @relation("OutletInvestorProfileCreatedBy")
   outletInvestorSharesCreated   OutletInvestorShare[] @relation("OutletInvestorShareCreatedBy")
   outletInvestorLedgersUpdated  OutletInvestorMonthlyLedger[] @relation("OutletInvestorLedgerUpdatedBy")
+  journalImportMappingsCreated  JournalImportMapping[]
   companyMaterialClosingBalancesRecorded CompanyMaterialClosingBalance[] @relation("CompanyMaterialClosingRecordedBy")
   vendorLedgerEntriesRecorded VendorLedgerEntry[] @relation("VendorLedgerRecordedBy")
   receivableEntriesRecorded   ReceivableEntry[]   @relation("ReceivableEntryRecordedBy")
@@ -1281,6 +1282,7 @@ model ChartOfAccount {
   cashBook CashBook?
 
   journalLines JournalEntryLine[]
+  importMappings JournalImportMapping[]
 
   updatedById String?
   updatedBy   User?    @relation(fields: [updatedById], references: [id])
@@ -1711,6 +1713,29 @@ model OutletInvestorMonthlyLedger {
 
   @@unique([investorId, year, month])
   @@index([investorId, year, month])
+}
+
+// Remembers which Chart of Account a given "Keterangan" (transaction
+// description) text resolves to, learned once from the Jurnal Excel
+// Import preview screen and reused on every later upload — so a
+// recurring description like "Transfer Petty Cash" or "Terima kas
+// OUTLET" only ever needs mapping once, not re-chosen on every file. The
+// source spreadsheet's own "code"/Cost Centre columns don't correspond to
+// real Chart of Accounts codes (confirmed 2026-10-12 against a real
+// import), so Keterangan text is the actual matching key, normalized
+// (trimmed, lowercased) for matching but stored with its original casing
+// for display.
+model JournalImportMapping {
+  id              String  @id @default(uuid())
+  keterangan      String // original casing, for display
+  keteranganKey   String  @unique // normalized (trim + lowercase) — the real match key
+  contraAccountId String
+  contraAccount   ChartOfAccount @relation(fields: [contraAccountId], references: [id])
+
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // Direct/local outlet purchases (fresh produce from a nearby market, a
