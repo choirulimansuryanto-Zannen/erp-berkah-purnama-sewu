@@ -130,6 +130,8 @@ export default async function FinanceJournalPage({
       amount,
       cashLine: cashLine ? `${cashLine.account.code} ${cashLine.account.name}` : "-",
       contraLine: contraLine ? `${contraLine.account.code} ${contraLine.account.name}` : "-",
+      contraLineId: contraLine?.id ?? null,
+      needsReklasifikasi: contraLine ? TRANSITORY_CODES.includes(contraLine.account.code) : false,
     };
   });
 
@@ -238,7 +240,10 @@ export default async function FinanceJournalPage({
             Riwayat Jurnal ({filteredRows.length}){activeBook ? ` — ${CASH_BOOK_LABELS[activeBook]}` : ""}
           </CardTitle>
         </CardHeader>
-        <JournalEntryList entries={filteredRows} />
+        <JournalEntryList
+          entries={filteredRows}
+          accounts={accounts.filter((a) => !a.cashBook).map((a) => ({ id: a.id, code: a.code, name: a.name }))}
+        />
       </Card>
     </div>
   );
