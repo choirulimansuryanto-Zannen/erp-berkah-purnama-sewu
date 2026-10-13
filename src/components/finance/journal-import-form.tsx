@@ -198,29 +198,48 @@ async function parseFile(file: File): Promise<ParsedRow[]> {
 
 // Minimal flow (simplified 2026-10-13 — the earlier preview/per-Keterangan
 // -mapping screen was "sangat merepotkan" for a real bank statement with
-// 1875 near-unique descriptions): set Buku Kas/Tahun/Bulan up front, pick
-// the file, get one confirm() summarizing what's about to be posted, and
-// on OK it posts immediately — no in-page preview table. "Batalkan Import
-// Ini" / Riwayat Import below stay as the safety net for a wrong
-// period/buku kas, same as before.
+// 1875 near-unique descriptions): set Buku Kas/Tahun/Bulan, pick the
+// file, press Upload, get one confirm() summarizing what's about to be
+// posted, and on OK it posts immediately — no in-page preview table.
+// "Batalkan Import Ini" / Riwayat Import below stay as the safety net
+// for a wrong period/buku kas, same as before.
 //
-// Akun lawan (DB/CR) picker (second simplification, same day): once a
-// Buku Kas has been imported at least once, its contra accounts are
-// remembered server-side (JournalImportDefaultAccount) and silently
-// reused — the picker only resurfaces the first time a book is used, or
-// if the user explicitly clicks "Ubah" to change it.
+// Akun lawan (DB/CR) (further simplified same day, per explicit request:
+// "akun lawan di hilangkan DALAM PROSES MENGUPLOAD" / "cukup mengupload
+// saja, diberikan button upload"): the contra-account pickers are now
+// fully OUT of the upload path. Each Buku Kas's akun lawan is configured
+// once via the separate, collapsed "Atur Akun Lawan Default" panel
+// (saved straight to JournalImportDefaultAccount, independent of any
+// import), and the upload row itself is just Buku Kas / Tahun / Bulan /
+// File / tombol Upload — pressing Upload silently reuses whatever's
+// already configured, no account UI in that path at all. If a book was
+// never configured yet, Upload is blocked with an error pointing at the
+// settings panel instead of showing the pickers inline.
 export function JournalImportForm({ accounts, importDefaults }: { accounts: Account[]; importDefaults: Record<string, ImportDefault> }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [cashBook, setCashBook] = useState<string>("BRANKAS");
   const [targetYear, setTargetYear] = useState(String(new Date().getFullYear()));
   const [targetMonth, setTargetMonth] = useState(String(new Date().getMonth() + 1));
-  const remembered = importDefaults[cashBook];
-  const [defaultDbAccountId, setDefaultDbAccountId] = useState(remembered?.defaultDbAccountId ?? "");
-  const [defaultCrAccountId, setDefaultCrAccountId] = useState(remembered?.defaultCrAccountId ?? "");
-  // Whether the account pickers are visibly open — closed by default once
-  // a remembered default exists for the currently chosen Buku Kas.
-  const [editingAccounts, setEditingAccounts] = useState(!remembered);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  // What's actually configured per Buku Kas — seeded from the server,
+  // then kept in sync locally whenever the settings panel saves a change
+  // (so Upload sees it immediately, without a full page reload).
+  const [defaultsByBook, setDefaultsByBook] = useState<Record<string, ImportDefault>>(importDefaults);
+  const currentDefault = defaultsByBook[cashBook];
+  const defaultDbAccountId = currentDefault?.defaultDbAccountId ?? "";
+  const defaultCrAccountId = currentDefault?.defaultCrAccountId ?? "";
+
+  // The settings panel's own edit buffer — only touched while the panel
+  // is open, separate from `defaultsByBook` so typing in it doesn't
+  // affect Upload until "Simpan" is pressed.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editDbAccountId, setEditDbAccountId] = useState("");
+  const [editCrAccountId, setEditCrAccountId] = useState("");
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState(false);
+
   const [parseError, setParseError] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const [postResult, setPostResult] = useState<string | null>(null);
@@ -231,21 +250,53 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
 
   function handleCashBookChange(next: string) {
     setCashBook(next);
-    const nextDefault = importDefaults[next];
-    setDefaultDbAccountId(nextDefault?.defaultDbAccountId ?? "");
-    setDefaultCrAccountId(nextDefault?.defaultCrAccountId ?? "");
-    setEditingAccounts(!nextDefault);
+    const nextDefault = defaultsByBook[next];
+    setEditDbAccountId(nextDefault?.defaultDbAccountId ?? "");
+    setEditCrAccountId(nextDefault?.defaultCrAccountId ?? "");
+    setSettingsSaved(false);
   }
 
-  async function handleFile(file: File) {
+  function openSettings() {
+    setEditDbAccountId(defaultDbAccountId);
+    setEditCrAccountId(defaultCrAccountId);
+    setSettingsSaved(false);
+    setSettingsOpen(true);
+  }
+
+  async function saveSettings() {
+    setSavingSettings(true);
+    setSettingsSaved(false);
+    try {
+      const res = await fetch("/api/finance/journal-import/default-account", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cashBook, defaultDbAccountId: editDbAccountId || null, defaultCrAccountId: editCrAccountId || null }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setDefaultsByBook((prev) => ({ ...prev, [cashBook]: { defaultDbAccountId: data.defaultDbAccountId, defaultCrAccountId: data.defaultCrAccountId } }));
+        setSettingsSaved(true);
+        setParseError(null);
+      } else {
+        setPostError(typeof data.error === "string" ? data.error : "Gagal menyimpan akun lawan.");
+      }
+    } catch {
+      setPostError("Gagal menyimpan akun lawan.");
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  async function handleUpload() {
+    const file = selectedFile;
+    if (!file) return;
     setParseError(null);
     setPostResult(null);
     setPostError(null);
     setUndone(false);
 
     if (!defaultDbAccountId && !defaultCrAccountId) {
-      setParseError("Pilih dulu Akun Lawan untuk DB dan CR di atas sebelum memilih file.");
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      setParseError(`Akun lawan untuk ${CASH_BOOK_LABELS[cashBook]} belum diatur — buka "Atur Akun Lawan Default" di bawah, lalu ulangi Upload.`);
       return;
     }
 
@@ -254,7 +305,6 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
       rows = await parseFile(file);
     } catch (e) {
       setParseError(e instanceof Error ? e.message : "Gagal membaca file.");
-      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
@@ -262,9 +312,8 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
     const hasCrRows = rows.some((r) => r.dbcr === "CR");
     if ((hasDbRows && !defaultDbAccountId) || (hasCrRows && !defaultCrAccountId)) {
       setParseError(
-        `File ini punya baris ${hasDbRows && !defaultDbAccountId ? "DB" : "CR"} tapi Akun Lawan untuk itu belum dipilih — pilih dulu di atas, lalu ulangi memilih file.`,
+        `File ini punya baris ${hasDbRows && !defaultDbAccountId ? "DB" : "CR"} tapi akun lawan untuk itu belum diatur untuk ${CASH_BOOK_LABELS[cashBook]} — buka "Atur Akun Lawan Default" di bawah, lalu ulangi Upload.`,
       );
-      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
@@ -287,10 +336,7 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
       .filter((l) => l !== null)
       .join("\n");
 
-    if (!window.confirm(summary)) {
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
+    if (!window.confirm(summary)) return;
 
     await postImport(rows, file.name);
   }
@@ -329,7 +375,7 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
           `${data.created} jurnal berhasil diposting ke ${CASH_BOOK_LABELS[cashBook]} — ${BULAN_NAMES_ID[Number(targetMonth) - 1][0].toUpperCase() + BULAN_NAMES_ID[Number(targetMonth) - 1].slice(1)} ${targetYear}. Total baris bertanda DB: ${currency.format(data.totalDebitRows)}, total baris bertanda CR: ${currency.format(data.totalCreditRows)}.`,
         );
         setLastBatchId(data.batchId);
-        setEditingAccounts(false);
+        setSelectedFile(null);
         if (fileInputRef.current) fileInputRef.current.value = "";
         router.refresh();
       } else {
@@ -404,20 +450,35 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
             type="file"
             accept=".xlsx"
             disabled={posting}
-            onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+            onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
             className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs disabled:opacity-50"
           />
         </div>
       </div>
 
-      {editingAccounts ? (
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleUpload}
+          disabled={!selectedFile || posting}
+          className="rounded-lg bg-accent-600 px-4 py-2 text-xs font-semibold text-white hover:bg-accent-700 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {posting ? "Memposting..." : "Upload"}
+        </button>
+        <button type="button" onClick={openSettings} className="text-[11px] font-semibold text-slate-400 hover:text-accent-700">
+          Atur Akun Lawan Default
+        </button>
+      </div>
+
+      {settingsOpen && (
         <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="col-span-2 text-[11px] font-semibold text-slate-500">Akun lawan default untuk {CASH_BOOK_LABELS[cashBook]}</p>
           <div>
             <label className="mb-1 block text-[11px] font-semibold text-slate-500">Akun Lawan untuk baris DB</label>
             <select
-              value={defaultDbAccountId}
-              onChange={(e) => setDefaultDbAccountId(e.target.value)}
-              className={`w-full rounded-md border px-2 py-1.5 text-xs ${!defaultDbAccountId ? "border-amber-400 bg-amber-50" : "border-slate-300 bg-white"}`}
+              value={editDbAccountId}
+              onChange={(e) => setEditDbAccountId(e.target.value)}
+              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs"
             >
               <option value="">— pilih akun —</option>
               {accounts.map((a) => (
@@ -431,9 +492,9 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
           <div>
             <label className="mb-1 block text-[11px] font-semibold text-slate-500">Akun Lawan untuk baris CR</label>
             <select
-              value={defaultCrAccountId}
-              onChange={(e) => setDefaultCrAccountId(e.target.value)}
-              className={`w-full rounded-md border px-2 py-1.5 text-xs ${!defaultCrAccountId ? "border-amber-400 bg-amber-50" : "border-slate-300 bg-white"}`}
+              value={editCrAccountId}
+              onChange={(e) => setEditCrAccountId(e.target.value)}
+              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs"
             >
               <option value="">— pilih akun —</option>
               {accounts.map((a) => (
@@ -444,26 +505,29 @@ export function JournalImportForm({ accounts, importDefaults }: { accounts: Acco
               ))}
             </select>
           </div>
+          <div className="col-span-2 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={saveSettings}
+              disabled={savingSettings}
+              className="rounded-lg border border-accent-300 bg-white px-3 py-1.5 text-xs font-semibold text-accent-700 hover:bg-accent-50 disabled:opacity-50"
+            >
+              {savingSettings ? "Menyimpan..." : "Simpan"}
+            </button>
+            <button type="button" onClick={() => setSettingsOpen(false)} className="text-xs font-semibold text-slate-400 hover:text-slate-600">
+              Tutup
+            </button>
+            {settingsSaved && <span className="flex items-center gap-1 text-xs font-semibold text-emerald-700"><Check className="h-3.5 w-3.5" /> Tersimpan</span>}
+          </div>
           <p className="col-span-2 text-[11px] text-slate-400">
-            Hanya ditanyakan sekali per Buku Kas — setelah import pertama berhasil, pilihan ini otomatis dipakai lagi untuk {CASH_BOOK_LABELS[cashBook]}
-            tanpa perlu diisi ulang.
+            Diatur sekali per Buku Kas — dipakai otomatis setiap kali Upload untuk {CASH_BOOK_LABELS[cashBook]}, tidak ditanyakan lagi di proses upload.
           </p>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-          <span>
-            Akun lawan {CASH_BOOK_LABELS[cashBook]}: DB → <span className="font-semibold text-slate-700">{accounts.find((a) => a.id === defaultDbAccountId)?.name ?? "-"}</span>,
-            CR → <span className="font-semibold text-slate-700">{accounts.find((a) => a.id === defaultCrAccountId)?.name ?? "-"}</span>
-          </span>
-          <button type="button" onClick={() => setEditingAccounts(true)} className="font-semibold text-accent-700 hover:text-accent-800">
-            Ubah
-          </button>
         </div>
       )}
 
       <p className="text-[11px] text-slate-400">
-        Pilih Buku Kas dan periode tujuan, lalu langsung pilih file — begitu dipilih, langsung muncul konfirmasi ringkas (jumlah baris, total DB/CR) dan
-        setelah di-OK jurnalnya otomatis terposting. Tanggal pada file hanya dipakai tanggal-nya (hari); bulan &amp; tahun selalu memakai pilihan di atas.
+        Pilih Buku Kas dan periode tujuan, pilih file, lalu tekan Upload — langsung muncul konfirmasi ringkas (jumlah baris, total DB/CR) dan setelah
+        di-OK jurnalnya otomatis terposting. Tanggal pada file hanya dipakai tanggal-nya (hari); bulan &amp; tahun selalu memakai pilihan di atas.
       </p>
 
       {posting && <p className="text-xs font-semibold text-accent-700">Memposting...</p>}
