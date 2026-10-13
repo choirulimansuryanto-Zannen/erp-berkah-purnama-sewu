@@ -165,6 +165,41 @@ export default async function OutletDetailReportPage({
         }
       />
 
+      {/* Quick nav — jumps are a shortcut, every sheet is still reachable by
+          scrolling. Same sticky-pill pattern as the Adjustment page. */}
+      <nav className="sticky top-16 z-40 flex flex-wrap gap-2 rounded-xl border border-slate-200/70 bg-white/95 p-3 text-xs font-semibold shadow-[var(--shadow-card)] backdrop-blur">
+        <a href="#omset-sheet-section" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          Omset
+        </a>
+        <a href="#jpd-sheet-section" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          JPD
+        </a>
+        <a href="#purchase-sheet-section" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          Purchase
+        </a>
+        <a href="#adjustment-sheet-section" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          Adjustment
+        </a>
+        <a href="#jurnal-sheet-section" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          Jurnal
+        </a>
+        <a href="#absen-sheet-section" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          Absen
+        </a>
+        <a href="#insentive-sheet-section" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          Insentive
+        </a>
+        <a href="#gaji-tunjangan-section" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          Gaji &amp; Tunjangan
+        </a>
+        <a href="#inventory-sheet-section" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          Inventory
+        </a>
+        <a href="#report-sheet-section" className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700 hover:bg-gold-100">
+          Report
+        </a>
+      </nav>
+
       <Card className="p-0">
         <OutletReportSelector outlets={allOutlets} outletId={outletId} year={year} month={month} years={years} />
       </Card>
@@ -183,7 +218,7 @@ export default async function OutletDetailReportPage({
 
       {/* a. Omset Sheet */}
       <Card id="omset-sheet-section">
-        <CardHeader className="sticky top-16 z-30 h-[76px] bg-white">
+        <CardHeader className="sticky top-32 z-30 h-[76px] bg-white">
           <div className="min-w-0">
             <CardTitle>OMSET SHEET</CardTitle>
             <p className="truncate text-xs text-slate-400">
@@ -236,7 +271,7 @@ export default async function OutletDetailReportPage({
 
       {/* JPD Sheet — yield KPI (Jumlah Produk per Daging), daily rollup */}
       <Card id="jpd-sheet-section">
-        <CardHeader className="sticky top-16 z-30 h-[76px] bg-white">
+        <CardHeader className="sticky top-32 z-30 h-[76px] bg-white">
           <div className="min-w-0">
             <CardTitle>JPD SHEET</CardTitle>
             <p className="truncate text-xs text-slate-400">
@@ -309,7 +344,7 @@ export default async function OutletDetailReportPage({
 
       {/* b. Purchase Sheet */}
       <Card id="purchase-sheet-section">
-        <CardHeader className="sticky top-16 z-30 h-[76px] bg-white">
+        <CardHeader className="sticky top-32 z-30 h-[76px] bg-white">
           <div className="min-w-0">
             <CardTitle>PURCHASE SHEET</CardTitle>
             <p className="truncate text-xs text-slate-400">Qty pembelian per bahan per hari — kolom &quot;CTRL PRICE&quot; = qty × harga satuan, cross-check total Rp.</p>
@@ -426,7 +461,7 @@ export default async function OutletDetailReportPage({
 
       {/* c. Adjustment Sheet */}
       <Card id="adjustment-sheet-section">
-        <CardHeader className="sticky top-16 z-30 h-14 bg-white">
+        <CardHeader className="sticky top-32 z-30 h-14 bg-white">
           <CardTitle>ADJUSTMENT SHEET</CardTitle>
           <ExportExcelButton containerId="adjustment-sheet-section" filename={`Adjustment_Sheet_${outlet.name}_${MONTH_NAMES[month - 1]}_${year}.xlsx`} />
         </CardHeader>
@@ -481,7 +516,7 @@ export default async function OutletDetailReportPage({
 
       {/* d. Jurnal Sheet — Ledger (input manual, format spreadsheet asli) */}
       <Card id="jurnal-sheet-section">
-        <CardHeader className="sticky top-16 z-30 h-[76px] flex-wrap items-center gap-1 bg-white">
+        <CardHeader className="sticky top-32 z-30 h-[76px] flex-wrap items-center gap-1 bg-white">
           <CardTitle>JURNAL SHEET</CardTitle>
           <div className="flex flex-nowrap items-center gap-2 overflow-hidden">
             <p className="truncate text-xs text-slate-400">Tanggal / No. Akun / Keterangan / D-C / Nilai — dicatat manual, sama seperti kebiasaan pembukuan harian.</p>
@@ -547,7 +582,7 @@ export default async function OutletDetailReportPage({
 
       {/* e. Absen Sheet */}
       <Card id="absen-sheet-section">
-        <CardHeader className="sticky top-16 z-30 h-[76px] bg-white">
+        <CardHeader className="sticky top-32 z-30 h-[76px] bg-white">
           <div className="min-w-0">
             <CardTitle>ABSEN SHEET</CardTitle>
             <p className="truncate text-xs text-slate-400">
@@ -659,7 +694,7 @@ export default async function OutletDetailReportPage({
 
       {/* f. Insentive Sheet */}
       <Card id="insentive-sheet-section">
-        <CardHeader className="sticky top-16 z-30 h-14 bg-white">
+        <CardHeader className="sticky top-32 z-30 h-14 bg-white">
           <CardTitle>INSENTIVE SHEET</CardTitle>
           <div className="flex items-center gap-2">
             <Link href="/admin/incentive-brackets" className="text-xs font-bold text-accent-700 hover:text-accent-800">
@@ -825,7 +860,7 @@ export default async function OutletDetailReportPage({
           reused vs. genuinely new here (Total Absen/Ref/Share Value, and
           the 4 flat BIAYA figures). */}
       <Card id="gaji-tunjangan-section">
-        <CardHeader className="sticky top-16 z-30 h-14 bg-white">
+        <CardHeader className="sticky top-32 z-30 h-14 bg-white">
           <div className="min-w-0">
             <CardTitle>SUMMARY GAJI & TUNJANGAN</CardTitle>
             <p className="truncate text-xs text-slate-400">
@@ -964,7 +999,7 @@ export default async function OutletDetailReportPage({
 
       {/* g. Inventory Sheet */}
       <Card id="inventory-sheet-section">
-        <CardHeader className="sticky top-16 z-30 h-[76px] bg-white">
+        <CardHeader className="sticky top-32 z-30 h-[76px] bg-white">
           <div className="min-w-0">
             <CardTitle>INVENTORY SHEET</CardTitle>
             <p className="truncate text-xs text-slate-400">Kolom &quot;Akhir&quot; diisi manual (hasil stock opname); kolom lain otomatis dari transaksi bulan ini.</p>
@@ -973,7 +1008,7 @@ export default async function OutletDetailReportPage({
         </CardHeader>
         {[...materialsByCategory.entries()].map(([category, rows]) => (
           <div key={category} className="border-b border-slate-100">
-            <p className="sticky top-[140px] z-20 bg-slate-50 px-5 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">{MATERIAL_CATEGORY_LABELS[category] ?? category}</p>
+            <p className="sticky top-[204px] z-20 bg-slate-50 px-5 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">{MATERIAL_CATEGORY_LABELS[category] ?? category}</p>
               <Table
                 data-sheet-name={(MATERIAL_CATEGORY_LABELS[category] ?? category).replace(/[^A-Za-z0-9]+/g, "_")}
                 wrapperClassName="max-h-[70vh] overflow-auto"
@@ -1035,7 +1070,7 @@ export default async function OutletDetailReportPage({
 
       {/* h. Report Sheet */}
       <Card id="report-sheet-section">
-        <CardHeader className="sticky top-16 z-30 bg-white">
+        <CardHeader className="sticky top-32 z-30 bg-white">
           <div>
             <CardTitle>{`REPORT OUTLET (${outlet.name})`}</CardTitle>
             <p className="text-xs text-slate-400">
