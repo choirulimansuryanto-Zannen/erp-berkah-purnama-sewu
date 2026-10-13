@@ -53,8 +53,13 @@ export async function postJournalImportBatch(params: {
   // worse, would mean upserting thousands of rows here on every import —
   // confirmed 2026-10-13 this made a 500-row import take minutes.
   learnedMappings?: { keterangan: string; contraAccountId: string }[];
+  // The DB/CR contra accounts picked for this import — remembered as this
+  // Buku Kas's default (JournalImportDefaultAccount) so JournalImportForm
+  // can skip asking for them on the next import to the same book.
+  defaultDbAccountId?: string;
+  defaultCrAccountId?: string;
 }) {
-  const { cashBook, rows, createdById, fileName, targetYear, targetMonth, learnedMappings = [] } = params;
+  const { cashBook, rows, createdById, fileName, targetYear, targetMonth, learnedMappings = [], defaultDbAccountId, defaultCrAccountId } = params;
 
   // Created FIRST (totals filled in after the loop, via update) so every
   // entry below can be tagged with its batch id as it's created — see
@@ -234,6 +239,14 @@ export async function postJournalImportBatch(params: {
     where: { id: batch.id },
     data: { totalDebitRows, totalCreditRows },
   });
+
+  if (defaultDbAccountId || defaultCrAccountId) {
+    await prisma.journalImportDefaultAccount.upsert({
+      where: { cashBook },
+      create: { cashBook, defaultDbAccountId, defaultCrAccountId },
+      update: { defaultDbAccountId, defaultCrAccountId },
+    });
+  }
 
   return { created, totalDebitRows, totalCreditRows, batchId: batch.id };
 }

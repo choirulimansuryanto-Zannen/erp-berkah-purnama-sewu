@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
 
 type Account = { id: string; code: string; name: string; cashBook: string | null };
+type ImportDefault = { defaultDbAccountId: string | null; defaultCrAccountId: string | null };
 
 const CASH_BOOKS = ["KASIR", "BRANKAS", "OUTLET", "PETTY_CASH", "BANK_BCA", "BANK_MANDIRI"] as const;
 const CASH_BOOK_LABELS: Record<string, string> = {
@@ -197,19 +198,29 @@ async function parseFile(file: File): Promise<ParsedRow[]> {
 
 // Minimal flow (simplified 2026-10-13 — the earlier preview/per-Keterangan
 // -mapping screen was "sangat merepotkan" for a real bank statement with
-// 1875 near-unique descriptions): set Buku Kas/Tahun/Bulan/Akun Lawan
-// Default up front, pick the file, get one confirm() summarizing what's
-// about to be posted, and on OK it posts immediately — no in-page preview
-// table. "Batalkan Import Ini" / Riwayat Import below stay as the safety
-// net for a wrong period/buku kas, same as before.
-export function JournalImportForm({ accounts }: { accounts: Account[] }) {
+// 1875 near-unique descriptions): set Buku Kas/Tahun/Bulan up front, pick
+// the file, get one confirm() summarizing what's about to be posted, and
+// on OK it posts immediately — no in-page preview table. "Batalkan Import
+// Ini" / Riwayat Import below stay as the safety net for a wrong
+// period/buku kas, same as before.
+//
+// Akun lawan (DB/CR) picker (second simplification, same day): once a
+// Buku Kas has been imported at least once, its contra accounts are
+// remembered server-side (JournalImportDefaultAccount) and silently
+// reused — the picker only resurfaces the first time a book is used, or
+// if the user explicitly clicks "Ubah" to change it.
+export function JournalImportForm({ accounts, importDefaults }: { accounts: Account[]; importDefaults: Record<string, ImportDefault> }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [cashBook, setCashBook] = useState<string>("BRANKAS");
   const [targetYear, setTargetYear] = useState(String(new Date().getFullYear()));
   const [targetMonth, setTargetMonth] = useState(String(new Date().getMonth() + 1));
-  const [defaultDbAccountId, setDefaultDbAccountId] = useState("");
-  const [defaultCrAccountId, setDefaultCrAccountId] = useState("");
+  const remembered = importDefaults[cashBook];
+  const [defaultDbAccountId, setDefaultDbAccountId] = useState(remembered?.defaultDbAccountId ?? "");
+  const [defaultCrAccountId, setDefaultCrAccountId] = useState(remembered?.defaultCrAccountId ?? "");
+  // Whether the account pickers are visibly open — closed by default once
+  // a remembered default exists for the currently chosen Buku Kas.
+  const [editingAccounts, setEditingAccounts] = useState(!remembered);
   const [parseError, setParseError] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const [postResult, setPostResult] = useState<string | null>(null);
@@ -217,6 +228,14 @@ export function JournalImportForm({ accounts }: { accounts: Account[] }) {
   const [lastBatchId, setLastBatchId] = useState<string | null>(null);
   const [undoing, setUndoing] = useState(false);
   const [undone, setUndone] = useState(false);
+
+  function handleCashBookChange(next: string) {
+    setCashBook(next);
+    const nextDefault = importDefaults[next];
+    setDefaultDbAccountId(nextDefault?.defaultDbAccountId ?? "");
+    setDefaultCrAccountId(nextDefault?.defaultCrAccountId ?? "");
+    setEditingAccounts(!nextDefault);
+  }
 
   async function handleFile(file: File) {
     setParseError(null);
@@ -294,7 +313,15 @@ export function JournalImportForm({ accounts }: { accounts: Account[] }) {
       const res = await fetch("/api/finance/journal-import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cashBook, fileName, targetYear: Number(targetYear), targetMonth: Number(targetMonth), rows: payloadRows }),
+        body: JSON.stringify({
+          cashBook,
+          fileName,
+          targetYear: Number(targetYear),
+          targetMonth: Number(targetMonth),
+          rows: payloadRows,
+          defaultDbAccountId: defaultDbAccountId || undefined,
+          defaultCrAccountId: defaultCrAccountId || undefined,
+        }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -302,6 +329,7 @@ export function JournalImportForm({ accounts }: { accounts: Account[] }) {
           `${data.created} jurnal berhasil diposting ke ${CASH_BOOK_LABELS[cashBook]} — ${BULAN_NAMES_ID[Number(targetMonth) - 1][0].toUpperCase() + BULAN_NAMES_ID[Number(targetMonth) - 1].slice(1)} ${targetYear}. Total baris bertanda DB: ${currency.format(data.totalDebitRows)}, total baris bertanda CR: ${currency.format(data.totalCreditRows)}.`,
         );
         setLastBatchId(data.batchId);
+        setEditingAccounts(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
         router.refresh();
       } else {
@@ -338,10 +366,10 @@ export function JournalImportForm({ accounts }: { accounts: Account[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div>
           <label className="mb-1 block text-[11px] font-semibold text-slate-500">Buku Kas</label>
-          <select value={cashBook} onChange={(e) => setCashBook(e.target.value)} className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs">
+          <select value={cashBook} onChange={(e) => handleCashBookChange(e.target.value)} className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs">
             {CASH_BOOKS.map((b) => (
               <option key={b} value={b}>
                 {CASH_BOOK_LABELS[b]}
@@ -370,38 +398,6 @@ export function JournalImportForm({ accounts }: { accounts: Account[] }) {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-[11px] font-semibold text-slate-500">Akun Lawan untuk baris DB</label>
-          <select
-            value={defaultDbAccountId}
-            onChange={(e) => setDefaultDbAccountId(e.target.value)}
-            className={`w-full rounded-md border px-2 py-1.5 text-xs ${!defaultDbAccountId ? "border-amber-400 bg-amber-50" : "border-slate-300 bg-white"}`}
-          >
-            <option value="">— pilih akun —</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                [{a.code}] {a.name}
-                {a.cashBook ? ` (${CASH_BOOK_LABELS[a.cashBook]} — jadi Transfer Antar Buku)` : ""}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-semibold text-slate-500">Akun Lawan untuk baris CR</label>
-          <select
-            value={defaultCrAccountId}
-            onChange={(e) => setDefaultCrAccountId(e.target.value)}
-            className={`w-full rounded-md border px-2 py-1.5 text-xs ${!defaultCrAccountId ? "border-amber-400 bg-amber-50" : "border-slate-300 bg-white"}`}
-          >
-            <option value="">— pilih akun —</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                [{a.code}] {a.name}
-                {a.cashBook ? ` (${CASH_BOOK_LABELS[a.cashBook]} — jadi Transfer Antar Buku)` : ""}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
           <label className="mb-1 block text-[11px] font-semibold text-slate-500">File Excel (.xlsx)</label>
           <input
             ref={fileInputRef}
@@ -413,10 +409,61 @@ export function JournalImportForm({ accounts }: { accounts: Account[] }) {
           />
         </div>
       </div>
+
+      {editingAccounts ? (
+        <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold text-slate-500">Akun Lawan untuk baris DB</label>
+            <select
+              value={defaultDbAccountId}
+              onChange={(e) => setDefaultDbAccountId(e.target.value)}
+              className={`w-full rounded-md border px-2 py-1.5 text-xs ${!defaultDbAccountId ? "border-amber-400 bg-amber-50" : "border-slate-300 bg-white"}`}
+            >
+              <option value="">— pilih akun —</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  [{a.code}] {a.name}
+                  {a.cashBook ? ` (${CASH_BOOK_LABELS[a.cashBook]} — jadi Transfer Antar Buku)` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold text-slate-500">Akun Lawan untuk baris CR</label>
+            <select
+              value={defaultCrAccountId}
+              onChange={(e) => setDefaultCrAccountId(e.target.value)}
+              className={`w-full rounded-md border px-2 py-1.5 text-xs ${!defaultCrAccountId ? "border-amber-400 bg-amber-50" : "border-slate-300 bg-white"}`}
+            >
+              <option value="">— pilih akun —</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  [{a.code}] {a.name}
+                  {a.cashBook ? ` (${CASH_BOOK_LABELS[a.cashBook]} — jadi Transfer Antar Buku)` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="col-span-2 text-[11px] text-slate-400">
+            Hanya ditanyakan sekali per Buku Kas — setelah import pertama berhasil, pilihan ini otomatis dipakai lagi untuk {CASH_BOOK_LABELS[cashBook]}
+            tanpa perlu diisi ulang.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          <span>
+            Akun lawan {CASH_BOOK_LABELS[cashBook]}: DB → <span className="font-semibold text-slate-700">{accounts.find((a) => a.id === defaultDbAccountId)?.name ?? "-"}</span>,
+            CR → <span className="font-semibold text-slate-700">{accounts.find((a) => a.id === defaultCrAccountId)?.name ?? "-"}</span>
+          </span>
+          <button type="button" onClick={() => setEditingAccounts(true)} className="font-semibold text-accent-700 hover:text-accent-800">
+            Ubah
+          </button>
+        </div>
+      )}
+
       <p className="text-[11px] text-slate-400">
-        Pilih Buku Kas, periode tujuan, dan akun lawan dulu, baru pilih file — begitu dipilih, langsung muncul konfirmasi ringkas (jumlah baris, total DB/CR)
-        dan setelah di-OK jurnalnya otomatis terposting. Tanggal pada file hanya dipakai tanggal-nya (hari); bulan &amp; tahun selalu memakai pilihan di
-        atas.
+        Pilih Buku Kas dan periode tujuan, lalu langsung pilih file — begitu dipilih, langsung muncul konfirmasi ringkas (jumlah baris, total DB/CR) dan
+        setelah di-OK jurnalnya otomatis terposting. Tanggal pada file hanya dipakai tanggal-nya (hari); bulan &amp; tahun selalu memakai pilihan di atas.
       </p>
 
       {posting && <p className="text-xs font-semibold text-accent-700">Memposting...</p>}

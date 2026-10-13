@@ -27,6 +27,8 @@ export async function POST(request: Request) {
       targetYear: parsed.data.targetYear,
       targetMonth: parsed.data.targetMonth,
       learnedMappings: parsed.data.learnedMappings,
+      defaultDbAccountId: parsed.data.defaultDbAccountId,
+      defaultCrAccountId: parsed.data.defaultCrAccountId,
     });
     return NextResponse.json({ success: true, ...result });
   } catch (e) {

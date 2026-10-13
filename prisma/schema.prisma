@@ -1284,6 +1284,8 @@ model ChartOfAccount {
 
   journalLines JournalEntryLine[]
   importMappings JournalImportMapping[]
+  importDefaultDbFor JournalImportDefaultAccount[] @relation("ImportDefaultDbAccount")
+  importDefaultCrFor JournalImportDefaultAccount[] @relation("ImportDefaultCrAccount")
 
   updatedById String?
   updatedBy   User?    @relation(fields: [updatedById], references: [id])
@@ -1377,6 +1379,24 @@ model JournalImportBatch {
   entries JournalEntry[]
 
   @@index([createdAt])
+}
+
+// Remembers the last contra-account choice made for each Buku Kas so a
+// repeat import to the same book never has to ask again — JournalImportForm
+// shows the DB/CR account pickers only the first time a given book is used
+// (or when the user explicitly asks to change it); every import after that
+// is pre-filled from here and skips straight to picking the file
+// (simplified 2026-10-13: "tdk perlu mengisi button" every upload).
+model JournalImportDefaultAccount {
+  id       String   @id @default(uuid())
+  cashBook CashBook @unique
+
+  defaultDbAccountId String?
+  defaultDbAccount   ChartOfAccount? @relation("ImportDefaultDbAccount", fields: [defaultDbAccountId], references: [id])
+  defaultCrAccountId String?
+  defaultCrAccount   ChartOfAccount? @relation("ImportDefaultCrAccount", fields: [defaultCrAccountId], references: [id])
+
+  updatedAt DateTime @updatedAt
 }
 
 // Always exactly two lines per JournalEntry (the cash-book leg + its contra

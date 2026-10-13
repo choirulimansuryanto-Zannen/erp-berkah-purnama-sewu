@@ -24,4 +24,9 @@ export const journalImportPostSchema = z.object({
   // "Pengecualian per Keterangan" panel — see postJournalImportBatch's
   // own doc for why this is separate from `rows`.
   learnedMappings: z.array(z.object({ keterangan: z.string().min(1).max(500), contraAccountId: z.string().uuid() })).max(500).optional(),
+  // The DB/CR contra accounts actually used for this import — saved as
+  // this Buku Kas's remembered default (see JournalImportDefaultAccount)
+  // so the next import to the same book can skip picking them again.
+  defaultDbAccountId: z.string().uuid().optional(),
+  defaultCrAccountId: z.string().uuid().optional(),
 });

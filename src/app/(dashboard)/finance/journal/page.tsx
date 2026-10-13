@@ -66,10 +66,11 @@ export default async function FinanceJournalPage({
     }
   }
 
-  const [accounts, outlets, importBatches, entries] = await Promise.all([
+  const [accounts, outlets, importBatches, importDefaults, entries] = await Promise.all([
     prisma.chartOfAccount.findMany({ where: { status: "ACTIVE" }, orderBy: { code: "asc" } }),
     prisma.outlet.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.journalImportBatch.findMany({ orderBy: { createdAt: "desc" }, take: 20, include: { createdBy: { select: { name: true } } } }),
+    prisma.journalImportDefaultAccount.findMany(),
     // Jurnal Penyesuaian entries live on their own dedicated page (they
     // don't belong to any of the six books, and this page's form can't
     // create them) — excluded here so "Riwayat Jurnal" stays cash-voucher-only.
@@ -189,7 +190,12 @@ export default async function FinanceJournalPage({
           <CardTitle>Import Jurnal dari Excel</CardTitle>
         </CardHeader>
         <div className="p-5 pt-0">
-          <JournalImportForm accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, cashBook: a.cashBook }))} />
+          <JournalImportForm
+            accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, cashBook: a.cashBook }))}
+            importDefaults={Object.fromEntries(
+              importDefaults.map((d) => [d.cashBook, { defaultDbAccountId: d.defaultDbAccountId, defaultCrAccountId: d.defaultCrAccountId }]),
+            )}
+          />
         </div>
       </Card>
 
