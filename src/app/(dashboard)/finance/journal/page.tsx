@@ -177,12 +177,15 @@ export default async function FinanceJournalPage({
         ))}
       </div>
       {activeBook && (
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-slate-500">
             Menampilkan hanya <span className="font-bold text-accent-700">{CASH_BOOK_LABELS[activeBook]}</span>.
           </span>
           <Link href={`?${dateQuery}`} className="font-bold text-accent-700 hover:text-accent-800">
             Tampilkan semua buku kas →
+          </Link>
+          <Link href={`/finance/journal/buku-kas/${activeBook}`} className="font-bold text-accent-700 hover:text-accent-800">
+            Lihat header Buku Kas ini →
           </Link>
         </div>
       )}

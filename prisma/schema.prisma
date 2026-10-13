@@ -287,6 +287,7 @@ model User {
   outletInvestorLedgersUpdated  OutletInvestorMonthlyLedger[] @relation("OutletInvestorLedgerUpdatedBy")
   journalImportMappingsCreated  JournalImportMapping[]
   journalImportBatchesCreated   JournalImportBatch[]
+  cashBookOfficersUpdated       CashBookOfficer[]
   companyMaterialClosingBalancesRecorded CompanyMaterialClosingBalance[] @relation("CompanyMaterialClosingRecordedBy")
   vendorLedgerEntriesRecorded VendorLedgerEntry[] @relation("VendorLedgerRecordedBy")
   receivableEntriesRecorded   ReceivableEntry[]   @relation("ReceivableEntryRecordedBy")
@@ -1354,6 +1355,20 @@ model JournalEntry {
   @@index([outletId])
   @@index([date])
   @@index([importBatchId])
+}
+
+// The person responsible for each Buku Kas day-to-day (shown as
+// "Officer" on that book's printable header — finance/journal/buku-kas/
+// [cashBook]) — set once via Admin > Settings, reused everywhere that
+// book's header is shown rather than typed per report.
+model CashBookOfficer {
+  id          String   @id @default(uuid())
+  cashBook    CashBook @unique
+  officerName String
+
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  updatedAt   DateTime @updatedAt
 }
 
 // One row per Jurnal Excel Import run — lets the whole batch be reviewed
