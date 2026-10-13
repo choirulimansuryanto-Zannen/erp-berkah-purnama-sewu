@@ -56,6 +56,17 @@ function cellText(value: unknown): string {
 // Tahun/Bulan (same as the business's own "re-input last month's sheet
 // into this month" workflow confirmed 2026-10-12), so only the day
 // carries over from the file.
+// Normalizes any of the reasonable ways a file might mark a debit/credit
+// row — not just the literal "DB"/"CR" the header-detection regex
+// already tolerates variants of ("D/K", "Debit/Kredit", ...). Returns
+// null for anything unrecognized rather than guessing.
+function normalizeDbCr(raw: string): "DB" | "CR" | null {
+  const t = raw.trim().toUpperCase();
+  if (t === "DB" || t === "D" || t === "DEBIT") return "DB";
+  if (t === "CR" || t === "K" || t === "C" || t === "KREDIT" || t === "CREDIT") return "CR";
+  return null;
+}
+
 function dayFromDateCell(value: unknown): number | null {
   if (value instanceof Date) return value.getUTCDate();
   const text = cellText(value);
@@ -64,31 +75,33 @@ function dayFromDateCell(value: unknown): number | null {
   return null;
 }
 
-// Finds the header row (the one containing both "Tanggal" and
-// "Keterangan") and maps each expected column name to its column index —
-// tolerant of the exact column order/spacing varying between files,
-// since the business's own spreadsheets aren't all byte-identical.
+// Finds the header row (the one containing both a "Tanggal"-like and a
+// "Keterangan"-like column) and maps each expected column name to its
+// column index — tolerant of the exact column order/spacing AND of
+// reasonable label variants (the business's own spreadsheets aren't all
+// byte-identical: a bank-statement sheet might say "Uraian" instead of
+// "Keterangan", "D/K" instead of "DB/CR", etc).
+const HEADER_PATTERNS: Record<string, RegExp> = {
+  tanggal: /tanggal|^tgl\.?$/i,
+  costCentre: /cost\s*centre|cost\s*center/i,
+  subCost: /sub\s*cost/i,
+  code: /^code$/i,
+  keterangan: /keterangan|uraian|description|deskripsi|narasi/i,
+  dbcr: /d\s*\/?\s*k\b|db\s*\/?\s*cr|debit\s*\/?\s*kredit|debit\s*\/?\s*credit|^(debit|kredit|credit)$/i,
+  nilai: /nilai|nominal|jumlah|^amount$|mutasi/i,
+};
 function findHeaderRow(sheet: import("exceljs").Worksheet): { rowNumber: number; cols: Record<string, number> } | null {
-  const WANTED: Record<string, RegExp> = {
-    tanggal: /tanggal/i,
-    costCentre: /cost\s*centre/i,
-    subCost: /sub\s*cost/i,
-    code: /^code$/i,
-    keterangan: /keterangan/i,
-    dbcr: /db\s*\/?\s*cr/i,
-    nilai: /nilai/i,
-  };
-  for (let r = 1; r <= Math.min(sheet.rowCount, 30); r++) {
+  for (let r = 1; r <= Math.min(sheet.rowCount, 40); r++) {
     const row = sheet.getRow(r);
     const texts: Record<number, string> = {};
     row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
       texts[colNumber] = cellText(cell.value);
     });
-    const hasTanggal = Object.values(texts).some((t) => WANTED.tanggal.test(t));
-    const hasKeterangan = Object.values(texts).some((t) => WANTED.keterangan.test(t));
+    const hasTanggal = Object.values(texts).some((t) => HEADER_PATTERNS.tanggal.test(t));
+    const hasKeterangan = Object.values(texts).some((t) => HEADER_PATTERNS.keterangan.test(t));
     if (hasTanggal && hasKeterangan) {
       const cols: Record<string, number> = {};
-      for (const [key, re] of Object.entries(WANTED)) {
+      for (const [key, re] of Object.entries(HEADER_PATTERNS)) {
         const found = Object.entries(texts).find(([, t]) => re.test(t));
         if (found) cols[key] = Number(found[0]);
       }
@@ -98,17 +111,50 @@ function findHeaderRow(sheet: import("exceljs").Worksheet): { rowNumber: number;
   return null;
 }
 
+// Dumps the first ~15 rows' cell text (every non-empty worksheet checked)
+// so a failed detection's error message shows EXACTLY what the file
+// actually contains — the only way to debug a format mismatch for a file
+// that can't be attached directly in chat.
+function dumpFirstRows(workbook: import("exceljs").Workbook): string {
+  const lines: string[] = [];
+  for (const sheet of workbook.worksheets) {
+    lines.push(`[Sheet "${sheet.name}"]`);
+    for (let r = 1; r <= Math.min(sheet.rowCount, 15); r++) {
+      const row = sheet.getRow(r);
+      const cells: string[] = [];
+      row.eachCell({ includeEmpty: false }, (cell) => {
+        const t = cellText(cell.value);
+        if (t) cells.push(t);
+      });
+      if (cells.length) lines.push(`  baris ${r}: ${cells.join(" | ")}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 async function parseFile(file: File): Promise<ParsedRow[]> {
   const ExcelJS = (await import("exceljs")).default;
   const workbook = new ExcelJS.Workbook();
   const buffer = await file.arrayBuffer();
   await workbook.xlsx.load(buffer);
-  const sheet = workbook.worksheets[0];
-  if (!sheet) throw new Error("File tidak punya sheet.");
+  if (workbook.worksheets.length === 0) throw new Error("File tidak punya sheet.");
 
-  const header = findHeaderRow(sheet);
-  if (!header || !header.cols.tanggal || !header.cols.keterangan || !header.cols.dbcr || !header.cols.nilai) {
-    throw new Error("Format tidak dikenali — pastikan ada kolom Tanggal, Keterangan, DB/CR, dan Nilai.");
+  // Check every worksheet, not just the first — some files lead with a
+  // cover/summary sheet before the actual transaction table.
+  let sheet: import("exceljs").Worksheet | null = null;
+  let header: { rowNumber: number; cols: Record<string, number> } | null = null;
+  for (const ws of workbook.worksheets) {
+    const h = findHeaderRow(ws);
+    if (h && h.cols.tanggal && h.cols.keterangan && h.cols.dbcr && h.cols.nilai) {
+      sheet = ws;
+      header = h;
+      break;
+    }
+  }
+  if (!sheet || !header) {
+    throw new Error(
+      `Format tidak dikenali — pastikan ada kolom Tanggal, Keterangan, DB/CR (atau D/K), dan Nilai/Nominal dalam satu baris header.\n\nIsi baris-baris awal file yang terbaca:\n${dumpFirstRows(workbook)}`,
+    );
   }
 
   const rows: ParsedRow[] = [];
@@ -116,7 +162,7 @@ async function parseFile(file: File): Promise<ParsedRow[]> {
     const row = sheet.getRow(r);
     const dateCell = row.getCell(header.cols.tanggal).value;
     const keteranganCell = cellText(row.getCell(header.cols.keterangan).value);
-    const dbcrCell = cellText(row.getCell(header.cols.dbcr).value).toUpperCase();
+    const dbcrCell = normalizeDbCr(cellText(row.getCell(header.cols.dbcr).value));
     const nilaiCell = row.getCell(header.cols.nilai).value;
     const day = dayFromDateCell(dateCell);
     const amount = typeof nilaiCell === "number" ? nilaiCell : Number(cellText(nilaiCell).replace(/[^\d.-]/g, ""));
@@ -124,7 +170,7 @@ async function parseFile(file: File): Promise<ParsedRow[]> {
     // Skip separator/blank rows (no date, or no usable amount) — the
     // source sheets have blank spacer rows between date groups.
     if (!day || !keteranganCell || !amount || !isFinite(amount)) continue;
-    if (dbcrCell !== "DB" && dbcrCell !== "CR") continue;
+    if (!dbcrCell) continue;
 
     rows.push({
       rowIndex: r,
@@ -133,11 +179,25 @@ async function parseFile(file: File): Promise<ParsedRow[]> {
       subCost: header.cols.subCost ? cellText(row.getCell(header.cols.subCost).value) : "",
       code: header.cols.code ? cellText(row.getCell(header.cols.code).value) : "",
       keterangan: keteranganCell,
-      dbcr: dbcrCell as "DB" | "CR",
+      dbcr: dbcrCell,
       amount,
     });
   }
-  if (rows.length === 0) throw new Error("Tidak ada baris transaksi yang terbaca dari file ini.");
+  if (rows.length === 0) {
+    const sampleLines: string[] = [];
+    for (let r = header.rowNumber + 1; r <= Math.min(sheet.rowCount, header.rowNumber + 6); r++) {
+      const row = sheet.getRow(r);
+      const cells: string[] = [];
+      row.eachCell({ includeEmpty: false }, (cell) => {
+        const t = cellText(cell.value);
+        if (t) cells.push(t);
+      });
+      if (cells.length) sampleLines.push(`  baris ${r}: ${cells.join(" | ")}`);
+    }
+    throw new Error(
+      `Header kolom terbaca di baris ${header.rowNumber}, tapi tidak ada baris data di bawahnya yang valid (perlu Tanggal, Keterangan, DB/CR, dan Nilai terisi semua).\n\nContoh baris yang terbaca:\n${sampleLines.join("\n") || "(tidak ada baris berisi apa pun)"}`,
+    );
+  }
   return rows;
 }
 
@@ -294,9 +354,12 @@ export function JournalImportForm({ accounts, existingMappings }: { accounts: Ac
       </p>
 
       {parseError && (
-        <p className="flex items-center gap-1.5 text-xs font-semibold text-rose-600">
-          <AlertTriangle className="h-3.5 w-3.5" /> {parseError}
-        </p>
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-rose-600">
+            <AlertTriangle className="h-3.5 w-3.5" /> Gagal membaca file
+          </p>
+          <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-rose-700">{parseError}</pre>
+        </div>
       )}
 
       {parsedRows && (
