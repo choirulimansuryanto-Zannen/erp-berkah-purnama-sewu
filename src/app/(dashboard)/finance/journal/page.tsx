@@ -75,7 +75,7 @@ export default async function FinanceJournalPage({
     prisma.journalEntry.findMany({
       where: { date: { gte: rangeFrom, lte: rangeTo }, entryType: { not: "JURNAL_PENYESUAIAN" } },
       include: { lines: { include: { account: true } }, outlet: true },
-      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ date: "asc" }, { createdAt: "asc" }],
       take: 300,
     }),
   ]);
