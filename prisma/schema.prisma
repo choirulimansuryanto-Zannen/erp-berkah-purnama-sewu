@@ -286,6 +286,7 @@ model User {
   outletInvestorSharesCreated   OutletInvestorShare[] @relation("OutletInvestorShareCreatedBy")
   outletInvestorLedgersUpdated  OutletInvestorMonthlyLedger[] @relation("OutletInvestorLedgerUpdatedBy")
   journalImportMappingsCreated  JournalImportMapping[]
+  journalImportBatchesCreated   JournalImportBatch[]
   companyMaterialClosingBalancesRecorded CompanyMaterialClosingBalance[] @relation("CompanyMaterialClosingRecordedBy")
   vendorLedgerEntriesRecorded VendorLedgerEntry[] @relation("VendorLedgerRecordedBy")
   receivableEntriesRecorded   ReceivableEntry[]   @relation("ReceivableEntryRecordedBy")
@@ -1342,9 +1343,40 @@ model JournalEntry {
 
   lines JournalEntryLine[]
 
+  // Set only for an entry created via the Jurnal Excel Import flow —
+  // null for everything entered by hand. Lets a whole upload be undone
+  // in one action (wrong period/buku kas picked, etc.) instead of
+  // voiding each entry one by one — see JournalImportBatch.
+  importBatchId String?
+  importBatch   JournalImportBatch? @relation(fields: [importBatchId], references: [id])
+
   @@index([cashBook, date])
   @@index([outletId])
   @@index([date])
+  @@index([importBatchId])
+}
+
+// One row per Jurnal Excel Import run — lets the whole batch be reviewed
+// and, if the wrong Buku Kas/Tahun/Bulan was picked, deleted in one
+// action rather than voiding each of its (possibly dozens of) entries by
+// hand. Confirmed needed 2026-10-13 after a real mis-targeted import.
+model JournalImportBatch {
+  id              String   @id @default(uuid())
+  cashBook        CashBook
+  fileName        String?
+  targetYear      Int
+  targetMonth     Int
+  rowCount        Int
+  totalDebitRows  Decimal  @db.Decimal(16, 2)
+  totalCreditRows Decimal  @db.Decimal(16, 2)
+
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  entries JournalEntry[]
+
+  @@index([createdAt])
 }
 
 // Always exactly two lines per JournalEntry (the cash-book leg + its contra

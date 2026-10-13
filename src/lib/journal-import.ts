@@ -36,8 +36,24 @@ export type JournalImportRowInput = {
 // book's own account as contra. This is exactly what made "Buku Brankas"
 // correctly show incoming transfers after the Jurnal page's own
 // touchedCashBooks fix (2026-10-12).
-export async function postJournalImportBatch(params: { cashBook: CashBook; rows: JournalImportRowInput[]; createdById: string }) {
-  const { cashBook, rows, createdById } = params;
+export async function postJournalImportBatch(params: {
+  cashBook: CashBook;
+  rows: JournalImportRowInput[];
+  createdById: string;
+  fileName?: string;
+  targetYear: number;
+  targetMonth: number;
+}) {
+  const { cashBook, rows, createdById, fileName, targetYear, targetMonth } = params;
+
+  // Created FIRST (totals filled in after the loop, via update) so every
+  // entry below can be tagged with its batch id as it's created — see
+  // JournalImportBatch: this is what lets a whole mis-targeted upload
+  // (wrong period, wrong buku kas) be undone in one action instead of
+  // voiding each entry by hand.
+  const batch = await prisma.journalImportBatch.create({
+    data: { cashBook, fileName, targetYear, targetMonth, rowCount: rows.length, totalDebitRows: 0, totalCreditRows: 0, createdById },
+  });
 
   const [uploadedBookAccount, allCashBookAccounts, allExisting] = await Promise.all([
     prisma.chartOfAccount.findFirst({ where: { cashBook, status: "ACTIVE" } }),
@@ -122,6 +138,7 @@ export async function postJournalImportBatch(params: { cashBook: CashBook; rows:
         description: row.keterangan,
         status: "POSTED",
         createdById,
+        importBatchId: batch.id,
         lines: {
           create: [
             {
@@ -167,5 +184,22 @@ export async function postJournalImportBatch(params: { cashBook: CashBook; rows:
     });
   }
 
-  return { created, totalDebitRows, totalCreditRows };
+  await prisma.journalImportBatch.update({
+    where: { id: batch.id },
+    data: { totalDebitRows, totalCreditRows },
+  });
+
+  return { created, totalDebitRows, totalCreditRows, batchId: batch.id };
+}
+
+// Deletes an entire import batch — every entry + line it created, then
+// the batch row itself. The "undo" for a mis-targeted upload (wrong
+// period or wrong buku kas picked before posting).
+export async function deleteJournalImportBatch(batchId: string): Promise<number> {
+  const entries = await prisma.journalEntry.findMany({ where: { importBatchId: batchId }, select: { id: true } });
+  const ids = entries.map((e) => e.id);
+  await prisma.journalEntryLine.deleteMany({ where: { journalEntryId: { in: ids } } });
+  await prisma.journalEntry.deleteMany({ where: { id: { in: ids } } });
+  await prisma.journalImportBatch.delete({ where: { id: batchId } });
+  return ids.length;
 }

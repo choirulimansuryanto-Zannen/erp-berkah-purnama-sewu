@@ -8,6 +8,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { DateRangeFilter } from "@/components/ui/date-range-filter";
 import { JournalVoucherForm } from "@/components/finance/journal-voucher-form";
 import { JournalImportForm } from "@/components/finance/journal-import-form";
+import { JournalImportHistory } from "@/components/finance/journal-import-history";
 import { JournalEntryList, type JournalEntryRow } from "@/components/finance/journal-entry-list";
 import { CASH_BOOK_LABELS } from "@/lib/accounting";
 import { cn } from "@/lib/cn";
@@ -65,10 +66,11 @@ export default async function FinanceJournalPage({
     }
   }
 
-  const [accounts, outlets, importMappings, entries] = await Promise.all([
+  const [accounts, outlets, importMappings, importBatches, entries] = await Promise.all([
     prisma.chartOfAccount.findMany({ where: { status: "ACTIVE" }, orderBy: { code: "asc" } }),
     prisma.outlet.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.journalImportMapping.findMany({ select: { keteranganKey: true, contraAccountId: true } }),
+    prisma.journalImportBatch.findMany({ orderBy: { createdAt: "desc" }, take: 20, include: { createdBy: { select: { name: true } } } }),
     // Jurnal Penyesuaian entries live on their own dedicated page (they
     // don't belong to any of the six books, and this page's form can't
     // create them) — excluded here so "Riwayat Jurnal" stays cash-voucher-only.
@@ -191,6 +193,28 @@ export default async function FinanceJournalPage({
           <JournalImportForm
             accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, cashBook: a.cashBook }))}
             existingMappings={importMappings}
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Riwayat Import ({importBatches.length})</CardTitle>
+        </CardHeader>
+        <div className="p-5 pt-0">
+          <JournalImportHistory
+            batches={importBatches.map((b) => ({
+              id: b.id,
+              cashBook: b.cashBook,
+              fileName: b.fileName,
+              targetYear: b.targetYear,
+              targetMonth: b.targetMonth,
+              rowCount: b.rowCount,
+              totalDebitRows: Number(b.totalDebitRows),
+              totalCreditRows: Number(b.totalCreditRows),
+              createdAt: b.createdAt.toISOString(),
+              createdByName: b.createdBy.name,
+            }))}
           />
         </div>
       </Card>

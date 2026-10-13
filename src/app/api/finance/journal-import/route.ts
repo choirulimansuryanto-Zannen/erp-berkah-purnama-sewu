@@ -19,7 +19,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await postJournalImportBatch({ cashBook: parsed.data.cashBook, rows: parsed.data.rows, createdById: user.id });
+    const result = await postJournalImportBatch({
+      cashBook: parsed.data.cashBook,
+      rows: parsed.data.rows,
+      createdById: user.id,
+      fileName: parsed.data.fileName,
+      targetYear: parsed.data.targetYear,
+      targetMonth: parsed.data.targetMonth,
+    });
     return NextResponse.json({ success: true, ...result });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Gagal mengimpor jurnal" }, { status: 400 });

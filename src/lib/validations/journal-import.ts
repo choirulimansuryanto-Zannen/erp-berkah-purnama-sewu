@@ -16,5 +16,8 @@ export const journalImportRowSchema = z.object({
 
 export const journalImportPostSchema = z.object({
   cashBook: z.enum(["KASIR", "BRANKAS", "OUTLET", "PETTY_CASH", "BANK_BCA", "BANK_MANDIRI"]),
+  fileName: z.string().max(255).optional(),
+  targetYear: z.number().int().min(2020).max(2100),
+  targetMonth: z.number().int().min(1).max(12),
   rows: z.array(journalImportRowSchema).min(1).max(2000),
 });

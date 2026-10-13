@@ -213,9 +213,13 @@ export function JournalImportForm({ accounts, existingMappings }: { accounts: Ac
   const [parseError, setParseError] = useState<string | null>(null);
   const [expectedTotalDb, setExpectedTotalDb] = useState("");
   const [expectedTotalCr, setExpectedTotalCr] = useState("");
+  const [confirming, setConfirming] = useState(false);
   const [posting, setPosting] = useState(false);
   const [postResult, setPostResult] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
+  const [lastBatchId, setLastBatchId] = useState<string | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  const [undone, setUndone] = useState(false);
 
   const mappingByKey = useMemo(() => new Map(existingMappings.map((m) => [m.keteranganKey, m.contraAccountId])), [existingMappings]);
   const contraOptions = useMemo(() => accounts, [accounts]);
@@ -267,6 +271,7 @@ export function JournalImportForm({ accounts, existingMappings }: { accounts: Ac
     setPosting(true);
     setPostResult(null);
     setPostError(null);
+    setUndone(false);
     try {
       const rows = parsedRows.map((r) => ({
         date: `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(r.day).padStart(2, "0")}`,
@@ -281,15 +286,17 @@ export function JournalImportForm({ accounts, existingMappings }: { accounts: Ac
       const res = await fetch("/api/finance/journal-import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cashBook, rows }),
+        body: JSON.stringify({ cashBook, fileName, targetYear: Number(targetYear), targetMonth: Number(targetMonth), rows }),
       });
       const data = await res.json();
       if (res.ok) {
         setPostResult(
-          `${data.created} jurnal berhasil diposting — setiap jurnal sudah seimbang sendiri (1 baris debit = 1 baris kredit). Total baris bertanda DB di file: ${currency.format(data.totalDebitRows)}, total baris bertanda CR: ${currency.format(data.totalCreditRows)} (dua angka ini wajar berbeda — itu kas masuk vs kas keluar, bukan indikator ketidakseimbangan).`,
+          `${data.created} jurnal berhasil diposting ke ${CASH_BOOK_LABELS[cashBook]} — ${BULAN_NAMES_ID[Number(targetMonth) - 1][0].toUpperCase() + BULAN_NAMES_ID[Number(targetMonth) - 1].slice(1)} ${targetYear}. Setiap jurnal sudah seimbang sendiri (1 baris debit = 1 baris kredit). Total baris bertanda DB di file: ${currency.format(data.totalDebitRows)}, total baris bertanda CR: ${currency.format(data.totalCreditRows)} (dua angka ini wajar berbeda — itu kas masuk vs kas keluar, bukan indikator ketidakseimbangan).`,
         );
+        setLastBatchId(data.batchId);
         setParsedRows(null);
         setFileName(null);
+        setConfirming(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
         router.refresh();
       } else {
@@ -299,6 +306,26 @@ export function JournalImportForm({ accounts, existingMappings }: { accounts: Ac
       setPostError("Gagal mengirim data ke server.");
     } finally {
       setPosting(false);
+    }
+  }
+
+  async function undoLastImport() {
+    if (!lastBatchId) return;
+    setUndoing(true);
+    try {
+      const res = await fetch(`/api/finance/journal-import/${lastBatchId}`, { method: "DELETE" });
+      if (res.ok) {
+        setUndone(true);
+        setLastBatchId(null);
+        router.refresh();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setPostError(typeof data.error === "string" ? data.error : "Gagal membatalkan import.");
+      }
+    } catch {
+      setPostError("Gagal membatalkan import.");
+    } finally {
+      setUndoing(false);
     }
   }
 
@@ -437,20 +464,75 @@ export function JournalImportForm({ accounts, existingMappings }: { accounts: Ac
             </table>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={postImport}
-              disabled={posting || unresolvedCount > 0}
-              className="flex items-center gap-1.5 rounded-lg bg-brand-900 px-4 py-2 text-xs font-semibold text-white hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Upload className="h-3.5 w-3.5" /> {posting ? "Memposting..." : `Posting ${parsedRows.length} Jurnal`}
-            </button>
-            {unresolvedCount > 0 && <p className="text-xs text-slate-500">Petakan dulu semua Keterangan di atas sebelum bisa posting.</p>}
-          </div>
+          {!confirming ? (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setConfirming(true)}
+                disabled={posting || unresolvedCount > 0}
+                className="flex items-center gap-1.5 rounded-lg bg-brand-900 px-4 py-2 text-xs font-semibold text-white hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Upload className="h-3.5 w-3.5" /> Posting {parsedRows.length} Jurnal
+              </button>
+              {unresolvedCount > 0 && <p className="text-xs text-slate-500">Petakan dulu semua Keterangan di atas sebelum bisa posting.</p>}
+            </div>
+          ) : (
+            <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-4">
+              <p className="flex items-center gap-1.5 text-sm font-bold text-amber-900">
+                <AlertTriangle className="h-4 w-4" /> Periksa dulu sebelum posting — ini tidak bisa diedit per baris setelah tersimpan
+              </p>
+              <ul className="mt-2 space-y-0.5 text-xs text-amber-800">
+                <li>
+                  • Buku Kas: <strong>{CASH_BOOK_LABELS[cashBook]}</strong>
+                </li>
+                <li>
+                  • Periode tujuan: <strong>{BULAN_NAMES_ID[Number(targetMonth) - 1][0].toUpperCase() + BULAN_NAMES_ID[Number(targetMonth) - 1].slice(1)} {targetYear}</strong>
+                </li>
+                <li>
+                  • Jumlah baris: <strong>{parsedRows.length}</strong> ({currency.format(totalDb)} DB / {currency.format(totalCr)} CR)
+                </li>
+              </ul>
+              <p className="mt-2 text-xs text-amber-700">
+                Sudah benar Buku Kas dan periodenya? Kalau salah, pilih ulang di atas sebelum lanjut — mengimpor ke periode/buku yang salah tetap bisa
+                dibatalkan sesudahnya lewat tombol &quot;Batalkan Import Ini&quot;, tapi lebih aman dicek dulu sekarang.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  onClick={postImport}
+                  disabled={posting}
+                  className="flex items-center gap-1.5 rounded-lg bg-brand-900 px-4 py-2 text-xs font-semibold text-white hover:bg-brand-800 disabled:opacity-50"
+                >
+                  <Check className="h-3.5 w-3.5" /> {posting ? "Memposting..." : "Ya, Sudah Benar — Posting Sekarang"}
+                </button>
+                <button onClick={() => setConfirming(false)} disabled={posting} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                  Batal, Cek Lagi
+                </button>
+              </div>
+            </div>
+          )}
           {postError && <p className="text-xs font-semibold text-rose-600">{postError}</p>}
         </div>
       )}
-      {postResult && <p className="flex items-center gap-1.5 text-sm font-semibold text-emerald-700"><Check className="h-4 w-4" /> {postResult}</p>}
+      {postResult && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
+            <Check className="h-4 w-4" /> {postResult}
+          </p>
+          {lastBatchId && (
+            <button
+              onClick={undoLastImport}
+              disabled={undoing}
+              className="shrink-0 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+            >
+              {undoing ? "Membatalkan..." : "Batalkan Import Ini"}
+            </button>
+          )}
+        </div>
+      )}
+      {undone && (
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-600">
+          <Check className="h-4 w-4" /> Import tadi sudah dibatalkan — semua jurnal dari batch itu sudah dihapus.
+        </p>
+      )}
     </div>
   );
 }
