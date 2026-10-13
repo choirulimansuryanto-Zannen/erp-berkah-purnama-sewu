@@ -66,10 +66,9 @@ export default async function FinanceJournalPage({
     }
   }
 
-  const [accounts, outlets, importMappings, importBatches, entries] = await Promise.all([
+  const [accounts, outlets, importBatches, entries] = await Promise.all([
     prisma.chartOfAccount.findMany({ where: { status: "ACTIVE" }, orderBy: { code: "asc" } }),
     prisma.outlet.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.journalImportMapping.findMany({ select: { keteranganKey: true, contraAccountId: true } }),
     prisma.journalImportBatch.findMany({ orderBy: { createdAt: "desc" }, take: 20, include: { createdBy: { select: { name: true } } } }),
     // Jurnal Penyesuaian entries live on their own dedicated page (they
     // don't belong to any of the six books, and this page's form can't
@@ -190,10 +189,7 @@ export default async function FinanceJournalPage({
           <CardTitle>Import Jurnal dari Excel</CardTitle>
         </CardHeader>
         <div className="p-5 pt-0">
-          <JournalImportForm
-            accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, cashBook: a.cashBook }))}
-            existingMappings={importMappings}
-          />
+          <JournalImportForm accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, cashBook: a.cashBook }))} />
         </div>
       </Card>
 
