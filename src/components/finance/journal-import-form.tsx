@@ -213,6 +213,17 @@ export function JournalImportForm({ accounts, existingMappings }: { accounts: Ac
   const [parseError, setParseError] = useState<string | null>(null);
   const [expectedTotalDb, setExpectedTotalDb] = useState("");
   const [expectedTotalCr, setExpectedTotalCr] = useState("");
+  // Bank-statement-style files routinely have a near-unique Keterangan per
+  // row (transaction references, dates, counterparty names baked into the
+  // text) — confirmed 2026-10-13 against a real 1881-row file with 1875
+  // distinct descriptions, where mapping one-by-one is impractical. The
+  // simple, practical default: ONE contra account for every DB row and
+  // ONE for every CR row; per-Keterangan mapping becomes an OPTIONAL
+  // override for descriptions that actually repeat (a handful, not
+  // thousands), not a requirement for every row.
+  const [defaultDbAccountId, setDefaultDbAccountId] = useState("");
+  const [defaultCrAccountId, setDefaultCrAccountId] = useState("");
+  const [showOverrides, setShowOverrides] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [posting, setPosting] = useState(false);
   const [postResult, setPostResult] = useState<string | null>(null);
@@ -224,19 +235,26 @@ export function JournalImportForm({ accounts, existingMappings }: { accounts: Ac
   const mappingByKey = useMemo(() => new Map(existingMappings.map((m) => [m.keteranganKey, m.contraAccountId])), [existingMappings]);
   const contraOptions = useMemo(() => accounts, [accounts]);
 
-  const uniqueKeterangan = useMemo(() => {
+  // Every distinct Keterangan + how many rows share it, most-frequent
+  // first. "Repeating" (count > 1) ones are worth an optional override —
+  // the one-off, never-repeated ones (the overwhelming majority in a real
+  // bank statement) aren't worth singling out and just use the default.
+  const keteranganStats = useMemo(() => {
     if (!parsedRows) return [];
-    const seen = new Set<string>();
-    const list: string[] = [];
+    const counts = new Map<string, { original: string; count: number }>();
     for (const r of parsedRows) {
       const key = normalizeKeterangan(r.keterangan);
-      if (!seen.has(key)) {
-        seen.add(key);
-        list.push(r.keterangan);
-      }
+      const entry = counts.get(key);
+      if (entry) entry.count += 1;
+      else counts.set(key, { original: r.keterangan, count: 1 });
     }
-    return list;
+    return [...counts.entries()].map(([key, v]) => ({ key, ...v })).sort((a, b) => b.count - a.count);
   }, [parsedRows]);
+  const repeatingKeterangan = useMemo(() => keteranganStats.filter((k) => k.count > 1).slice(0, 100), [keteranganStats]);
+
+  function resolvedContraFor(r: ParsedRow): string {
+    return mapping[normalizeKeterangan(r.keterangan)] || (r.dbcr === "DB" ? defaultDbAccountId : defaultCrAccountId);
+  }
 
   async function handleFile(file: File) {
     setParseError(null);
@@ -260,11 +278,22 @@ export function JournalImportForm({ accounts, existingMappings }: { accounts: Ac
     }
   }
 
-  const unresolvedCount = uniqueKeterangan.filter((k) => !mapping[normalizeKeterangan(k)]).length;
   const totalDb = (parsedRows ?? []).filter((r) => r.dbcr === "DB").reduce((s, r) => s + r.amount, 0);
   const totalCr = (parsedRows ?? []).filter((r) => r.dbcr === "CR").reduce((s, r) => s + r.amount, 0);
-  const dbMismatch = expectedTotalDb.trim() !== "" && Math.round(Number(expectedTotalDb.replace(/\./g, "").replace(",", "."))) !== Math.round(totalDb);
-  const crMismatch = expectedTotalCr.trim() !== "" && Math.round(Number(expectedTotalCr.replace(/\./g, "").replace(",", "."))) !== Math.round(totalCr);
+  const hasDbRows = (parsedRows ?? []).some((r) => r.dbcr === "DB");
+  const hasCrRows = (parsedRows ?? []).some((r) => r.dbcr === "CR");
+  const unresolvedCount = (parsedRows ?? []).filter((r) => !resolvedContraFor(r)).length;
+  // Totals are always whole Rupiah in practice — stripping every "." and
+  // "," (rather than assuming one is the Indonesian thousands separator)
+  // is locale-proof: it reads "620,662,502" (US-style, as pasted from a
+  // source that formats that way) exactly the same as "620.662.502"
+  // (id-ID style), which a strict id-ID-only parse got wrong and flagged
+  // as a false mismatch (found 2026-10-13 against a real file).
+  function parseWholeRupiah(s: string): number {
+    return Number(s.replace(/[^\d]/g, "")) || 0;
+  }
+  const dbMismatch = expectedTotalDb.trim() !== "" && parseWholeRupiah(expectedTotalDb) !== Math.round(totalDb);
+  const crMismatch = expectedTotalCr.trim() !== "" && parseWholeRupiah(expectedTotalCr) !== Math.round(totalCr);
 
   async function postImport() {
     if (!parsedRows) return;
@@ -281,12 +310,22 @@ export function JournalImportForm({ accounts, existingMappings }: { accounts: Ac
         keterangan: r.keterangan,
         dbcr: r.dbcr,
         amount: r.amount,
-        contraAccountId: mapping[normalizeKeterangan(r.keterangan)],
+        contraAccountId: resolvedContraFor(r),
       }));
+      // Only the explicit per-Keterangan overrides (the "mapping" state,
+      // set via the Pengecualian panel) get remembered for next time —
+      // NOT every row's resolved default, which would otherwise try to
+      // save a mapping per one-off description (see postJournalImportBatch).
+      const learnedMappings = Object.entries(mapping)
+        .filter(([, accountId]) => accountId)
+        .map(([key, accountId]) => {
+          const original = keteranganStats.find((k) => k.key === key)?.original ?? key;
+          return { keterangan: original, contraAccountId: accountId };
+        });
       const res = await fetch("/api/finance/journal-import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cashBook, fileName, targetYear: Number(targetYear), targetMonth: Number(targetMonth), rows }),
+        body: JSON.stringify({ cashBook, fileName, targetYear: Number(targetYear), targetMonth: Number(targetMonth), rows, learnedMappings }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -393,16 +432,61 @@ export function JournalImportForm({ accounts, existingMappings }: { accounts: Ac
         <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-bold text-slate-700">
-              Pratinjau — {fileName} ({parsedRows.length} baris, {uniqueKeterangan.length} jenis Keterangan unik)
+              Pratinjau — {fileName} ({parsedRows.length} baris, {keteranganStats.length} jenis Keterangan)
             </p>
             {unresolvedCount > 0 ? (
-              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">{unresolvedCount} Keterangan belum dipetakan ke akun</span>
+              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">{unresolvedCount} baris belum ada akun lawan</span>
             ) : (
               <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">
-                <Check className="h-3 w-3" /> Semua sudah terpetakan
+                <Check className="h-3 w-3" /> Semua baris sudah ada akun lawan
               </span>
             )}
           </div>
+
+          {/* Default accounts — the only thing required for most files.
+              Per-Keterangan overrides below are optional. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {hasDbRows && (
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold text-slate-500">Akun Lawan untuk semua baris DB (kas masuk)</label>
+                <select
+                  value={defaultDbAccountId}
+                  onChange={(e) => setDefaultDbAccountId(e.target.value)}
+                  className={`w-full rounded-md border px-2 py-1.5 text-xs ${!defaultDbAccountId ? "border-amber-400 bg-amber-50" : "border-slate-300 bg-white"}`}
+                >
+                  <option value="">— pilih akun —</option>
+                  {contraOptions.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      [{a.code}] {a.name}
+                      {a.cashBook ? ` (${CASH_BOOK_LABELS[a.cashBook]} — jadi Transfer Antar Buku)` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {hasCrRows && (
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold text-slate-500">Akun Lawan untuk semua baris CR (kas keluar)</label>
+                <select
+                  value={defaultCrAccountId}
+                  onChange={(e) => setDefaultCrAccountId(e.target.value)}
+                  className={`w-full rounded-md border px-2 py-1.5 text-xs ${!defaultCrAccountId ? "border-amber-400 bg-amber-50" : "border-slate-300 bg-white"}`}
+                >
+                  <option value="">— pilih akun —</option>
+                  {contraOptions.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      [{a.code}] {a.name}
+                      {a.cashBook ? ` (${CASH_BOOK_LABELS[a.cashBook]} — jadi Transfer Antar Buku)` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Dipakai untuk baris yang Keterangan-nya tidak diatur khusus di bawah. Kalau mau akun berbeda untuk Keterangan tertentu (mis. &quot;Admin
+            Bank&quot;), atur lewat &quot;Pengecualian per Keterangan&quot; di bawah — tidak wajib diisi semua.
+          </p>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
@@ -421,47 +505,50 @@ export function JournalImportForm({ accounts, existingMappings }: { accounts: Ac
             </div>
           </div>
 
-          <div className="max-h-[50vh] overflow-auto rounded-lg border border-slate-200 bg-white">
-            <table className="w-full min-w-[800px] border-collapse text-xs">
-              <thead className="sticky top-0 bg-brand-950 text-white">
-                <tr>
-                  <th className="px-2 py-1.5 text-left">Keterangan</th>
-                  <th className="px-2 py-1.5 text-right">Jumlah Baris</th>
-                  <th className="px-2 py-1.5 text-left">Akun Lawan</th>
-                </tr>
-              </thead>
-              <tbody>
-                {uniqueKeterangan.map((k) => {
-                  const key = normalizeKeterangan(k);
-                  const count = parsedRows.filter((r) => normalizeKeterangan(r.keterangan) === key).length;
-                  const isKnown = Boolean(mappingByKey.get(key));
-                  return (
-                    <tr key={key} className={`border-b border-slate-100 ${!mapping[key] ? "bg-amber-50" : ""}`}>
-                      <td className="px-2 py-1.5">
-                        {k}
-                        {isKnown && !mapping[key] && <span className="ml-1 text-[10px] text-slate-400">(sebelumnya dipetakan)</span>}
-                      </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{count}</td>
-                      <td className="px-1 py-1">
-                        <select
-                          value={mapping[key] ?? ""}
-                          onChange={(e) => setMapping((prev) => ({ ...prev, [key]: e.target.value }))}
-                          className={`w-full rounded-md border px-2 py-1 text-xs ${!mapping[key] ? "border-amber-400 bg-amber-50" : "border-slate-300 bg-white"}`}
-                        >
-                          <option value="">— pilih akun —</option>
-                          {contraOptions.map((a) => (
-                            <option key={a.id} value={a.id}>
-                              [{a.code}] {a.name}
-                              {a.cashBook ? ` (${CASH_BOOK_LABELS[a.cashBook]} — jadi Transfer Antar Buku)` : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div>
+            <button onClick={() => setShowOverrides((v) => !v)} className="text-xs font-semibold text-accent-700 hover:text-accent-800">
+              {showOverrides ? "▾" : "▸"} Pengecualian per Keterangan (opsional{repeatingKeterangan.length > 0 ? ` — ${repeatingKeterangan.length} Keterangan muncul berulang` : ""})
+            </button>
+            {showOverrides && (
+              <div className="mt-2 max-h-[40vh] overflow-auto rounded-lg border border-slate-200 bg-white">
+                {repeatingKeterangan.length === 0 ? (
+                  <p className="p-3 text-xs text-slate-400">Tidak ada Keterangan yang muncul berulang di file ini — semua baris akan pakai akun default di atas.</p>
+                ) : (
+                  <table className="w-full min-w-[800px] border-collapse text-xs">
+                    <thead className="sticky top-0 bg-brand-950 text-white">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left">Keterangan</th>
+                        <th className="px-2 py-1.5 text-right">Jumlah Baris</th>
+                        <th className="px-2 py-1.5 text-left">Akun Lawan Khusus</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {repeatingKeterangan.map(({ key, original, count }) => (
+                        <tr key={key} className="border-b border-slate-100">
+                          <td className="px-2 py-1.5">{original}</td>
+                          <td className="px-2 py-1.5 text-right tabular-nums">{count}</td>
+                          <td className="px-1 py-1">
+                            <select
+                              value={mapping[key] ?? ""}
+                              onChange={(e) => setMapping((prev) => ({ ...prev, [key]: e.target.value }))}
+                              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+                            >
+                              <option value="">(pakai akun default)</option>
+                              {contraOptions.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  [{a.code}] {a.name}
+                                  {a.cashBook ? ` (${CASH_BOOK_LABELS[a.cashBook]} — jadi Transfer Antar Buku)` : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
           </div>
 
           {!confirming ? (
@@ -490,6 +577,16 @@ export function JournalImportForm({ accounts, existingMappings }: { accounts: Ac
                 <li>
                   • Jumlah baris: <strong>{parsedRows.length}</strong> ({currency.format(totalDb)} DB / {currency.format(totalCr)} CR)
                 </li>
+                {hasDbRows && (
+                  <li>
+                    • Akun Lawan default (DB): <strong>{contraOptions.find((a) => a.id === defaultDbAccountId)?.name ?? "-"}</strong>
+                  </li>
+                )}
+                {hasCrRows && (
+                  <li>
+                    • Akun Lawan default (CR): <strong>{contraOptions.find((a) => a.id === defaultCrAccountId)?.name ?? "-"}</strong>
+                  </li>
+                )}
               </ul>
               <p className="mt-2 text-xs text-amber-700">
                 Sudah benar Buku Kas dan periodenya? Kalau salah, pilih ulang di atas sebelum lanjut — mengimpor ke periode/buku yang salah tetap bisa

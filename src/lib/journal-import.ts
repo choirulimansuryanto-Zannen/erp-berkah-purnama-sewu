@@ -1,4 +1,5 @@
 import "server-only";
+import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import type { CashBook } from "@prisma/client";
 
@@ -43,8 +44,17 @@ export async function postJournalImportBatch(params: {
   fileName?: string;
   targetYear: number;
   targetMonth: number;
+  // Only the EXPLICIT per-Keterangan overrides the user actually picked
+  // (the "Pengecualian per Keterangan" panel) — NOT every row's resolved
+  // contraAccountId. A bank-statement file routinely has 1000+ distinct,
+  // never-repeated descriptions that all resolve through the DB/CR
+  // defaults; saving each of those as its own "remembered mapping" would
+  // be useless (a one-off description is never looked up again) and,
+  // worse, would mean upserting thousands of rows here on every import —
+  // confirmed 2026-10-13 this made a 500-row import take minutes.
+  learnedMappings?: { keterangan: string; contraAccountId: string }[];
 }) {
-  const { cashBook, rows, createdById, fileName, targetYear, targetMonth } = params;
+  const { cashBook, rows, createdById, fileName, targetYear, targetMonth, learnedMappings = [] } = params;
 
   // Created FIRST (totals filled in after the loop, via update) so every
   // entry below can be tagged with its batch id as it's created — see
@@ -86,7 +96,6 @@ export async function postJournalImportBatch(params: {
     return candidate;
   }
 
-  let created = 0;
   // Sums of the rows AS MARKED in the source file (DB vs CR from the
   // uploaded book's own perspective) — purely informational, for the
   // caller to cross-check against the file's own stated totals. These
@@ -97,6 +106,35 @@ export async function postJournalImportBatch(params: {
   // one credit line of the same amount), not something to check here.
   let totalDebitRows = 0;
   let totalCreditRows = 0;
+
+  // Build every entry + its 2 lines in memory first, THEN write with two
+  // createMany calls (not one create() per row) — a real 500-row import
+  // took minutes with the one-row-at-a-time version (confirmed 2026-10-13);
+  // this brings it to seconds regardless of file size. IDs are generated
+  // here (not left to the DB) specifically so the matching line rows can
+  // reference their entry before either is actually written.
+  const entryRows: {
+    id: string;
+    entryNumber: string;
+    date: Date;
+    cashBook: CashBook;
+    entryType: "KAS_MASUK" | "KAS_KELUAR" | "TRANSFER_ANTAR_BUKU";
+    description: string;
+    status: "POSTED";
+    createdById: string;
+    importBatchId: string;
+  }[] = [];
+  const lineRows: {
+    id: string;
+    journalEntryId: string;
+    accountId: string;
+    debit: number;
+    credit: number;
+    remark: string;
+    costCentre: string | null;
+    costDescription: string | null;
+    isDebitSide: boolean;
+  }[] = [];
 
   for (const row of rows) {
     const rowDate = new Date(`${row.date}T00:00:00.000Z`);
@@ -129,54 +167,62 @@ export async function postJournalImportBatch(params: {
     }
     const otherAccountId = taggedAccountId === uploadedBookAccount.id ? row.contraAccountId : uploadedBookAccount.id;
 
-    await prisma.journalEntry.create({
-      data: {
-        entryNumber: nextEntryNumber(taggedCashBook),
-        date: rowDate,
-        cashBook: taggedCashBook,
-        entryType,
-        description: row.keterangan,
-        status: "POSTED",
-        createdById,
-        importBatchId: batch.id,
-        lines: {
-          create: [
-            {
-              accountId: taggedAccountId,
-              debit: taggedIsDebit ? row.amount : 0,
-              credit: taggedIsDebit ? 0 : row.amount,
-              remark: row.keterangan,
-              costCentre: row.costCentre || null,
-              costDescription: [row.subCost, row.code].filter(Boolean).join(" ") || null,
-              isDebitSide: taggedIsDebit,
-            },
-            {
-              accountId: otherAccountId,
-              debit: taggedIsDebit ? 0 : row.amount,
-              credit: taggedIsDebit ? row.amount : 0,
-              remark: row.keterangan,
-              costCentre: row.costCentre || null,
-              costDescription: [row.subCost, row.code].filter(Boolean).join(" ") || null,
-              isDebitSide: !taggedIsDebit,
-            },
-          ],
-        },
-      },
+    const entryId = crypto.randomUUID();
+    entryRows.push({
+      id: entryId,
+      entryNumber: nextEntryNumber(taggedCashBook),
+      date: rowDate,
+      cashBook: taggedCashBook,
+      entryType,
+      description: row.keterangan,
+      status: "POSTED",
+      createdById,
+      importBatchId: batch.id,
     });
-    created += 1;
+    const costDescription = [row.subCost, row.code].filter(Boolean).join(" ") || null;
+    lineRows.push(
+      {
+        id: crypto.randomUUID(),
+        journalEntryId: entryId,
+        accountId: taggedAccountId,
+        debit: taggedIsDebit ? row.amount : 0,
+        credit: taggedIsDebit ? 0 : row.amount,
+        remark: row.keterangan,
+        costCentre: row.costCentre || null,
+        costDescription,
+        isDebitSide: taggedIsDebit,
+      },
+      {
+        id: crypto.randomUUID(),
+        journalEntryId: entryId,
+        accountId: otherAccountId,
+        debit: taggedIsDebit ? 0 : row.amount,
+        credit: taggedIsDebit ? row.amount : 0,
+        remark: row.keterangan,
+        costCentre: row.costCentre || null,
+        costDescription,
+        isDebitSide: !taggedIsDebit,
+      },
+    );
     if (row.dbcr === "DB") totalDebitRows += row.amount;
     else totalCreditRows += row.amount;
   }
 
-  // Remember each distinct Keterangan -> contraAccountId choice for next
-  // time — upsert so a changed mapping (user re-picks a different account
-  // for the same description) overwrites the old one.
-  const originalByKey = new Map<string, { keterangan: string; contraAccountId: string }>();
-  for (const row of rows) {
-    const key = normalizeKeterangan(row.keterangan);
-    if (!originalByKey.has(key)) originalByKey.set(key, { keterangan: row.keterangan, contraAccountId: row.contraAccountId });
+  const BATCH_SIZE = 1000;
+  for (let i = 0; i < entryRows.length; i += BATCH_SIZE) {
+    await prisma.journalEntry.createMany({ data: entryRows.slice(i, i + BATCH_SIZE) });
   }
-  for (const [keteranganKey, { keterangan, contraAccountId }] of originalByKey) {
+  for (let i = 0; i < lineRows.length; i += BATCH_SIZE) {
+    await prisma.journalEntryLine.createMany({ data: lineRows.slice(i, i + BATCH_SIZE) });
+  }
+  const created = entryRows.length;
+
+  // Remember only the EXPLICIT per-Keterangan overrides the user actually
+  // picked (see the param doc above) — a small, bounded set, so plain
+  // sequential upserts are fine here (no createMany equivalent for
+  // "insert or update" in Prisma).
+  for (const { keterangan, contraAccountId } of learnedMappings) {
+    const keteranganKey = normalizeKeterangan(keterangan);
     await prisma.journalImportMapping.upsert({
       where: { keteranganKey },
       create: { keteranganKey, keterangan, contraAccountId, createdById },

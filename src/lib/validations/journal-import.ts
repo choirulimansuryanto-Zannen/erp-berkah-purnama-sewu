@@ -19,5 +19,9 @@ export const journalImportPostSchema = z.object({
   fileName: z.string().max(255).optional(),
   targetYear: z.number().int().min(2020).max(2100),
   targetMonth: z.number().int().min(1).max(12),
-  rows: z.array(journalImportRowSchema).min(1).max(2000),
+  rows: z.array(journalImportRowSchema).min(1).max(5000),
+  // Only the explicit per-Keterangan overrides the user picked in the
+  // "Pengecualian per Keterangan" panel — see postJournalImportBatch's
+  // own doc for why this is separate from `rows`.
+  learnedMappings: z.array(z.object({ keterangan: z.string().min(1).max(500), contraAccountId: z.string().uuid() })).max(500).optional(),
 });

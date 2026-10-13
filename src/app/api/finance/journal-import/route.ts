@@ -26,6 +26,7 @@ export async function POST(request: Request) {
       fileName: parsed.data.fileName,
       targetYear: parsed.data.targetYear,
       targetMonth: parsed.data.targetMonth,
+      learnedMappings: parsed.data.learnedMappings,
     });
     return NextResponse.json({ success: true, ...result });
   } catch (e) {
