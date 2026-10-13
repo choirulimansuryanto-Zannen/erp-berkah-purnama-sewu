@@ -2,28 +2,21 @@ import "server-only";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import type { CashBook } from "@prisma/client";
+import { TRANSITORY_ACCOUNT_CODE } from "@/lib/accounting-labels";
 
 export function normalizeKeterangan(s: string): string {
   return s.trim().toLowerCase();
 }
 
-// Every Buku Kas's own "Transitory" (suspense/clearing) account — already
-// present in this business's own Chart of Account, built for exactly this:
-// park an import whose real GL classification isn't known yet, to be
-// reclassified later via Jurnal Penyesuaian. Used automatically as the
-// akun lawan for every row of that book's import — no picker, no setting,
-// nothing asked during upload (per explicit request 2026-10-13: "akun
-// lawan di hilangkan DALAM PROSES MENGUPLOAD", then "hilangkan akun
-// lawan... hanya cukup button upload saja", confirmed against this exact
-// code mapping).
-const TRANSITORY_ACCOUNT_CODE: Record<CashBook, string> = {
-  KASIR: "81100",
-  BRANKAS: "81200",
-  OUTLET: "81400",
-  PETTY_CASH: "81300",
-  BANK_BCA: "81600",
-  BANK_MANDIRI: "81700",
-};
+// Used automatically as the akun lawan for every row of an import — no
+// picker, no setting, nothing asked during upload (per explicit request
+// 2026-10-13: "akun lawan di hilangkan DALAM PROSES MENGUPLOAD", then
+// "hilangkan akun lawan... hanya cukup button upload saja"). Each row
+// lands against its Buku Kas's Transitory account and is meant to be
+// reclassified to its real account afterward — see the Reklasifikasi
+// page (finance/journal/reklasifikasi), added the same day per follow-up
+// request: "tetap memberikan ruang untuk menjurnal setiap transaksi
+// tersebut setelah terupload ke sistem".
 
 export type JournalImportRowInput = {
   date: string;
