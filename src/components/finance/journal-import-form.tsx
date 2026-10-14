@@ -21,7 +21,7 @@ const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "
 
 type ParsedRow = {
   rowIndex: number;
-  day: number;
+  date: string; // YYYY-MM-DD, resolved from the file's own date cell
   costCentre: string;
   subCost: string;
   code: string;
@@ -54,16 +54,63 @@ function normalizeDbCr(raw: string): "DB" | "CR" | null {
   return null;
 }
 
-// Parses an Indonesian-style "1 September 2026" / "1 September" date cell
-// into just the day-of-month — the form always targets its OWN chosen
-// Tahun/Bulan (same as the business's own "re-input last month's sheet
-// into this month" workflow confirmed 2026-10-12), so only the day
-// carries over from the file.
-function dayFromDateCell(value: unknown): number | null {
-  if (value instanceof Date) return value.getUTCDate();
+const MONTH_NAME_TO_NUM: Record<string, number> = {
+  januari: 1, jan: 1, january: 1,
+  februari: 2, feb: 2, february: 2,
+  maret: 3, mar: 3, march: 3,
+  april: 4, apr: 4,
+  mei: 5, may: 5,
+  juni: 6, jun: 6, june: 6,
+  juli: 7, jul: 7, july: 7,
+  agustus: 8, agu: 8, agt: 8, aug: 8, august: 8,
+  september: 9, sep: 9, sept: 9,
+  oktober: 10, okt: 10, oct: 10, october: 10,
+  november: 11, nov: 11,
+  desember: 12, des: 12, dec: 12, december: 12,
+};
+function isoDate(year: number, month: number, day: number): string {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+// Resolves a date cell to a full YYYY-MM-DD — the file's OWN day, month
+// AND year are used whenever the cell actually states them (a typed
+// Excel date, or text like "1 September 2026" / "01/09/2026"); Tahun
+// Tujuan/Bulan Tujuan are only a FALLBACK for the rare cell that gives
+// just a bare day number ("1"). Earlier this discarded the file's own
+// month/year unconditionally and always substituted the picked Tahun/
+// Bulan — fine for the one-off "re-input last month's sheet" test this
+// was built for, but wrong for real files whose dates must be trusted
+// as-is (confirmed 2026-10-14: "tanggal... masih belum sama dengan file
+// yg di upload").
+function resolveDateFromCell(value: unknown, fallbackYear: number, fallbackMonth: number): string | null {
+  if (value instanceof Date) return isoDate(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
+
   const text = cellText(value);
-  const numMatch = text.match(/^(\d{1,2})\b/);
-  if (numMatch) return Number(numMatch[1]);
+  if (!text) return null;
+
+  const dayMonthNameYear = text.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/);
+  if (dayMonthNameYear) {
+    const month = MONTH_NAME_TO_NUM[dayMonthNameYear[2].toLowerCase()];
+    if (month) return isoDate(Number(dayMonthNameYear[3]), month, Number(dayMonthNameYear[1]));
+  }
+
+  const numericDmy = text.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/);
+  if (numericDmy) {
+    const month = Number(numericDmy[2]);
+    let year = Number(numericDmy[3]);
+    if (year < 100) year += 2000;
+    if (month >= 1 && month <= 12) return isoDate(year, month, Number(numericDmy[1]));
+  }
+
+  const dayMonthName = text.match(/^(\d{1,2})\s+([A-Za-z]+)\b/);
+  if (dayMonthName) {
+    const month = MONTH_NAME_TO_NUM[dayMonthName[2].toLowerCase()];
+    if (month) return isoDate(fallbackYear, month, Number(dayMonthName[1]));
+  }
+
+  const dayOnly = text.match(/^(\d{1,2})\b/);
+  if (dayOnly) return isoDate(fallbackYear, fallbackMonth, Number(dayOnly[1]));
+
   return null;
 }
 
@@ -124,7 +171,7 @@ function dumpFirstRows(workbook: import("exceljs").Workbook): string {
   return lines.join("\n");
 }
 
-async function parseFile(file: File): Promise<ParsedRow[]> {
+async function parseFile(file: File, fallbackYear: number, fallbackMonth: number): Promise<ParsedRow[]> {
   const ExcelJS = (await import("exceljs")).default;
   const workbook = new ExcelJS.Workbook();
   const buffer = await file.arrayBuffer();
@@ -156,17 +203,17 @@ async function parseFile(file: File): Promise<ParsedRow[]> {
     const keteranganCell = cellText(row.getCell(header.cols.keterangan).value);
     const dbcrCell = normalizeDbCr(cellText(row.getCell(header.cols.dbcr).value));
     const nilaiCell = row.getCell(header.cols.nilai).value;
-    const day = dayFromDateCell(dateCell);
+    const date = resolveDateFromCell(dateCell, fallbackYear, fallbackMonth);
     const amount = typeof nilaiCell === "number" ? nilaiCell : Number(cellText(nilaiCell).replace(/[^\d.-]/g, ""));
 
     // Skip separator/blank rows (no date, or no usable amount) — the
     // source sheets have blank spacer rows between date groups.
-    if (!day || !keteranganCell || !amount || !isFinite(amount)) continue;
+    if (!date || !keteranganCell || !amount || !isFinite(amount)) continue;
     if (!dbcrCell) continue;
 
     rows.push({
       rowIndex: r,
-      day,
+      date,
       costCentre: header.cols.costCentre ? cellText(row.getCell(header.cols.costCentre).value) : "",
       subCost: header.cols.subCost ? cellText(row.getCell(header.cols.subCost).value) : "",
       code: header.cols.code ? cellText(row.getCell(header.cols.code).value) : "",
@@ -231,7 +278,7 @@ export function JournalImportForm() {
 
     let rows: ParsedRow[];
     try {
-      rows = await parseFile(file);
+      rows = await parseFile(file, Number(targetYear), Number(targetMonth));
     } catch (e) {
       setParseError(e instanceof Error ? e.message : "Gagal membaca file.");
       return;
@@ -268,7 +315,7 @@ export function JournalImportForm() {
           setPostProgress(`Memposting... (${Math.min((i + 1) * CHUNK_SIZE, rows.length)} dari ${rows.length} baris)`);
         }
         const payloadRows = chunks[i].map((r) => ({
-          date: `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(r.day).padStart(2, "0")}`,
+          date: r.date,
           costCentre: r.costCentre || undefined,
           subCost: r.subCost || undefined,
           code: r.code || undefined,
@@ -396,9 +443,10 @@ export function JournalImportForm() {
       </div>
 
       <p className="text-[11px] text-slate-400">
-        Pilih Buku Kas dan periode tujuan, pilih file, lalu tekan Upload — jurnalnya langsung terposting, berapa pun jumlah barisnya (file besar otomatis
-        dipecah jadi beberapa bagian saat dikirim). Akun lawan diambil otomatis dari akun Transitory Buku Kas yang bersangkutan. Tanggal pada file hanya
-        dipakai tanggal-nya (hari); bulan &amp; tahun selalu memakai pilihan di atas.
+        Pilih Buku Kas, pilih file, lalu tekan Upload — jurnalnya langsung terposting, berapa pun jumlah barisnya (file besar otomatis dipecah jadi
+        beberapa bagian saat dikirim). Akun lawan diambil otomatis dari akun Transitory Buku Kas yang bersangkutan. Tanggal jurnal mengikuti tanggal asli
+        di file (tanggal, bulan, dan tahun) — Tahun/Bulan Tujuan di atas hanya dipakai kalau ada baris yang tanggalnya di file tidak lengkap (cuma angka
+        tanggal tanpa bulan/tahun).
       </p>
 
       {posting && <p className="text-xs font-semibold text-accent-700">{postProgress ?? "Memposting..."}</p>}
