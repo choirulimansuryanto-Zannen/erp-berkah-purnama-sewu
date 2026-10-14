@@ -10,6 +10,8 @@ import { JournalVoucherForm } from "@/components/finance/journal-voucher-form";
 import { JournalImportForm } from "@/components/finance/journal-import-form";
 import { JournalImportHistory } from "@/components/finance/journal-import-history";
 import { JournalEntryList, type JournalEntryRow } from "@/components/finance/journal-entry-list";
+import { BukuKasHeaderCard } from "@/components/finance/buku-kas-header-card";
+import { getBukuKasHeaderData } from "@/lib/buku-kas-header";
 import { CASH_BOOK_LABELS, TRANSITORY_ACCOUNT_CODE } from "@/lib/accounting";
 import { cn } from "@/lib/cn";
 
@@ -148,6 +150,15 @@ export default async function FinanceJournalPage({
   const touchedByEntryId = new Map(entries.map((e) => [e.id, touchedCashBooks(e)]));
   const filteredRows = activeBook ? rows.filter((r) => touchedByEntryId.get(r.id)?.has(activeBook)) : rows;
 
+  // Shown right here (not only on the separate /buku-kas page) so it's
+  // never a click away — "dimana headernya?" (2026-10-14). The period
+  // anchors on the active date filter's own start month, since that's
+  // what the user is already looking at (e.g. straight from Riwayat
+  // Import's period link).
+  const headerMonth = rangeFrom.getMonth() + 1;
+  const headerYear = rangeFrom.getFullYear();
+  const headerData = activeBook ? await getBukuKasHeaderData(activeBook, headerMonth, headerYear) : null;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -185,10 +196,12 @@ export default async function FinanceJournalPage({
             Tampilkan semua buku kas →
           </Link>
           <Link href={`/finance/journal/buku-kas/${activeBook}`} className="font-bold text-accent-700 hover:text-accent-800">
-            Lihat header Buku Kas ini →
+            Buka laporan penuh / cetak →
           </Link>
         </div>
       )}
+
+      {activeBook && headerData && <BukuKasHeaderCard data={headerData} month={headerMonth} year={headerYear} />}
 
       <JournalVoucherForm
         accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, type: a.type, cashBook: a.cashBook }))}
