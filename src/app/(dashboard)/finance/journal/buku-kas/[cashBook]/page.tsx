@@ -125,84 +125,88 @@ export default async function BukuKasHeaderPage({
         </form>
       </Card>
 
-      <Card className="overflow-hidden p-0">
+      <Card className="overflow-hidden border-2 border-slate-900 p-0">
         <div className="grid lg:grid-cols-[1.6fr_1fr]">
-          <div className="divide-y divide-slate-100">
-            <div className="grid grid-cols-[110px_1fr] items-center gap-3 px-5 py-3">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Nama Buku</span>
-              <span className="inline-flex w-fit items-center gap-2 rounded-md bg-brand-900 px-3 py-1.5 text-sm font-bold text-white">
-                {account.name}
-                <span className="rounded bg-white/15 px-1.5 py-0.5 font-mono text-xs font-semibold">{account.code}</span>
+          <div className="divide-y divide-slate-900/20">
+            <div className="grid grid-cols-[110px_1fr] items-stretch">
+              <span className="flex items-center bg-[#dbe3b4] px-3 py-2 text-xs font-bold italic text-slate-900">Nama Buku</span>
+              <span className="flex items-center gap-2 bg-[#1f3864] px-3 py-2">
+                <span className="text-sm font-bold italic text-[#ffd966]">{account.name}</span>
+                <span className="rounded bg-[#b8cce4] px-1.5 py-0.5 font-mono text-xs font-semibold text-slate-900">{account.code}</span>
               </span>
             </div>
-            <div className="grid grid-cols-[110px_1fr] items-center gap-3 px-5 py-3">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Periode</span>
-              <span className="text-sm font-bold text-rose-600">
-                {month} / {year} — {MONTH_LABELS_ID[month - 1]} {year}
+            <div className="grid grid-cols-[110px_1fr] items-stretch">
+              <span className="flex items-center bg-[#dbe3b4] px-3 py-2 text-xs font-bold italic text-slate-900">Periode</span>
+              <span className="flex items-center gap-2 bg-white px-3 py-2">
+                <span className="rounded bg-[#b8cce4] px-2 py-0.5 text-xs font-semibold text-slate-900">{month}</span>
+                <span className="rounded bg-[#b8cce4] px-2 py-0.5 text-xs font-semibold text-slate-900">{year}</span>
+                <span className="text-sm font-bold italic text-rose-600">{MONTH_LABELS_ID[month - 1]} {year}</span>
               </span>
             </div>
-            <div className="grid grid-cols-[110px_1fr] items-center gap-3 px-5 py-3">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Officer</span>
-              {officer ? (
-                <span className="text-sm font-bold italic text-rose-600">{officer.officerName}</span>
-              ) : (
-                <span className="text-xs text-slate-400">
-                  Belum diatur —{" "}
-                  <Link href="/admin/settings" className="font-semibold text-accent-700 hover:text-accent-800">
-                    atur di Admin &gt; Settings
-                  </Link>
-                </span>
-              )}
+            <div className="grid grid-cols-[110px_1fr] items-stretch">
+              <span className="flex items-center bg-[#dbe3b4] px-3 py-2 text-xs font-bold italic text-slate-900">Officer</span>
+              <span className="flex items-center bg-white px-3 py-2">
+                {officer ? (
+                  <span className="text-sm font-bold italic text-rose-600">{officer.officerName}</span>
+                ) : (
+                  <span className="text-xs text-slate-400">
+                    Belum diatur —{" "}
+                    <Link href="/admin/settings" className="font-semibold text-accent-700 hover:text-accent-800">
+                      atur di Admin &gt; Settings
+                    </Link>
+                  </span>
+                )}
+              </span>
             </div>
-            <div className="grid grid-cols-[110px_1fr] items-center gap-3 px-5 py-3">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Saldo Awal</span>
-              <span className="text-sm font-bold text-slate-800">{currency.format(saldoAwal)}</span>
+            <div className="grid grid-cols-[110px_1fr] items-stretch">
+              <span className="flex items-center bg-[#dbe3b4] px-3 py-2 text-xs font-bold italic text-slate-900">Saldo Awal</span>
+              <span className="flex items-center bg-[#f2dcdb] px-3 py-2 text-sm font-bold text-slate-900">{currency.format(saldoAwal)}</span>
             </div>
-            <div className="grid grid-cols-[110px_1fr] items-center gap-3 px-5 py-3">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Company</span>
-              <span className="text-sm font-bold text-rose-600">{COMPANY_NAME}</span>
+            <div className="grid grid-cols-[110px_1fr] items-stretch">
+              <span className="flex items-center bg-[#dbe3b4] px-3 py-2 text-xs font-bold italic text-slate-900">Company</span>
+              <span className="flex items-center bg-white px-3 py-2 text-sm font-bold text-rose-600">{COMPANY_NAME}</span>
             </div>
           </div>
 
-          <div className="border-t border-slate-100 lg:border-l lg:border-t-0">
+          <div className="border-t-2 border-slate-900 lg:border-l-2 lg:border-t-0">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-brand-800 text-white">
+                <tr className="bg-[#8fa968] text-white">
                   <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide">Balance</th>
                   <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide">1</th>
                   <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-wide">{yyyymm}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-900/10">
                 <tr>
-                  <td className="px-3 py-2 font-semibold text-slate-600">Begining</td>
-                  <td className="px-3 py-2 text-right tabular-nums">
+                  <td className="bg-[#dbe3b4] px-3 py-2 font-bold italic text-slate-900">Begining</td>
+                  <td className="bg-white px-3 py-2 text-right tabular-nums">
                     <BalanceCell value={saldoAwal} />
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
+                  <td className="bg-white px-3 py-2 text-right tabular-nums">
                     <BalanceCell value={saldoAwal} />
                   </td>
                 </tr>
                 <tr>
-                  <td className="px-3 py-2 font-semibold text-slate-600">DB</td>
-                  <td className="px-3 py-2 text-right tabular-nums">
+                  <td className="bg-[#dbe3b4] px-3 py-2 font-bold italic text-slate-900">DB</td>
+                  <td className="bg-white px-3 py-2 text-right tabular-nums">
                     <BalanceCell value={db1} />
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
+                  <td className="bg-white px-3 py-2 text-right tabular-nums">
                     <BalanceCell value={dbMonth} />
                   </td>
                 </tr>
                 <tr>
-                  <td className="px-3 py-2 font-semibold text-slate-600">CR</td>
-                  <td className="px-3 py-2 text-right tabular-nums">
+                  <td className="bg-[#dbe3b4] px-3 py-2 font-bold italic text-slate-900">CR</td>
+                  <td className="bg-white px-3 py-2 text-right tabular-nums">
                     <BalanceCell value={-cr1} />
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
+                  <td className="bg-white px-3 py-2 text-right tabular-nums">
                     <BalanceCell value={-crMonth} />
                   </td>
                 </tr>
-                <tr className="bg-emerald-50 font-bold text-emerald-800">
-                  <td className="px-3 py-2">Ending</td>
+                <tr className="bg-[#c4d79b] font-bold text-slate-900">
+                  <td className="px-3 py-2 italic">Ending</td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     <BalanceCell value={endingDay1} />
                   </td>

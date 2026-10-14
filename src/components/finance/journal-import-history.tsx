@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Trash2 } from "lucide-react";
 
 const currency = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
@@ -61,6 +62,19 @@ export function JournalImportHistory({ batches }: { batches: ImportBatchRow[] })
     return <p className="text-xs text-slate-400">Belum ada riwayat import.</p>;
   }
 
+  // The Jurnal page's default date range (last 30 days) almost never
+  // covers an import's own target period, so its Buku Kas boxes and
+  // Riwayat Jurnal silently show a much smaller count than what Riwayat
+  // Import says was posted — confusing, looks like data went missing.
+  // This link jumps straight to that book filtered to exactly the
+  // import's own month, so what you see always matches.
+  function periodRangeHref(b: ImportBatchRow): string {
+    const from = `${b.targetYear}-${String(b.targetMonth).padStart(2, "0")}-01`;
+    const lastDay = new Date(b.targetYear, b.targetMonth, 0).getDate();
+    const to = `${b.targetYear}-${String(b.targetMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+    return `/finance/journal?book=${b.cashBook}&from=${from}&to=${to}`;
+  }
+
   return (
     <div className="space-y-2">
       {error && <p className="text-xs font-semibold text-rose-600">{error}</p>}
@@ -82,7 +96,11 @@ export function JournalImportHistory({ batches }: { batches: ImportBatchRow[] })
               <tr key={b.id} className="border-t border-slate-100">
                 <td className="px-2 py-1.5 text-slate-500">{new Date(b.createdAt).toLocaleString("id-ID")}</td>
                 <td className="px-2 py-1.5 font-medium text-slate-800">{CASH_BOOK_LABELS[b.cashBook] ?? b.cashBook}</td>
-                <td className="px-2 py-1.5">{BULAN_NAMES_ID[b.targetMonth - 1]} {b.targetYear}</td>
+                <td className="px-2 py-1.5">
+                  <Link href={periodRangeHref(b)} className="font-semibold text-accent-700 hover:text-accent-800 hover:underline">
+                    {BULAN_NAMES_ID[b.targetMonth - 1]} {b.targetYear} →
+                  </Link>
+                </td>
                 <td className="max-w-[160px] truncate px-2 py-1.5 text-slate-500" title={b.fileName ?? ""}>{b.fileName ?? "—"}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{b.rowCount} baris</td>
                 <td className="px-2 py-1.5 text-slate-500">{b.createdByName}</td>
